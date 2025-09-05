@@ -1,4 +1,4 @@
-# PIneOak SEM-DIC/HR-EBSD Tools
+# PineOak SEM-DIC/HR-EBSD Tools
 
 このリポジトリには、SEM-DIC と HR-EBSD の実験で使うための Python スクリプトをまとめています。  
 データの変換、グラフ表示、EBSD パターンの処理などをサポートします。
