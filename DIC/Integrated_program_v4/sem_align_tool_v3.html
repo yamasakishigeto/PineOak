@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEM Alignment Tool v3</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .logo span { color: var(--text-dim); font-weight: 400; }
+
+  header .subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  .main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 49px);
+  }
+
+  /* ---- サイドパネル ---- */
+  .sidebar {
+    width: 300px;
+    min-width: 300px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.05); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .btn.primary:hover { background: rgba(0,212,255,0.15); }
+  .btn.success { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.06); }
+  .btn.success:hover { background: rgba(0,255,136,0.12); }
+  .btn.danger { border-color: var(--accent2); color: var(--accent2); }
+  .btn.danger:hover { background: rgba(255,107,53,0.1); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .file-item {
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .file-item:hover { border-color: var(--accent); }
+  .file-item.active { border-color: var(--accent); background: rgba(0,212,255,0.08); color: var(--accent); }
+  .file-item.ref { border-color: var(--accent2); background: rgba(255,107,53,0.06); }
+  .file-item.ref.active { background: rgba(255,107,53,0.12); color: var(--accent2); }
+
+  .badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--accent2);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .badge.cur { background: var(--accent); }
+  .badge.done { background: var(--green); color: #000; }
+
+  .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---- 数値表示 ---- */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+  }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .stat-value.changed { color: var(--accent2); }
+  .stat-value.zero { color: var(--green); }
+
+  .stat-unit {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* ---- スライダー ---- */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .slider-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 18px;
+    text-align: center;
+  }
+
+  input[type=range] {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  .slider-val {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    width: 46px;
+    text-align: right;
+  }
+
+  /* ---- 結果テーブル ---- */
+  .result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .result-table th {
+    color: var(--text-dim);
+    font-weight: 400;
+    text-align: left;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+  }
+
+  .result-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid rgba(42,45,53,0.5);
+  }
+
+  .result-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ---- キャンバスエリア ---- */
+  .canvas-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  .canvas-toolbar {
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .toolbar-item { display: flex; align-items: center; gap: 6px; }
+  .kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: var(--text);
+  }
+
+  .canvas-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    cursor: crosshair;
+  }
+
+  #mainCanvas {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+  }
+
+  .canvas-overlay {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: rgba(10,12,15,0.85);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+  }
+
+  .overlay-row { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 3px; }
+  .overlay-row:last-child { margin-bottom: 0; }
+  .overlay-key { color: var(--text-dim); }
+  .overlay-val { color: var(--accent); }
+
+  /* ---- 空状態 ---- */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-dim);
+  }
+
+  .empty-icon {
+    font-size: 48px;
+    opacity: 0.3;
+  }
+
+  .empty-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* ---- ドラッグ中のカーソル ---- */
+  .canvas-wrapper.dragging { cursor: grabbing; }
+
+  /* ---- スクロールバー ---- */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .mode-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+  }
+  .mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  .phase-corr-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 6px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    margin-bottom: 8px;
+  }
+  .phase-corr-val span { color: var(--accent); }
+
+  /* ---- パラパラビューア ---- */
+  .flipbook-panel {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(5, 7, 10, 0.96);
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    backdrop-filter: blur(12px);
+  }
+  .flipbook-panel.open { display: flex; }
+  .flipbook-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 1;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .flipbook-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .flipbook-close {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .flipbook-close:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .flipbook-canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 80px 24px 120px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  #flipCanvas {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    box-shadow: 0 0 60px rgba(0,212,255,0.08);
+  }
+
+  .flipbook-info-overlay {
+    position: absolute;
+    top: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    pointer-events: none;
+  }
+
+  .flip-info-item { display: flex; gap: 6px; }
+  .flip-info-val { color: var(--accent); }
+
+  .flipbook-controls {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .flip-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .flip-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .flip-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.10); }
+  .flip-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .flip-fps-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .flip-fps-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .flip-frame-track {
+    flex: 1;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    position: relative;
+    cursor: pointer;
+    min-width: 200px;
+  }
+
+  .flip-frame-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.05s linear;
+  }
+
+  .flip-frame-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    min-width: 80px;
+    text-align: right;
+  }
+
+  .roi-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .roi-badge span { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">SEM <span>/</span> Align <span style="font-size:10px;opacity:0.5;">v3</span></div>
+  <div class="subtitle">DIC前処理ツール — 並進補正・中心合わせ・パラパラビューア</div>
+</header>
+
+<div class="main-layout">
+
+  <!-- サイドパネル -->
+  <div class="sidebar">
+
+    <!-- ファイル読み込み -->
+    <div class="section">
+      <div class="section-title">📂 画像ファイル</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap;">
+          情報バー除去
+        </label>
+        <input type="number" id="trimBottomInput" value="128" min="0" max="512" step="8"
+               style="width:64px;background:var(--surface2);border:1px solid var(--border);
+                      color:var(--accent);font-family:var(--mono);font-size:12px;
+                      padding:4px 6px;border-radius:3px;text-align:right;">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);">px（下端）</span>
+      </div>
+      <input type="file" id="fileInput" multiple accept="image/*,.bmp" style="display:none">
+      <button class="btn primary" onclick="document.getElementById('fileInput').click()">
+        ＋ 画像を読み込む（複数可）
+      </button>
+      <div class="file-list" id="fileList">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);text-align:center;padding:12px 0;">
+          画像をロードしてください
+        </div>
+      </div>
+    </div>
+
+    <!-- オーバーレイ設定 -->
+    <div class="section">
+      <div class="section-title">🎛 オーバーレイ設定</div>
+      <div class="slider-row">
+        <span class="slider-label">透過</span>
+        <input type="range" id="alphaSlider" min="0" max="100" value="50"
+               oninput="updateAlpha(this.value)">
+        <span class="slider-val" id="alphaVal">50%</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button class="mode-btn active" id="modeBlend" onclick="setMode('blend')">ブレンド</button>
+        <button class="mode-btn" id="modeDiff" onclick="setMode('diff')">差分</button>
+        <button class="mode-btn" id="modeRef" onclick="setMode('ref')">基準のみ</button>
+        <button class="mode-btn" id="modeCur" onclick="setMode('cur')">現在のみ</button>
+      </div>
+    </div>
+
+    <!-- 手動調整 -->
+    <div class="section">
+      <div class="section-title">🖱 手動調整</div>
+      <div class="stat-grid" style="margin-bottom:12px;">
+        <div class="stat-box">
+          <div class="stat-label">Shift X</div>
+          <div class="stat-value" id="dispShiftX">0</div>
+          <div class="stat-unit">px</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Shift Y</div>
+          <div class="stat-value" id="dispShiftY">0</div>
+          <div class="stat-unit">px</div>
+        </div>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.7;">
+        現在の画像をドラッグして<br>基準画像に重ねてください
+      </div>
+      <div class="phase-corr-val" id="phaseCorrInfo">
+        Phase Corr: <span>—</span>
+      </div>
+      <button class="btn" onclick="applyPhaseCorr()" id="btnPhaseCorr" disabled>
+        ⚡ 自動推定（Phase Corr）
+      </button>
+      <button class="btn danger" onclick="resetShift()" id="btnReset" disabled>
+        ↩ リセット
+      </button>
+    </div>
+
+    <!-- 確定・保存 -->
+    <div class="section">
+      <div class="section-title">💾 確定・保存</div>
+      <button class="btn success" onclick="confirmCurrent()" id="btnConfirm" disabled>
+        ✓ このシフトで確定
+      </button>
+      <button class="btn" onclick="exportJSON()" id="btnExport" disabled>
+        📄 JSON出力（全結果）
+      </button>
+      <input type="file" id="jsonInput" accept=".json" style="display:none">
+      <button class="btn" onclick="document.getElementById('jsonInput').click()">
+        📂 JSONを読み込む（再開）
+      </button>
+      <button class="btn" onclick="exportPython()" id="btnPython" disabled>
+        🐍 Python snippetを生成
+      </button>
+      <button class="btn primary" onclick="openFlipbook()" id="btnFlipbook" disabled style="margin-top:4px;">
+        🎬 パラパラビューアを開く
+      </button>
+    </div>
+
+    <!-- 結果一覧 -->
+    <div class="section" style="flex:1;">
+      <div class="section-title">📊 補正値一覧</div>
+      <table class="result-table">
+        <thead>
+          <tr>
+            <th>ファイル</th>
+            <th>dx</th>
+            <th>dy</th>
+            <th>状態</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody">
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- キャンバスエリア -->
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <div class="toolbar-item"><span class="kbd">Drag</span> 移動</div>
+      <div class="toolbar-item"><span class="kbd">←→↑↓</span> 1px微調整</div>
+      <div class="toolbar-item"><span class="kbd">Shift+矢印</span> 10px移動</div>
+      <div class="toolbar-item"><span class="kbd">Enter</span> 確定して次へ</div>
+      <div class="toolbar-item"><span class="kbd">R</span> リセット</div>
+      <div style="flex:1;"></div>
+      <div id="toolbarInfo" style="color:var(--text-dim);">— 画像未選択 —</div>
+    </div>
+
+    <div class="canvas-wrapper" id="canvasWrapper">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🔬</div>
+        <div class="empty-text">
+          複数のSEM画像を読み込んでください<br>
+          1枚目が自動的に基準画像になります<br>
+          2枚目以降を順番に位置合わせします
+        </div>
+      </div>
+      <canvas id="mainCanvas" style="display:none;"></canvas>
+      <div class="canvas-overlay" id="canvasOverlay" style="display:none;">
+        <div class="overlay-row">
+          <span class="overlay-key">基準</span>
+          <span class="overlay-val" id="ovRef">—</span>
+        </div>
+        <div class="overlay-row">
+          <span class="overlay-key">現在</span>
+          <span class="overlay-val" id="ovCur">—</span>
+        </div>
+        <div class="overlay-row">
+          <span class="overlay-key">dx / dy</span>
+          <span class="overlay-val" id="ovShift">0 / 0 px</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- パラパラビューアパネル -->
+<div class="flipbook-panel" id="flipbookPanel">
+  <div class="flipbook-header">
+    <div class="flipbook-title">🎬 Flipbook Viewer</div>
+    <div class="roi-badge" id="roiBadge">ROI: <span>—</span></div>
+    <div style="color:var(--text-dim);font-size:10px;" id="flipHeaderInfo">全画像の共通領域のみ表示</div>
+    <button class="flipbook-close" onclick="closeFlipbook()">✕ 閉じる</button>
+  </div>
+
+  <div class="flipbook-info-overlay">
+    <div class="flip-info-item">
+      <span>フレーム</span>
+      <span class="flip-info-val" id="flipFrameLabel">—</span>
+    </div>
+    <div class="flip-info-item">
+      <span>ファイル</span>
+      <span class="flip-info-val" id="flipFileName">—</span>
+    </div>
+    <div class="flip-info-item">
+      <span>シフト</span>
+      <span class="flip-info-val" id="flipShiftLabel">—</span>
+    </div>
+  </div>
+
+  <div class="flipbook-canvas-wrap">
+    <canvas id="flipCanvas"></canvas>
+  </div>
+
+  <div class="flipbook-controls">
+    <button class="flip-btn" onclick="flipStep(-1)" id="flipPrev">◀ 前へ</button>
+    <button class="flip-btn active" onclick="toggleFlip()" id="flipPlayBtn">⏸ 停止</button>
+    <button class="flip-btn" onclick="flipStep(1)" id="flipNext">次へ ▶</button>
+
+    <div class="flip-frame-track" id="flipTrack">
+      <div class="flip-frame-fill" id="flipFill" style="width:0%"></div>
+    </div>
+    <div class="flip-frame-label" id="flipFrameCount">0 / 0</div>
+
+    <div class="flip-fps-wrap">
+      <span class="flip-fps-label">FPS</span>
+      <input type="range" id="flipFpsSlider" min="1" max="15" value="3"
+             style="width:80px;" oninput="setFlipFps(this.value)">
+      <span class="flip-fps-label" id="flipFpsVal">3</span>
+    </div>
+
+    <button class="flip-btn" onclick="toggleFlipLoop()" id="flipLoopBtn" style="margin-left:8px;">
+      🔁 ループ
+    </button>
+    <button class="flip-btn" onclick="toggleFlipPingpong()" id="flipPingpongBtn">
+      ↔ 往復
+    </button>
+
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+
+    <button class="flip-btn" onclick="exportCurrentFrameBmp()" id="flipBmpCurrent" title="現在のフレームをBMP保存">
+      💾 現在BMP
+    </button>
+    <button class="flip-btn" onclick="exportAllFramesBmp()" id="flipBmpAll" title="全フレームをBMPで一括保存">
+      📦 全フレームBMP
+    </button>
+
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+
+    <button class="flip-btn" onclick="exportGif()" id="flipGifBtn" title="アニメーションGIFを出力">
+      🎞 GIF出力
+    </button>
+  </div>
+</div>
+
+<!-- GIF進捗モーダル -->
+<div id="gifModal" style="
+  display:none; position:fixed; inset:0; z-index:2000;
+  background:rgba(5,7,10,0.88); backdrop-filter:blur(8px);
+  align-items:center; justify-content:center;
+">
+  <div style="
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:28px 36px; min-width:320px;
+    font-family:var(--mono); text-align:center;
+  ">
+    <div style="font-size:13px;color:var(--accent);margin-bottom:16px;letter-spacing:0.08em;">
+      🎞 GIFエンコード中...
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;height:6px;overflow:hidden;margin-bottom:12px;">
+      <div id="gifProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.2s;border-radius:4px;"></div>
+    </div>
+    <div id="gifProgressLabel" style="font-size:11px;color:var(--text-dim);">準備中...</div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text-dim);">大きな画像は時間がかかる場合があります</div>
+  </div>
+</div>
+
+<script>
+// ===================================================
+// State
+// ===================================================
+const state = {
+  files: [],          // {name, img, offscreenCanvas}
+  refIdx: 0,
+  curIdx: -1,
+  shifts: {},         // {filename: {dx, dy, confirmed}}
+  trimBottom: 128,    // 情報バートリミング量 [px]
+  mode: 'blend',
+  alpha: 0.5,
+  dragging: false,
+  dragStart: null,
+  shiftAtDragStart: null,
+  currentShift: {dx: 0, dy: 0},
+  phaseCorrShifts: {}, // 自動推定値キャッシュ
+};
+
+// ===================================================
+// ファイル読み込み
+// ===================================================
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  // ファイル名に含まれる数値で自然順ソート（例: 0MPa < 700MPa < 1000MPa）
+  const files = [...e.target.files].sort((a,b) => {
+    const numA = parseFloat(a.name.match(/[\d.]+/) || [Infinity]);
+    const numB = parseFloat(b.name.match(/[\d.]+/) || [Infinity]);
+    if (numA !== numB) return numA - numB;
+    return a.name.localeCompare(b.name);
+  });
+  if (!files.length) return;
+
+  // trim_bottom を入力欄から取得
+  state.trimBottom = parseInt(document.getElementById('trimBottomInput').value) || 0;
+
+  showStatus('読み込み中...', 'loading');
+
+  state.files = [];
+  state.shifts = {};
+  state.phaseCorrShifts = {};
+
+  let loadedCount = 0;
+  for (const f of files) {
+    try {
+      const img = await loadImage(f);
+      const oc = img._canvas || (() => {
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        return c;
+      })();
+
+      // trim_bottomでトリミング（下端を除去）
+      const trimH = Math.max(0, oc.height - state.trimBottom);
+      const trimmed = document.createElement('canvas');
+      trimmed.width = oc.width;
+      trimmed.height = trimH;
+      trimmed.getContext('2d').drawImage(oc, 0, 0, oc.width, trimH, 0, 0, oc.width, trimH);
+
+      state.files.push({name: f.name, img, offscreenCanvas: trimmed});
+      state.shifts[f.name] = {dx: 0, dy: 0, confirmed: false};
+      loadedCount++;
+      showStatus(`読み込み中... ${loadedCount}/${files.length}`, 'loading');
+    } catch(err) {
+      console.error('読み込み失敗:', f.name, err);
+      showStatus(`エラー: ${f.name} を読み込めませんでした`, 'error');
+    }
+  }
+
+  if (state.files.length === 0) {
+    showStatus('画像を読み込めませんでした。PNG/JPG/TIFFを試してください。', 'error');
+    e.target.value = '';
+    return;
+  }
+
+  state.refIdx = 0;
+  state.curIdx = state.files.length > 1 ? 1 : -1;
+
+  renderFileList();
+  updateResultTable();
+  updateButtons();
+
+  if (state.curIdx >= 0) {
+    selectFile(state.curIdx);
+  }
+
+  showStatus(`${loadedCount}枚読み込み完了`, 'ok');
+  e.target.value = '';
+});
+
+function loadImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+
+    // まずImageBitmapで試す（Chrome BMPサポートが最も安定）
+    createImageBitmap(new Blob([file], {type: file.type || 'image/bmp'}))
+      .then(bitmap => {
+        URL.revokeObjectURL(url);
+        const oc = document.createElement('canvas');
+        oc.width = bitmap.width; oc.height = bitmap.height;
+        oc.getContext('2d').drawImage(bitmap, 0, 0);
+        bitmap.close();
+        // offscreenCanvasとして返すためdummy imgを作成
+        const img = new Image();
+        img.width = oc.width; img.height = oc.height;
+        img._canvas = oc; // canvasを直接保持
+        res(img);
+      })
+      .catch(() => {
+        // フォールバック1: <img>タグ経由
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); res(img); };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          // フォールバック2: FileReader + DataURL
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const img2 = new Image();
+            img2.onload = () => res(img2);
+            img2.onerror = () => rej(new Error(`デコード失敗: ${file.name}`));
+            img2.src = ev.target.result;
+          };
+          reader.onerror = () => rej(new Error(`読み込み失敗: ${file.name}`));
+          reader.readAsDataURL(file);
+        };
+        img.src = url;
+      });
+  });
+}
+
+function showStatus(msg, type) {
+  let el = document.getElementById('statusBar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'statusBar';
+    el.style.cssText = `
+      position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+      padding:8px 18px; border-radius:6px; font-family:var(--mono);
+      font-size:12px; z-index:9999; transition:opacity 0.3s;
+      border:1px solid; pointer-events:none;
+    `;
+    document.body.appendChild(el);
+  }
+  const colors = {
+    loading: ['#00d4ff','rgba(0,212,255,0.12)'],
+    ok:      ['#00ff88','rgba(0,255,136,0.12)'],
+    error:   ['#ff6b35','rgba(255,107,53,0.15)'],
+  };
+  const [border, bg] = colors[type] || colors.ok;
+  el.style.color = border;
+  el.style.borderColor = border;
+  el.style.background = bg;
+  el.style.opacity = '1';
+  el.textContent = msg;
+  if (type !== 'loading') {
+    setTimeout(() => { el.style.opacity = '0'; }, 3000);
+  }
+}
+
+// ===================================================
+// ファイルリスト描画
+// ===================================================
+function renderFileList() {
+  const el = document.getElementById('fileList');
+  if (!state.files.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);text-align:center;padding:12px 0;">画像をロードしてください</div>';
+    return;
+  }
+
+  el.innerHTML = state.files.map((f, i) => {
+    const isRef = i === state.refIdx;
+    const isCur = i === state.curIdx;
+    const sh = state.shifts[f.name];
+    let badge = '';
+    if (isRef) badge = '<span class="badge">REF</span>';
+    else if (sh.confirmed) badge = '<span class="badge done">✓</span>';
+    else if (isCur) badge = '<span class="badge cur">編集中</span>';
+
+    const cls = [
+      'file-item',
+      isRef ? 'ref' : '',
+      isCur ? 'active' : '',
+    ].join(' ');
+
+    return `<div class="${cls}" onclick="selectFile(${i})">
+      ${badge}
+      <span class="file-name">${f.name}</span>
+    </div>`;
+  }).join('');
+}
+
+function selectFile(idx) {
+  if (idx === state.refIdx) return;
+  state.curIdx = idx;
+  const sh = state.shifts[state.files[idx].name];
+  state.currentShift = {dx: sh.dx, dy: sh.dy};
+  renderFileList();
+  updateButtons();
+  runPhaseCorr(idx);
+  render();
+}
+
+// ===================================================
+// Phase Correlation（グレースケール変換して計算）
+// ===================================================
+function getGrayData(oc) {
+  const ctx = oc.getContext('2d');
+  const imageData = ctx.getImageData(0, 0, oc.width, oc.height);
+  const data = imageData.data;
+  const gray = new Float64Array(oc.width * oc.height);
+  for (let i = 0; i < gray.length; i++) {
+    gray[i] = 0.299*data[i*4] + 0.587*data[i*4+1] + 0.114*data[i*4+2];
+  }
+  return {gray, w: oc.width, h: oc.height};
+}
+
+// 簡易Phase Correlation（FFTなし、小さめのROIで相互相関）
+function phaseCorrelation(ref, cur) {
+  const W = ref.w, H = ref.h;
+  // 中央512x512のROIで計算（高速化）
+  const roiW = Math.min(512, W);
+  const roiH = Math.min(512, H);
+  const x0r = Math.floor((W - roiW)/2);
+  const y0r = Math.floor((H - roiH)/2);
+
+  const MAXSHIFT = 60;
+  let bestVal = -Infinity, bestDx = 0, bestDy = 0;
+
+  // ダウンサンプリング（4倍）で粗探索
+  const DS = 4;
+  const rW = Math.floor(roiW/DS), rH = Math.floor(roiH/DS);
+
+  function getROI(imgData, x0, y0, w, h, ds) {
+    const arr = new Float64Array(Math.floor(w/ds) * Math.floor(h/ds));
+    for (let ry = 0; ry < Math.floor(h/ds); ry++) {
+      for (let rx = 0; rx < Math.floor(w/ds); rx++) {
+        arr[ry*Math.floor(w/ds)+rx] = imgData.gray[(y0+ry*ds)*imgData.w + (x0+rx*ds)];
+      }
+    }
+    return arr;
+  }
+
+  const refROI = getROI(ref, x0r, y0r, roiW, roiH, DS);
+
+  const mDx = Math.floor(MAXSHIFT/DS);
+  const mDy = Math.floor(MAXSHIFT/DS);
+
+  for (let dy = -mDy; dy <= mDy; dy++) {
+    for (let dx = -mDx; dx <= mDx; dx++) {
+      const x0c = x0r + dx*DS;
+      const y0c = y0r + dy*DS;
+      if (x0c < 0 || y0c < 0 || x0c+roiW > cur.w || y0c+roiH > cur.h) continue;
+      const curROI = getROI(cur, x0c, y0c, roiW, roiH, DS);
+
+      // NCC
+      let sumFG = 0, sumF2 = 0, sumG2 = 0;
+      const n = refROI.length;
+      let mf = 0, mg = 0;
+      for (let i = 0; i < n; i++) { mf += refROI[i]; mg += curROI[i]; }
+      mf /= n; mg /= n;
+      for (let i = 0; i < n; i++) {
+        const f = refROI[i]-mf, g = curROI[i]-mg;
+        sumFG += f*g; sumF2 += f*f; sumG2 += g*g;
+      }
+      const ncc = sumFG / (Math.sqrt(sumF2*sumG2) + 1e-10);
+      if (ncc > bestVal) { bestVal = ncc; bestDx = dx*DS; bestDy = dy*DS; }
+    }
+  }
+
+  // 精密化（±DS範囲を1px刻みで再探索）
+  let bestVal2 = -Infinity, bestDx2 = bestDx, bestDy2 = bestDy;
+  for (let dy = bestDy-DS; dy <= bestDy+DS; dy++) {
+    for (let dx = bestDx-DS; dx <= bestDx+DS; dx++) {
+      const x0c = x0r + dx;
+      const y0c = y0r + dy;
+      if (x0c < 0 || y0c < 0 || x0c+roiW > cur.w || y0c+roiH > cur.h) continue;
+      const curROI = getROI(cur, x0c, y0c, roiW, roiH, 1);
+      const refROI1 = getROI(ref, x0r, y0r, roiW, roiH, 1);
+      let sumFG = 0, sumF2 = 0, sumG2 = 0;
+      const n = refROI1.length;
+      let mf = 0, mg = 0;
+      for (let i = 0; i < n; i++) { mf += refROI1[i]; mg += curROI[i]; }
+      mf /= n; mg /= n;
+      for (let i = 0; i < n; i++) {
+        const f = refROI1[i]-mf, g = curROI[i]-mg;
+        sumFG += f*g; sumF2 += f*f; sumG2 += g*g;
+      }
+      const ncc = sumFG / (Math.sqrt(sumF2*sumG2) + 1e-10);
+      if (ncc > bestVal2) { bestVal2 = ncc; bestDx2 = dx; bestDy2 = dy; }
+    }
+  }
+
+  return {dx: bestDx2, dy: bestDy2, ncc: bestVal2};
+}
+
+function runPhaseCorr(idx) {
+  if (idx <= 0 || idx >= state.files.length) return;
+  const key = state.files[idx].name;
+  if (state.phaseCorrShifts[key] !== undefined) {
+    updatePhaseCorrInfo(state.phaseCorrShifts[key]);
+    return;
+  }
+  const ref = getGrayData(state.files[state.refIdx].offscreenCanvas);
+  const cur = getGrayData(state.files[idx].offscreenCanvas);
+  // 非同期で実行（UIブロックを避ける）
+  setTimeout(() => {
+    const result = phaseCorrelation(ref, cur);
+    state.phaseCorrShifts[key] = result;
+    if (state.curIdx === idx) {
+      updatePhaseCorrInfo(result);
+      document.getElementById('btnPhaseCorr').disabled = false;
+    }
+  }, 10);
+}
+
+function updatePhaseCorrInfo(result) {
+  const el = document.getElementById('phaseCorrInfo');
+  el.innerHTML = `Phase Corr: <span>dx=${result.dx}, dy=${result.dy} (NCC=${result.ncc.toFixed(3)})</span>`;
+  document.getElementById('btnPhaseCorr').disabled = false;
+}
+
+function applyPhaseCorr() {
+  if (state.curIdx < 0) return;
+  const key = state.files[state.curIdx].name;
+  const res = state.phaseCorrShifts[key];
+  if (!res) return;
+  state.currentShift = {dx: res.dx, dy: res.dy};
+  updateShiftDisplay();
+  render();
+}
+
+// ===================================================
+// レンダリング
+// ===================================================
+function render() {
+  const canvas = document.getElementById('mainCanvas');
+  const empty = document.getElementById('emptyState');
+  const overlay = document.getElementById('canvasOverlay');
+
+  if (state.files.length < 2 || state.curIdx < 0) {
+    canvas.style.display = 'none';
+    empty.style.display = 'flex';
+    overlay.style.display = 'none';
+    return;
+  }
+
+  canvas.style.display = 'block';
+  empty.style.display = 'none';
+  overlay.style.display = 'block';
+
+  const ref = state.files[state.refIdx];
+  const cur = state.files[state.curIdx];
+  const W = ref.offscreenCanvas.width;
+  const H = ref.offscreenCanvas.height;
+
+  canvas.width = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const {dx, dy} = state.currentShift;
+
+  if (state.mode === 'ref') {
+    ctx.drawImage(ref.offscreenCanvas, 0, 0);
+  } else if (state.mode === 'cur') {
+    ctx.drawImage(cur.offscreenCanvas, dx, dy);
+  } else if (state.mode === 'blend') {
+    ctx.drawImage(ref.offscreenCanvas, 0, 0);
+    ctx.globalAlpha = state.alpha;
+    ctx.drawImage(cur.offscreenCanvas, dx, dy);
+    ctx.globalAlpha = 1.0;
+  } else if (state.mode === 'diff') {
+    // 差分表示
+    const refCtx = ref.offscreenCanvas.getContext('2d');
+    const curCtx = cur.offscreenCanvas.getContext('2d');
+    const refData = refCtx.getImageData(0, 0, W, H);
+    // 現在画像をシフトした状態で取得
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = W; tmpCanvas.height = H;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    tmpCtx.drawImage(cur.offscreenCanvas, dx, dy);
+    const curData = tmpCtx.getImageData(0, 0, W, H);
+    const outData = ctx.createImageData(W, H);
+    for (let i = 0; i < outData.data.length; i += 4) {
+      const diff = Math.abs(refData.data[i] - curData.data[i]);
+      outData.data[i]   = diff;
+      outData.data[i+1] = diff * 0.3;
+      outData.data[i+2] = 255 - diff;
+      outData.data[i+3] = 255;
+    }
+    ctx.putImageData(outData, 0, 0);
+  }
+
+  // オーバーレイ更新
+  document.getElementById('ovRef').textContent = ref.name;
+  document.getElementById('ovCur').textContent = cur.name;
+  document.getElementById('ovShift').textContent = `${dx >= 0 ? '+' : ''}${dx} / ${dy >= 0 ? '+' : ''}${dy} px`;
+
+  updateShiftDisplay();
+  updateToolbarInfo();
+}
+
+// ===================================================
+// ドラッグ操作
+// ===================================================
+const wrapper = document.getElementById('canvasWrapper');
+const canvas = document.getElementById('mainCanvas');
+
+wrapper.addEventListener('mousedown', (e) => {
+  if (state.curIdx < 0) return;
+  state.dragging = true;
+  state.dragStart = {x: e.clientX, y: e.clientY};
+  state.shiftAtDragStart = {...state.currentShift};
+  wrapper.classList.add('dragging');
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!state.dragging) return;
+  const ddx = Math.round(e.clientX - state.dragStart.x);
+  const ddy = Math.round(e.clientY - state.dragStart.y);
+  state.currentShift = {
+    dx: state.shiftAtDragStart.dx + ddx,
+    dy: state.shiftAtDragStart.dy + ddy,
+  };
+  render();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!state.dragging) return;
+  state.dragging = false;
+  wrapper.classList.remove('dragging');
+});
+
+// キーボード操作
+window.addEventListener('keydown', (e) => {
+  // ビューアが開いている場合はEscのみ処理
+  if (document.getElementById('flipbookPanel').style.display === 'flex') {
+    if (e.key === 'Escape') closeFlipbook();
+    return;
+  }
+  if (state.curIdx < 0) return;
+  const step = e.shiftKey ? 10 : 1;
+  let handled = true;
+  switch(e.key) {
+    case 'ArrowLeft':  state.currentShift.dx -= step; break;
+    case 'ArrowRight': state.currentShift.dx += step; break;
+    case 'ArrowUp':    state.currentShift.dy -= step; break;
+    case 'ArrowDown':  state.currentShift.dy += step; break;
+    case 'Enter':      confirmCurrent(); return;
+    case 'r': case 'R': resetShift(); return;
+    default: handled = false;
+  }
+  if (handled) { e.preventDefault(); render(); }
+});
+
+// ===================================================
+// UI更新
+// ===================================================
+function updateShiftDisplay() {
+  const {dx, dy} = state.currentShift;
+  const xEl = document.getElementById('dispShiftX');
+  const yEl = document.getElementById('dispShiftY');
+  xEl.textContent = dx;
+  yEl.textContent = dy;
+  xEl.className = 'stat-value' + (dx !== 0 ? ' changed' : ' zero');
+  yEl.className = 'stat-value' + (dy !== 0 ? ' changed' : ' zero');
+}
+
+function updateToolbarInfo() {
+  if (state.curIdx < 0) return;
+  const cur = state.files[state.curIdx];
+  const total = state.files.length - 1;
+  const done = Object.values(state.shifts).filter(s => s.confirmed).length;
+  document.getElementById('toolbarInfo').textContent =
+    `${cur.name}  |  完了 ${done}/${total}枚`;
+}
+
+function updateButtons() {
+  const hasFile = state.curIdx >= 0 && state.files.length >= 2;
+  document.getElementById('btnReset').disabled = !hasFile;
+  document.getElementById('btnConfirm').disabled = !hasFile;
+  const anyConfirmed = Object.values(state.shifts).some(s => s.confirmed);
+  document.getElementById('btnExport').disabled = !anyConfirmed;
+  document.getElementById('btnPython').disabled = !anyConfirmed;
+  document.getElementById('btnPhaseCorr').disabled = !hasFile;
+  // パラパラビューア：2枚以上確定済みで有効
+  const confirmedCount = Object.values(state.shifts).filter(s => s.confirmed).length;
+  document.getElementById('btnFlipbook').disabled = confirmedCount < 1 || state.files.length < 2;
+}
+
+// ===================================================
+// 有効ROI計算（全確定シフトの共通領域）
+// ===================================================
+function computeValidROI() {
+  const ref = state.files[state.refIdx];
+  const W = ref.offscreenCanvas.width;
+  const H = ref.offscreenCanvas.height;
+
+  // 全ファイル（基準含む）のシフト値を収集
+  const allShifts = [{dx: 0, dy: 0}]; // 基準画像
+  for (const [name, sh] of Object.entries(state.shifts)) {
+    if (sh.confirmed) allShifts.push({dx: sh.dx, dy: sh.dy});
+  }
+
+  // 共通領域 = 最大シフト量で決まる
+  const maxDxPos = Math.max(0, ...allShifts.map(s => s.dx));
+  const maxDxNeg = Math.max(0, ...allShifts.map(s => -s.dx));
+  const maxDyPos = Math.max(0, ...allShifts.map(s => s.dy));
+  const maxDyNeg = Math.max(0, ...allShifts.map(s => -s.dy));
+
+  const x0 = maxDxPos;
+  const y0 = maxDyPos;
+  const x1 = W - maxDxNeg;
+  const y1 = H - maxDyNeg;
+
+  return {x0, y0, x1, y1, w: x1 - x0, h: y1 - y0};
+}
+
+// ===================================================
+// パラパラビューア
+// ===================================================
+const flipState = {
+  frames: [],       // {name, canvas} — ROIトリミング済みキャンバス
+  frameIdx: 0,
+  playing: true,
+  fps: 3,
+  loop: true,
+  pingpong: false,
+  pingpongDir: 1,
+  timer: null,
+};
+
+function buildFlipFrames() {
+  const roi = computeValidROI();
+  if (roi.w <= 0 || roi.h <= 0) {
+    showStatus('有効ROIが計算できません（シフト値を確認してください）', 'error');
+    return false;
+  }
+
+  flipState.frames = [];
+
+  // 基準画像を先頭に追加
+  const refFile = state.files[state.refIdx];
+  flipState.frames.push(makeROICanvas(refFile, 0, 0, roi));
+
+  // 確定済みファイルを順番に追加（ファイルリスト順）
+  for (const f of state.files) {
+    if (f === refFile) continue;
+    const sh = state.shifts[f.name];
+    if (!sh || !sh.confirmed) continue;
+    flipState.frames.push(makeROICanvas(f, sh.dx, sh.dy, roi));
+  }
+
+  // ROIバッジ更新
+  document.getElementById('roiBadge').innerHTML =
+    `ROI: <span>${roi.w} × ${roi.h} px</span>`;
+  document.getElementById('flipHeaderInfo').textContent =
+    `${flipState.frames.length}フレーム — 共通領域のみ表示`;
+
+  return true;
+}
+
+function makeROICanvas(fileObj, dx, dy, roi) {
+  const c = document.createElement('canvas');
+  c.width = roi.w;
+  c.height = roi.h;
+  const ctx = c.getContext('2d');
+  // シフト補正してROIを切り出す
+  ctx.drawImage(
+    fileObj.offscreenCanvas,
+    roi.x0 - dx, roi.y0 - dy,   // ソース左上（シフト補正）
+    roi.w, roi.h,                 // ソースサイズ
+    0, 0,                         // 出力左上
+    roi.w, roi.h                  // 出力サイズ
+  );
+  return {name: fileObj.name, canvas: c, dx, dy};
+}
+
+function openFlipbook() {
+  if (!buildFlipFrames()) return;
+  flipState.frameIdx = 0;
+  flipState.playing = true;
+  flipState.pingpongDir = 1;
+
+  const panel = document.getElementById('flipbookPanel');
+  panel.style.display = 'flex';  // classList.addより確実
+  document.getElementById('flipPlayBtn').textContent = '⏸ 停止';
+
+  drawFlipFrame();
+  startFlipTimer();
+}
+
+function closeFlipbook() {
+  stopFlipTimer();
+  const panel = document.getElementById('flipbookPanel');
+  panel.style.display = 'none';  // classList.removeより確実
+}
+
+function drawFlipFrame() {
+  const frames = flipState.frames;
+  if (!frames.length) return;
+  const idx = flipState.frameIdx;
+  const frame = frames[idx];
+
+  const canvas = document.getElementById('flipCanvas');
+  canvas.width = frame.canvas.width;
+  canvas.height = frame.canvas.height;
+  canvas.getContext('2d').drawImage(frame.canvas, 0, 0);
+
+  // ラベル更新
+  document.getElementById('flipFrameLabel').textContent = `${idx + 1} / ${frames.length}`;
+  document.getElementById('flipFileName').textContent = frame.name;
+  document.getElementById('flipShiftLabel').textContent =
+    `dx=${frame.dx >= 0 ? '+' : ''}${frame.dx}, dy=${frame.dy >= 0 ? '+' : ''}${frame.dy} px`;
+  document.getElementById('flipFrameCount').textContent = `${idx + 1} / ${frames.length}`;
+  const pct = frames.length > 1 ? (idx / (frames.length - 1)) * 100 : 0;
+  document.getElementById('flipFill').style.width = pct + '%';
+}
+
+function startFlipTimer() {
+  stopFlipTimer();
+  flipState.timer = setInterval(() => {
+    advanceFlipFrame();
+  }, 1000 / flipState.fps);
+}
+
+function stopFlipTimer() {
+  if (flipState.timer) { clearInterval(flipState.timer); flipState.timer = null; }
+}
+
+function advanceFlipFrame() {
+  const n = flipState.frames.length;
+  if (n === 0) return;
+
+  if (flipState.pingpong) {
+    flipState.frameIdx += flipState.pingpongDir;
+    if (flipState.frameIdx >= n - 1) { flipState.pingpongDir = -1; flipState.frameIdx = n - 1; }
+    else if (flipState.frameIdx <= 0) { flipState.pingpongDir = 1; flipState.frameIdx = 0; }
+  } else {
+    flipState.frameIdx++;
+    if (flipState.frameIdx >= n) {
+      flipState.frameIdx = flipState.loop ? 0 : n - 1;
+      if (!flipState.loop) { stopFlipTimer(); flipState.playing = false; document.getElementById('flipPlayBtn').textContent = '▶ 再生'; }
+    }
+  }
+  drawFlipFrame();
+}
+
+function flipStep(dir) {
+  stopFlipTimer();
+  flipState.playing = false;
+  document.getElementById('flipPlayBtn').textContent = '▶ 再生';
+  const n = flipState.frames.length;
+  flipState.frameIdx = (flipState.frameIdx + dir + n) % n;
+  drawFlipFrame();
+}
+
+function toggleFlip() {
+  flipState.playing = !flipState.playing;
+  const btn = document.getElementById('flipPlayBtn');
+  if (flipState.playing) {
+    btn.textContent = '⏸ 停止';
+    startFlipTimer();
+  } else {
+    btn.textContent = '▶ 再生';
+    stopFlipTimer();
+  }
+}
+
+function setFlipFps(val) {
+  flipState.fps = parseInt(val);
+  document.getElementById('flipFpsVal').textContent = val;
+  if (flipState.playing) startFlipTimer();
+}
+
+function toggleFlipLoop() {
+  flipState.loop = !flipState.loop;
+  document.getElementById('flipLoopBtn').classList.toggle('active', flipState.loop);
+}
+
+function toggleFlipPingpong() {
+  flipState.pingpong = !flipState.pingpong;
+  flipState.pingpongDir = 1;
+  document.getElementById('flipPingpongBtn').classList.toggle('active', flipState.pingpong);
+}
+
+// フレームトラッククリックでシーク
+document.getElementById('flipTrack').addEventListener('click', (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const ratio = (e.clientX - rect.left) / rect.width;
+  const n = flipState.frames.length;
+  flipState.frameIdx = Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1))));
+  drawFlipFrame();
+});
+
+// ===================================================
+// BMP保存（CanvasをBMPバイナリに変換）
+// ===================================================
+function canvasToBmpBlob(canvas) {
+  const w = canvas.width, h = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const pixels = imgData.data; // RGBA
+
+  // BMP は行を下から上に格納、4バイトアライメント
+  const rowBytes = w * 3;
+  const pad = (4 - (rowBytes % 4)) % 4;
+  const rowPadded = rowBytes + pad;
+  const pixelDataSize = rowPadded * h;
+  const fileSize = 54 + pixelDataSize;
+
+  const buf = new ArrayBuffer(fileSize);
+  const view = new DataView(buf);
+
+  // ---- BMPファイルヘッダー (14 bytes) ----
+  view.setUint8(0, 0x42); view.setUint8(1, 0x4D); // 'BM'
+  view.setUint32(2, fileSize, true);
+  view.setUint32(6, 0, true);        // reserved
+  view.setUint32(10, 54, true);      // pixel data offset
+
+  // ---- DIBヘッダー BITMAPINFOHEADER (40 bytes) ----
+  view.setUint32(14, 40, true);       // header size
+  view.setInt32(18, w, true);
+  view.setInt32(22, -h, true);        // 負値 = トップダウン
+  view.setUint16(26, 1, true);        // color planes
+  view.setUint16(28, 24, true);       // bits per pixel (24bit RGB)
+  view.setUint32(30, 0, true);        // compression (none)
+  view.setUint32(34, pixelDataSize, true);
+  view.setInt32(38, 2835, true);      // X pixels/meter (~72dpi)
+  view.setInt32(42, 2835, true);      // Y pixels/meter
+  view.setUint32(46, 0, true);        // colors in table
+  view.setUint32(50, 0, true);        // important colors
+
+  // ---- ピクセルデータ (BGR順) ----
+  let offset = 54;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      view.setUint8(offset++, pixels[i + 2]); // B
+      view.setUint8(offset++, pixels[i + 1]); // G
+      view.setUint8(offset++, pixels[i + 0]); // R
+    }
+    // パディング
+    for (let p = 0; p < pad; p++) view.setUint8(offset++, 0);
+  }
+
+  return new Blob([buf], { type: 'image/bmp' });
+}
+
+function downloadBmp(canvas, filename) {
+  const blob = canvasToBmpBlob(canvas);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportCurrentFrameBmp() {
+  const frame = flipState.frames[flipState.frameIdx];
+  if (!frame) return;
+  const base = frame.name.replace(/\.[^.]+$/, '');
+  downloadBmp(frame.canvas, `aligned_${base}.bmp`);
+  showStatus(`保存: aligned_${base}.bmp`, 'ok');
+}
+
+async function exportAllFramesBmp() {
+  const frames = flipState.frames;
+  if (!frames.length) return;
+  showStatus(`0 / ${frames.length} 枚を保存中...`, 'loading');
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    const base = frame.name.replace(/\.[^.]+$/, '');
+    downloadBmp(frame.canvas, `aligned_${base}.bmp`);
+    showStatus(`${i + 1} / ${frames.length} 枚を保存中...`, 'loading');
+    // ブラウザがダウンロードを処理する時間を確保
+    await new Promise(r => setTimeout(r, 200));
+  }
+  showStatus(`全${frames.length}枚の保存完了`, 'ok');
+}
+
+
+function updateResultTable() {
+  const tbody = document.getElementById('resultBody');
+  const rows = state.files.slice(1).map(f => {
+    const sh = state.shifts[f.name];
+    const confirmed = sh.confirmed;
+    return `<tr>
+      <td style="color:${confirmed ? 'var(--green)' : 'var(--text-dim)'};">${f.name.slice(0,14)}…</td>
+      <td style="color:var(--accent);">${confirmed ? sh.dx : '—'}</td>
+      <td style="color:var(--accent);">${confirmed ? sh.dy : '—'}</td>
+      <td>${confirmed ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--text-dim)">○</span>'}</td>
+    </tr>`;
+  });
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="4" style="color:var(--text-dim);text-align:center;padding:8px;">なし</td></tr>';
+}
+
+// ===================================================
+// 操作
+// ===================================================
+function setMode(mode) {
+  state.mode = mode;
+  ['Blend','Diff','Ref','Cur'].forEach(m => {
+    document.getElementById('mode'+m).classList.toggle('active', mode === m.toLowerCase());
+  });
+  render();
+}
+
+function updateAlpha(val) {
+  state.alpha = val / 100;
+  document.getElementById('alphaVal').textContent = val + '%';
+  render();
+}
+
+function resetShift() {
+  state.currentShift = {dx: 0, dy: 0};
+  render();
+}
+
+function confirmCurrent() {
+  if (state.curIdx < 0) return;
+  const cur = state.files[state.curIdx];
+  state.shifts[cur.name] = {
+    dx: state.currentShift.dx,
+    dy: state.currentShift.dy,
+    confirmed: true,
+  };
+  updateResultTable();
+
+  // 次のファイルへ
+  let next = state.curIdx + 1;
+  while (next < state.files.length && next === state.refIdx) next++;
+  if (next < state.files.length) {
+    selectFile(next);
+  } else {
+    updateButtons();
+    document.getElementById('toolbarInfo').textContent = '全ファイル完了！JSONを出力してください';
+  }
+}
+
+// ===================================================
+// JSON読み込み（前回結果の再開）
+// ===================================================
+document.getElementById('jsonInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!data.shifts) throw new Error('shiftsキーがありません');
+
+      // 画像がまだ読み込まれていない場合は警告
+      if (state.files.length === 0) {
+        showStatus('先に画像を読み込んでください', 'error');
+        e.target.value = '';
+        return;
+      }
+
+      // trim_bottomを復元
+      if (data.trim_bottom !== undefined) {
+        state.trimBottom = data.trim_bottom;
+        document.getElementById('trimBottomInput').value = data.trim_bottom;
+      }
+
+      // シフト値を復元
+      let restored = 0;
+      for (const [name, val] of Object.entries(data.shifts)) {
+        if (name in state.shifts) {
+          state.shifts[name] = {dx: val.dx, dy: val.dy, confirmed: true};
+          restored++;
+        }
+      }
+
+      // 基準画像をJSONに合わせる
+      if (data.reference) {
+        const refIdx = state.files.findIndex(f => f.name === data.reference);
+        if (refIdx >= 0) state.refIdx = refIdx;
+      }
+
+      // 未確定の最初のファイルを選択
+      const nextUnconfirmed = state.files.findIndex(
+        (f, i) => i !== state.refIdx && !state.shifts[f.name]?.confirmed
+      );
+      state.curIdx = nextUnconfirmed >= 0 ? nextUnconfirmed : 1;
+      if (state.curIdx < state.files.length) {
+        const sh = state.shifts[state.files[state.curIdx].name];
+        state.currentShift = {dx: sh?.dx || 0, dy: sh?.dy || 0};
+      }
+
+      renderFileList();
+      updateResultTable();
+      updateButtons();
+      render();
+      showStatus(`${restored}件のシフト値を復元しました`, 'ok');
+    } catch(err) {
+      showStatus(`JSON読み込み失敗: ${err.message}`, 'error');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ===================================================
+// 出力
+// ===================================================
+function getConfirmedShifts() {
+  const result = {};
+  for (const [name, sh] of Object.entries(state.shifts)) {
+    if (sh.confirmed) result[name] = {dx: sh.dx, dy: sh.dy};
+  }
+  // 基準画像も追加（dx=0, dy=0）
+  if (state.files.length > 0) {
+    result[state.files[state.refIdx].name] = {dx: 0, dy: 0};
+  }
+  return result;
+}
+
+function exportJSON() {
+  const data = {
+    reference: state.files[state.refIdx]?.name,
+    trim_bottom: state.trimBottom,
+    shifts: getConfirmedShifts(),
+    generated: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = 'sem_alignment.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportPython() {
+  const shifts = getConfirmedShifts();
+
+  // 有効ROI計算：全シフトの最大絶対値から共通領域を算出
+  const dxVals = Object.values(shifts).map(s => s.dx);
+  const dyVals = Object.values(shifts).map(s => s.dy);
+  const maxDx = Math.max(...dxVals.map(Math.abs));
+  const maxDy = Math.max(...dyVals.map(Math.abs));
+
+  const refFile = state.files[state.refIdx];
+  const W = refFile?.offscreenCanvas.width  || 2560;
+  const H = refFile?.offscreenCanvas.height || 1920;
+
+  const roi_x0 = maxDx;
+  const roi_y0 = maxDy;
+  const roi_x1 = W - maxDx;
+  const roi_y1 = H - maxDy;
+
+  const lines = [
+    '# SEM Alignment Tool — 自動生成スクリプト',
+    '# dic_sem_strain_v2.py と組み合わせて使用してください',
+    `# 生成日時: ${new Date().toISOString()}`,
+    '',
+    'import numpy as np',
+    'import cv2',
+    '',
+    '# -----------------------------------------------',
+    '# 推定シフト量（基準画像に対する各画像の並進量）',
+    '# キー: ファイル名, 値: (dx, dy) [px]',
+    '# -----------------------------------------------',
+    'SEM_SHIFTS = {',
+    ...Object.entries(shifts).map(([k,v]) => `    "${k}": (${v.dx}, ${v.dy}),`),
+    '}',
+    '',
+    '# -----------------------------------------------',
+    '# 有効ROI（全画像で対応が取れる共通領域）',
+    `# シフト最大値: dx=±${maxDx}px, dy=±${maxDy}px`,
+    `# ROI: x=[${roi_x0}, ${roi_x1}], y=[${roi_y0}, ${roi_y1}]`,
+    '# -----------------------------------------------',
+    `VALID_ROI = (${roi_x0}, ${roi_y0}, ${roi_x1}, ${roi_y1})  # (x0, y0, x1, y1)`,
+    '',
+    'def apply_shift_and_crop(image, filename, shifts=SEM_SHIFTS, roi=VALID_ROI):',
+    '    """',
+    '    シフト補正 + 有効ROIクロップを適用して返す。',
+    '    DIC前処理としてこの関数を呼び出してください。',
+    '',
+    '    Parameters',
+    '    ----------',
+    '    image    : np.ndarray  読み込み済みのグレースケール画像',
+    '    filename : str         ファイル名（SEM_SHIFTSのキーと一致させること）',
+    '    shifts   : dict        シフト量辞書',
+    '    roi      : tuple       有効ROI (x0, y0, x1, y1)',
+    '',
+    '    Returns',
+    '    -------',
+    '    np.ndarray  補正・クロップ済み画像（全画像で同サイズ）',
+    '    """',
+    '    if filename not in shifts:',
+    '        print(f"警告: {filename} のシフト情報がありません")',
+    '        dx, dy = 0, 0',
+    '    else:',
+    '        dx, dy = shifts[filename]',
+    '',
+    '    # シフト補正（画像を -dx, -dy だけ平行移動）',
+    '    if dx != 0 or dy != 0:',
+    '        h, w = image.shape[:2]',
+    '        M = np.float32([[1, 0, -dx], [0, 1, -dy]])',
+    '        image = cv2.warpAffine(image, M, (w, h))',
+    '',
+    '    # 有効ROIでクロップ',
+    '    x0, y0, x1, y1 = roi',
+    '    return image[y0:y1, x0:x1]',
+    '',
+    '',
+    '# -----------------------------------------------',
+    '# 使用例（連続ステップのDICループ）',
+    '# -----------------------------------------------',
+    '# import cv2',
+    '# from pathlib import Path',
+    '#',
+    `# ref_name = "${refFile?.name || 'Ref_0th.bmp'}"`,
+    '# steps = list(SEM_SHIFTS.keys())',
+    '#',
+    '# ref_raw = cv2.imread(ref_name, cv2.IMREAD_GRAYSCALE)',
+    '# ref = apply_shift_and_crop(ref_raw, ref_name)',
+    '#',
+    '# for step_name in steps:',
+    '#     if step_name == ref_name:',
+    '#         continue',
+    '#     cur_raw = cv2.imread(step_name, cv2.IMREAD_GRAYSCALE)',
+    '#     cur = apply_shift_and_crop(cur_raw, step_name)',
+    '#     # → ref と cur は同サイズ・位置合わせ済み',
+    '#     # → DICを実行: run_dic(ref, cur)',
+  ];
+
+  const blob = new Blob([lines.join('\n')], {type: 'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = 'sem_alignment_snippet.py'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// 初期化
+updateButtons();
+
+// ===================================================
+// GIFエンコーダ（純粋JS実装・外部依存なし）
+// ===================================================
+
+// LZWエンコーダ
+function lzwEncode(indexStream, colorDepth) {
+  const minCodeSize = Math.max(2, colorDepth);
+  const clearCode = 1 << minCodeSize;
+  const eofCode = clearCode + 1;
+  const output = [];
+  let buf = 0, bufBits = 0;
+
+  function writeBits(code, bits) {
+    buf |= code << bufBits;
+    bufBits += bits;
+    while (bufBits >= 8) { output.push(buf & 0xFF); buf >>= 8; bufBits -= 8; }
+  }
+
+  let codeSize = minCodeSize + 1;
+  let table = new Map();
+  let nextCode = eofCode + 1;
+
+  function resetTable() {
+    table = new Map();
+    nextCode = eofCode + 1;
+    codeSize = minCodeSize + 1;
+  }
+
+  writeBits(clearCode, codeSize);
+  let prefix = indexStream[0];
+  for (let i = 1; i < indexStream.length; i++) {
+    const c = indexStream[i];
+    const key = (prefix << 12) | c;
+    if (table.has(key)) {
+      prefix = table.get(key);
+    } else {
+      writeBits(prefix, codeSize);
+      if (nextCode < 4096) {
+        table.set(key, nextCode++);
+        if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++;
+      } else {
+        writeBits(clearCode, codeSize);
+        resetTable();
+      }
+      prefix = c;
+    }
+  }
+  writeBits(prefix, codeSize);
+  writeBits(eofCode, codeSize);
+  if (bufBits > 0) output.push(buf & 0xFF);
+  return output;
+}
+
+// GIFバイナリを生成（グレースケール256色パレット）
+function encodeGif(frames, delayCs) {
+  // framesは {canvas} の配列
+  const W = frames[0].canvas.width;
+  const H = frames[0].canvas.height;
+  const bytes = [];
+
+  function write(arr) { for (const b of arr) bytes.push(b); }
+  function writeStr(s) { for (let i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i)); }
+  function writeU16LE(v) { bytes.push(v & 0xFF, (v >> 8) & 0xFF); }
+
+  // ---- ヘッダー ----
+  writeStr('GIF89a');
+  writeU16LE(W); writeU16LE(H);
+  // GCT flag: 1, color resolution: 7, sort: 0, GCT size: 7 (256色)
+  bytes.push(0xF7, 0x00, 0x00);
+
+  // グローバルカラーテーブル（グレースケール 256色）
+  for (let i = 0; i < 256; i++) { bytes.push(i, i, i); }
+
+  // ---- Netscape ループ拡張（無限ループ）----
+  write([0x21, 0xFF, 0x0B]);
+  writeStr('NETSCAPE2.0');
+  write([0x03, 0x01, 0x00, 0x00, 0x00]); // loop count=0（無限）
+
+  // ---- フレームごとに出力 ----
+  for (let fi = 0; fi < frames.length; fi++) {
+    const fc = frames[fi].canvas;
+    const ctx = fc.getContext('2d');
+    const imgData = ctx.getImageData(0, 0, W, H);
+    const px = imgData.data;
+
+    // RGBA→グレースケールインデックス
+    const indices = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      indices[i] = Math.round(0.299 * px[i*4] + 0.587 * px[i*4+1] + 0.114 * px[i*4+2]);
+    }
+
+    // グラフィック制御拡張
+    write([0x21, 0xF9, 0x04]);
+    bytes.push(0x00);        // disposal=0, no user input, no transparent
+    writeU16LE(delayCs);     // delay (centiseconds)
+    bytes.push(0x00, 0x00);  // transparent index (unused)
+
+    // 画像デスクリプタ
+    bytes.push(0x2C);
+    writeU16LE(0); writeU16LE(0); // left, top
+    writeU16LE(W); writeU16LE(H);
+    bytes.push(0x00); // no local color table
+
+    // LZWエンコード
+    bytes.push(8); // LZW minimum code size
+    const lzwData = lzwEncode(indices, 8);
+    // サブブロックに分割（最大255バイト/ブロック）
+    for (let i = 0; i < lzwData.length; ) {
+      const chunk = Math.min(255, lzwData.length - i);
+      bytes.push(chunk);
+      for (let j = 0; j < chunk; j++) bytes.push(lzwData[i++]);
+    }
+    bytes.push(0x00); // ブロックターミネータ
+
+    // 進捗更新
+    const pct = Math.round((fi + 1) / frames.length * 100);
+    document.getElementById('gifProgressBar').style.width = pct + '%';
+    document.getElementById('gifProgressLabel').textContent =
+      `フレーム ${fi + 1} / ${frames.length} エンコード中 (${pct}%)`;
+  }
+
+  // GIFトレイラー
+  bytes.push(0x3B);
+  return new Uint8Array(bytes);
+}
+
+async function exportGif() {
+  const frames = flipState.frames;
+  if (!frames.length) return;
+
+  // FPSからdelay計算（centiseconds単位）
+  const fps = flipState.fps;
+  const delayCs = Math.round(100 / fps);
+
+  // モーダル表示
+  const modal = document.getElementById('gifModal');
+  modal.style.display = 'flex';
+  document.getElementById('gifProgressBar').style.width = '0%';
+  document.getElementById('gifProgressLabel').textContent = '準備中...';
+
+  // 非同期でUIを更新させてからエンコード開始
+  await new Promise(r => setTimeout(r, 50));
+
+  try {
+    // フレームごとに少しずつ処理してUIをブロックしない
+    const W = frames[0].canvas.width;
+    const H = frames[0].canvas.height;
+    const bytes = [];
+
+    function write(arr) { for (const b of arr) bytes.push(b); }
+    function writeStr(s) { for (let i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i)); }
+    function writeU16LE(v) { bytes.push(v & 0xFF, (v >> 8) & 0xFF); }
+
+    writeStr('GIF89a');
+    writeU16LE(W); writeU16LE(H);
+    bytes.push(0xF7, 0x00, 0x00);
+    for (let i = 0; i < 256; i++) { bytes.push(i, i, i); }
+    write([0x21, 0xFF, 0x0B]);
+    writeStr('NETSCAPE2.0');
+    write([0x03, 0x01, 0x00, 0x00, 0x00]);
+
+    for (let fi = 0; fi < frames.length; fi++) {
+      const fc = frames[fi].canvas;
+      const ctx = fc.getContext('2d');
+      const imgData = ctx.getImageData(0, 0, W, H);
+      const px = imgData.data;
+
+      const indices = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        indices[i] = Math.round(0.299 * px[i*4] + 0.587 * px[i*4+1] + 0.114 * px[i*4+2]);
+      }
+
+      write([0x21, 0xF9, 0x04]);
+      bytes.push(0x00);
+      writeU16LE(delayCs);
+      bytes.push(0x00, 0x00);
+
+      bytes.push(0x2C);
+      writeU16LE(0); writeU16LE(0);
+      writeU16LE(W); writeU16LE(H);
+      bytes.push(0x00);
+
+      bytes.push(8);
+      const lzwData = lzwEncode(indices, 8);
+      for (let i = 0; i < lzwData.length; ) {
+        const chunk = Math.min(255, lzwData.length - i);
+        bytes.push(chunk);
+        for (let j = 0; j < chunk; j++) bytes.push(lzwData[i++]);
+      }
+      bytes.push(0x00);
+
+      // 進捗更新 + UIの息継ぎ
+      const pct = Math.round((fi + 1) / frames.length * 100);
+      document.getElementById('gifProgressBar').style.width = pct + '%';
+      document.getElementById('gifProgressLabel').textContent =
+        `フレーム ${fi + 1} / ${frames.length} エンコード中 (${pct}%)`;
+      await new Promise(r => setTimeout(r, 0)); // yield to UI
+    }
+
+    bytes.push(0x3B);
+
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'image/gif' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sem_alignment.gif';
+    a.click();
+    URL.revokeObjectURL(url);
+
+    document.getElementById('gifProgressLabel').textContent = '完了！ダウンロード開始';
+    await new Promise(r => setTimeout(r, 800));
+  } catch(err) {
+    document.getElementById('gifProgressLabel').textContent = 'エラー: ' + err.message;
+    await new Promise(r => setTimeout(r, 2000));
+  } finally {
+    modal.style.display = 'none';
+    showStatus('GIF出力完了', 'ok');
+  }
+}
+</script>
+</body>
+</html>

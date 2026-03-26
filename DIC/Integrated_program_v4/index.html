@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<!-- v2 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIC Analysis Launcher</title>
+<script src="/eel.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---- ヘッダー ---- */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .logo span { color: var(--text-dim); font-weight: 400; }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  /* ---- メイン ---- */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 24px;
+    gap: 20px;
+  }
+
+  /* ---- 作業フォルダ選択エリア ---- */
+  .folder-section {
+    width: 100%;
+    max-width: 600px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+  }
+
+  .folder-section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+  }
+
+  .folder-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .folder-path {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+  }
+
+  .folder-path.set {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .btn-folder {
+    padding: 7px 16px;
+    border: 1px solid var(--accent);
+    background: rgba(0, 212, 255, 0.08);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .btn-folder:hover {
+    background: rgba(0, 212, 255, 0.16);
+  }
+
+  .folder-hint {
+    margin-top: 7px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+  }
+
+  /* ---- ワークフローラベル ---- */
+  .workflow-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    text-align: center;
+  }
+
+  /* ---- ツールカード群 ---- */
+  .tools-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .arrow {
+    display: flex;
+    justify-content: center;
+    color: var(--border);
+    font-size: 16px;
+    line-height: 1;
+    margin: 5px 0;
+  }
+
+  /* ---- ツールカード ---- */
+  .tool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.2s;
+  }
+
+  .tool-card.running { border-color: var(--accent); background: rgba(0,212,255,0.03); }
+  .tool-card.done    { border-color: var(--green);  background: rgba(0,255,136,0.03); }
+  .tool-card.error   { border-color: var(--accent2); background: rgba(255,107,53,0.04); }
+
+  .step-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+
+  .tool-card.running .step-num { color: var(--accent); border-color: var(--accent); }
+  .tool-card.done    .step-num { color: var(--green);  border-color: var(--green); }
+  .tool-card.error   .step-num { color: var(--accent2); border-color: var(--accent2); }
+
+  .tool-info { flex: 1; min-width: 0; }
+
+  .tool-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+
+  .tool-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-weight: 300;
+  }
+
+  .status-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .tool-card.running .status-badge { opacity: 1; background: rgba(0,212,255,0.15); color: var(--accent); }
+  .tool-card.done    .status-badge { opacity: 1; background: rgba(0,255,136,0.12); color: var(--green); }
+  .tool-card.error   .status-badge { opacity: 1; background: rgba(255,107,53,0.12); color: var(--accent2); }
+
+  .btn-launch {
+    padding: 7px 16px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .btn-launch:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,0.07);
+  }
+
+  .btn-launch:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---- ログ ---- */
+  .log-area { width: 100%; max-width: 600px; }
+
+  .log-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+  }
+
+  .log-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 56px;
+    max-height: 100px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .log-entry { line-height: 1.5; }
+  .log-entry.info  { color: var(--text-dim); }
+  .log-entry.start { color: var(--accent); }
+  .log-entry.done  { color: var(--green); }
+  .log-entry.error { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="subtitle">Integrated Analysis Launcher</div>
+</header>
+
+<div class="main">
+
+  <!-- 作業フォルダ選択 -->
+  <div class="folder-section">
+    <div class="folder-section-title">作業フォルダ</div>
+    <div class="folder-row">
+      <div class="folder-path" id="folder-path-display">（未選択）</div>
+      <button class="btn-folder" onclick="browseFolder()">フォルダを選択…</button>
+    </div>
+    <div class="folder-hint">選択したフォルダが各ツールのファイル選択ダイアログの初期フォルダになります</div>
+  </div>
+
+  <div class="workflow-label">— 実行ワークフロー —</div>
+
+  <div class="tools-grid">
+
+    <div class="tool-card" id="card-sem_align">
+      <div class="step-num">1</div>
+      <div class="tool-info">
+        <div class="tool-name">SEM Alignment</div>
+        <div class="tool-desc">SEM画像の位置合わせ・JSON出力</div>
+      </div>
+      <div class="status-badge" id="badge-sem_align">IDLE</div>
+      <button class="btn-launch" id="btn-sem_align" onclick="launch('sem_align')">起動</button>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-dic">
+      <div class="step-num">2</div>
+      <div class="tool-info">
+        <div class="tool-name">Normal DIC</div>
+        <div class="tool-desc">通常DIC計算・ひずみマップ生成</div>
+      </div>
+      <div class="status-badge" id="badge-dic">IDLE</div>
+      <button class="btn-launch" id="btn-dic" onclick="launch('dic')">起動</button>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-ebsd">
+      <div class="step-num">3</div>
+      <div class="tool-info">
+        <div class="tool-name">EBSD Georef</div>
+        <div class="tool-desc">EBSDジオリファレンス処理</div>
+      </div>
+      <div class="status-badge" id="badge-ebsd">IDLE</div>
+      <button class="btn-launch" id="btn-ebsd" onclick="launch('ebsd')">起動</button>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-heaviside">
+      <div class="step-num">4</div>
+      <div class="tool-info">
+        <div class="tool-name">Heaviside DIC</div>
+        <div class="tool-desc">不連続変位解析・Heaviside DIC計算</div>
+      </div>
+      <div class="status-badge" id="badge-heaviside">IDLE</div>
+      <button class="btn-launch" id="btn-heaviside" onclick="launch('heaviside')">起動</button>
+    </div>
+
+  </div>
+
+  <div class="log-area">
+    <div class="log-title">Log</div>
+    <div class="log-box" id="log-box">
+      <div class="log-entry info">Ready — 作業フォルダを選択してからツールを起動してください</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const TOOL_NAMES = {
+    sem_align: "SEM Alignment",
+    dic:       "Normal DIC",
+    ebsd:      "EBSD Georef",
+    heaviside: "Heaviside DIC",
+  };
+
+  function addLog(msg, cls = "info") {
+    const box = document.getElementById("log-box");
+    const now = new Date().toLocaleTimeString("ja-JP", { hour12: false });
+    const el = document.createElement("div");
+    el.className = `log-entry ${cls}`;
+    el.textContent = `[${now}]  ${msg}`;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setCardState(toolId, state) {
+    const card  = document.getElementById(`card-${toolId}`);
+    const badge = document.getElementById(`badge-${toolId}`);
+    const btn   = document.getElementById(`btn-${toolId}`);
+    card.className = `tool-card ${state}`;
+    const labels = { running: "RUNNING", done: "DONE", error: "ERROR", "": "IDLE" };
+    badge.textContent = labels[state] ?? "IDLE";
+    btn.disabled = (state === "running");
+  }
+
+  // フォルダ選択
+  async function browseFolder() {
+    const path = await eel.browse_work_dir()();
+    if (path) {
+      updateFolderDisplay(path);
+      addLog(`作業フォルダを設定: ${path}`, "start");
+    }
+  }
+
+  function updateFolderDisplay(path) {
+    const el = document.getElementById("folder-path-display");
+    if (path) {
+      el.textContent = path;
+      el.classList.add("set");
+    } else {
+      el.textContent = "（未選択）";
+      el.classList.remove("set");
+    }
+  }
+
+  // ツール起動
+  function launch(toolId) {
+    setCardState(toolId, "running");
+    addLog(`${TOOL_NAMES[toolId]} を起動中...`, "start");
+
+    const fn = {
+      sem_align: () => eel.launch_sem_align()(),
+      dic:       () => eel.launch_dic()(),
+      ebsd:      () => eel.launch_ebsd()(),
+      heaviside: () => eel.launch_heaviside()(),
+    };
+
+    fn[toolId]().catch(err => {
+      addLog(`エラー: ${err}`, "error");
+      setCardState(toolId, "error");
+    });
+  }
+
+  // Pythonからのコールバック
+  eel.expose(on_tool_started);
+  function on_tool_started(toolId) {}
+
+  eel.expose(on_tool_finished);
+  function on_tool_finished(toolId, returncode) {
+    if (returncode === 0) {
+      setCardState(toolId, "done");
+      addLog(`${TOOL_NAMES[toolId]} — 完了`, "done");
+    } else {
+      setCardState(toolId, "error");
+      addLog(`${TOOL_NAMES[toolId]} — 終了コード ${returncode}`, "error");
+    }
+  }
+
+  eel.expose(on_tool_error);
+  function on_tool_error(toolId, msg) {
+    setCardState(toolId, "error");
+    addLog(`${TOOL_NAMES[toolId]} — ${msg}`, "error");
+  }
+
+  // 起動時に保存済みフォルダを復元
+  window.addEventListener("load", async () => {
+    const path = await eel.get_work_dir()();
+    if (path) updateFolderDisplay(path);
+  });
+</script>
+</body>
+</html>

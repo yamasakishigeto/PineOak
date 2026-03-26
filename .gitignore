@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code internal
+DIC/.claude/
+DIC/.dist/
+
+# Demo/experimental data (too large for GitHub)
+DIC/解析実行に必要なデータ (デモ用)/
+
+# Other folders to exclude
+Narazaki H-DIC ver0.0.6/
+
+# Windows
+Thumbs.db
+desktop.ini
+*.lnk

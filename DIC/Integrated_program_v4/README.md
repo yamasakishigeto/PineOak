@@ -1,0 +1,155 @@
+# DIC-Suite — Integrated Analysis Launcher
+
+SEM画像を用いたDIC（Digital Image Correlation）解析の統合ランチャーです。
+通常DIC・EBSDジオリファレンス・Heaviside DICを一つのGUIから順に実行できます。
+
+---
+
+## 動作環境
+
+- Python 3.13 以上
+- Windows 10/11（推奨）
+
+## インストール
+
+```bash
+pip install -r requirements.txt
+```
+
+## 起動
+
+```bash
+py -3.13 main.py
+```
+
+---
+
+## ワークフロー
+
+```
+1. SEM Alignment      SEM画像の位置合わせ・アライメントJSON出力
+        ↓
+2. Normal DIC         通常DIC計算・ひずみマップ生成（Excel出力）
+        ↓
+3. EBSD Georef        EBSDデータのジオリファレンス・粒情報割り当て
+        ↓
+4. Heaviside DIC      不連続変位解析・Heaviside DIC計算
+```
+
+作業フォルダを選択してから各ツールを起動してください。
+各ツールのファイル選択ダイアログは作業フォルダを初期フォルダとして開きます。
+
+---
+
+## ツール詳細
+
+### 1. SEM Alignment（`sem_align_tool_v3.html`）
+複数のSEM画像間の位置ずれをブラウザGUIで補正し、アライメントJSONを出力します。
+
+**入力:** SEM画像（BMP / PNG / TIFF / JPG）
+**出力:** `sem_alignment.json`
+
+---
+
+### 2. Normal DIC（`dic_sem_strain_v58.py`）
+2段階DIC（粗い探索 → 精密探索）でサブセットごとの変位・ひずみを計算します。
+
+**入力:**
+- 参照SEM画像（変形前）
+- 変形SEM画像（変形後）
+- アライメントJSON（任意）
+
+**出力:** `dic_results.xlsx`（シート: u, v, exx, eyy, exy, e1, gamma_max, omega_xy）
+
+**主なパラメータ:**
+
+| パラメータ | 説明 |
+|---|---|
+| subset | サブセットサイズ [px]（デフォルト: 31） |
+| step | グリッドステップ [px] |
+| search | 探索範囲 [px] |
+| gauge | ゲージ長さ（ひずみ計算用ステップ数） |
+| workers | 並列ワーカー数 |
+| NCC閾値 | これ以下の相関値はNaN化 |
+
+設定は `dic_config.txt` に保存・読み込み可能です。
+
+---
+
+### 3. EBSD Georef（`ebsd_georef_v68.py`）
+EBSD Grain File（TSL/EDAX OIM Analysis エクスポート）をSEM座標系にジオリファレンスし、
+DICサブセットグリッドに結晶粒情報を割り当てます。
+
+**入力:**
+- `Grain_File_*.txt`（OIM Analysisエクスポート、11列固定）
+- SEM参照画像
+- `dic_results.xlsx`（サブセット座標参照用）
+
+**出力:** `ebsd_georef.xlsx`（列: cx, cy, grain_id, phase, phi1, PHI, phi2, IQ, CI）
+
+**処理フロー:**
+1. Grain FileからIQマップを生成
+2. SEM画像とEBSD IQマップをGUIで並べ表示
+3. 対応点を交互クリックで指定（4点以上: 射影変換、3点: アフィン変換）
+4. DICグリッドに最近傍EBSD情報を割り当て
+
+---
+
+### 4. Heaviside DIC（`heaviside_dic_v81.py`）
+すべり帯などの不連続変位場をHeaviside基底関数で解析します。
+
+**入力:**
+- `dic_results.xlsx`（Normal DIC出力）
+- SEM画像フォルダ
+- `ebsd_georef.xlsx`（粒情報、任意）
+
+**出力:**
+- `heaviside_dic_results.xlsx`
+- 結果確認GUI（SEM画像 + ひずみマップ + 不連続線の重ね合わせ表示）
+
+**GUI操作:**
+
+| 操作 | 機能 |
+|---|---|
+| ベース画像選択 | ひずみ成分（u/v/exx/eyy等）またはSEM画像を背景に選択 |
+| カラーマップ選択 | ベース・不連続線それぞれのカラーマップを変更 |
+| vmin / vmax | カラースケールの範囲を手動設定 |
+| ←/→ キー | Heavisideしきい値の微調整 |
+| PNG保存 | 現在の表示をPNG出力 |
+
+---
+
+## ファイル構成
+
+```
+Integrated_program_v4/
+├── main.py                  # 統合ランチャー（Eel + Tkinter）
+├── index.html               # ランチャーUI
+├── dic_wizard.html          # Normal DICウィザードUI
+├── ebsd_wizard.html         # EBSDウィザードUI
+├── heaviside_wizard.html    # Heaviside DICウィザードUI
+├── sem_align_tool_v3.html   # SEM位置合わせUI
+├── dic_sem_strain_v58.py    # Normal DIC解析エンジン
+├── ebsd_georef_v68.py       # EBSDジオリファレンスエンジン
+├── heaviside_dic_v81.py     # Heaviside DIC解析エンジン
+├── _dic_runner_src.py       # DIC解析サブプロセス用スクリプト
+└── requirements.txt
+```
+
+---
+
+## 依存ライブラリ
+
+| ライブラリ | 用途 | 必須 |
+|---|---|---|
+| numpy | 数値計算 | ✓ |
+| scipy | 補間・空間演算 | ✓ |
+| opencv-python | 画像処理・NCC | ✓ |
+| scikit-image | Hough変換 | ✓ |
+| matplotlib | グラフ描画 | ✓ |
+| openpyxl | Excel入出力 | ✓ |
+| PyQt6 | EBSDジオリファレンスGUI | ✓ |
+| eel | ランチャーUI（HTML↔Python連携） | ✓ |
+| joblib | 並列処理（DIC高速化） | 任意 |
+| tqdm | 進捗バー | 任意 |
+| japanize-matplotlib | 日本語フォント自動設定 | 任意 |

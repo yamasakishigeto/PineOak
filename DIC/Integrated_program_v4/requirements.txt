@@ -1,0 +1,28 @@
+# DIC-Suite requirements
+# Python 3.13+
+# pip install -r requirements.txt
+
+# コア数値計算
+numpy
+scipy
+opencv-python
+
+# 画像処理
+scikit-image
+
+# グラフ描画
+matplotlib
+japanize-matplotlib   # 任意: 日本語フォント自動設定
+
+# Excel入出力
+openpyxl
+
+# GUIフレームワーク
+PyQt6                 # ebsd_georef_v68.py で使用
+
+# 並列処理・進捗表示（任意、あると高速化）
+joblib
+tqdm
+
+# Eelランチャー（main.py）
+eel

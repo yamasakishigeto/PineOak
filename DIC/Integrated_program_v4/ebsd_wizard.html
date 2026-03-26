@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<!-- v1 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EBSD Georef Wizard</title>
+<script src="/eel.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --red: #ff4444;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .logo { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .subtitle { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    gap: 0;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 100%;
+    max-width: 640px;
+    overflow: hidden;
+  }
+
+  .card-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 14px 18px 0;
+    margin-bottom: 14px;
+  }
+
+  .file-rows {
+    padding: 0 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .file-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 180px;
+    flex-shrink: 0;
+  }
+
+  .file-label .required {
+    color: var(--accent2);
+    margin-left: 2px;
+  }
+
+  .file-label .optional {
+    color: var(--text-dim);
+    font-size: 9px;
+    margin-left: 4px;
+  }
+
+  .file-path {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .file-path.set  { color: var(--text); border-color: rgba(0,212,255,0.3); }
+  .file-path.skip { color: var(--text-dim); font-style: italic; }
+
+  .btn-sm {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .btn-run {
+    padding: 10px 32px;
+    border: 1px solid var(--accent);
+    background: rgba(0,212,255,0.1);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    letter-spacing: 0.08em;
+  }
+  .btn-run:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
+  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-cancel {
+    padding: 10px 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .footer-status {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .footer-status.ok  { color: var(--green); }
+  .footer-status.err { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="subtitle">EBSD Georef Wizard</div>
+</header>
+
+<div class="main">
+  <div class="card">
+    <div class="card-title">ファイル選択</div>
+    <div class="file-rows">
+
+      <div class="file-row">
+        <div class="file-label">Grain File<span class="required">*</span></div>
+        <div class="file-path" id="grain-path">（未選択）</div>
+        <button class="btn-sm" onclick="browse('grain')">選択…</button>
+      </div>
+
+      <div class="file-row">
+        <div class="file-label">SEM 参照画像<span class="required">*</span><span class="optional">（Ref_0th）</span></div>
+        <div class="file-path" id="sem-path">（未選択）</div>
+        <button class="btn-sm" onclick="browse('sem')">選択…</button>
+      </div>
+
+      <div class="file-row">
+        <div class="file-label">dic_results.xlsx<span class="required">*</span></div>
+        <div class="file-path" id="xlsx-path">（未選択）</div>
+        <button class="btn-sm" onclick="browse('xlsx')">選択…</button>
+      </div>
+
+      <div class="file-row">
+        <div class="file-label">出力フォルダ<span class="required">*</span></div>
+        <div class="file-path" id="out-path">（未選択）</div>
+        <button class="btn-sm" onclick="browse('out')">選択…</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<footer>
+  <button class="btn-run" id="btn-run" onclick="onRun()">実行</button>
+  <button class="btn-cancel" onclick="window.close()">キャンセル</button>
+  <div class="footer-status" id="footer-status"></div>
+</footer>
+
+<script>
+  const paths = { grain: null, sem: null, xlsx: null, out: null };
+
+  window.addEventListener('load', async () => {
+    const workDir = await eel.get_work_dir()();
+    if (workDir) {
+      // 作業フォルダを初期ディレクトリとして保持するだけ（表示はしない）
+      window._workDir = workDir;
+    }
+  });
+
+  async function browse(key) {
+    const wd = window._workDir || '';
+    let path = '';
+
+    if (key === 'grain') {
+      path = await eel.ebsd_browse_file('Grain File (Grain_File_*.txt) を選択',
+        [['Grain File', '*.txt'], ['All files', '*.*']], wd)();
+    } else if (key === 'sem') {
+      path = await eel.ebsd_browse_file('SEM参照画像を選択',
+        [['Image files', '*.bmp *.png *.tif *.tiff'], ['All files', '*.*']], wd)();
+    } else if (key === 'xlsx') {
+      path = await eel.ebsd_browse_file('dic_results.xlsx を選択',
+        [['Excel files', '*.xlsx'], ['All files', '*.*']], wd)();
+    } else if (key === 'out') {
+      path = await eel.ebsd_browse_dir('出力フォルダを選択', wd)();
+    }
+
+    if (path) {
+      paths[key] = path;
+      const el = document.getElementById(`${key}-path`);
+      el.textContent = path;
+      el.classList.add('set');
+      el.classList.remove('skip');
+    }
+  }
+
+  async function onRun() {
+    if (!paths.grain) { setStatus('Grain File を選択してください', false); return; }
+    if (!paths.sem)   { setStatus('SEM参照画像を選択してください', false); return; }
+    if (!paths.xlsx)  { setStatus('dic_results.xlsx を選択してください', false); return; }
+    if (!paths.out)   { setStatus('出力フォルダを選択してください', false); return; }
+
+    document.getElementById('btn-run').disabled = true;
+    setStatus('解析を開始しています...', true);
+    await eel.ebsd_start_analysis(paths)();
+  }
+
+  function setStatus(msg, ok) {
+    const el = document.getElementById('footer-status');
+    el.textContent = msg;
+    el.className = 'footer-status ' + (ok ? 'ok' : 'err');
+  }
+
+  eel.expose(ebsd_on_status);
+  function ebsd_on_status(msg, type) {
+    setStatus(msg, type === 'ok');
+    if (type !== 'ok') {
+      document.getElementById('btn-run').disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

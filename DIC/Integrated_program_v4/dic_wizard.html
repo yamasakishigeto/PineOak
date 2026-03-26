@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<!-- v1 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIC Wizard</title>
+<script src="/eel.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --red: #ff4444;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---- ヘッダー ---- */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .logo { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .subtitle { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+  /* ---- メインレイアウト ---- */
+  .main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ---- 左パネル ---- */
+  .left-panel {
+    width: 380px;
+    min-width: 380px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---- 右パネル ---- */
+  .right-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  /* ---- セクション共通 ---- */
+  .section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+  }
+
+  /* ---- ファイル選択行 ---- */
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .file-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  .file-path {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .file-path.set { color: var(--text); border-color: rgba(0,212,255,0.3); }
+  .file-path.skip { color: var(--text-dim); font-style: italic; }
+
+  .btn-sm {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+  .btn-sm.accent { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .btn-sm.accent:hover { background: rgba(0,212,255,0.16); }
+  .btn-sm.green { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.06); }
+  .btn-sm.green:hover { background: rgba(0,255,136,0.14); }
+  .btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---- 画像リスト ---- */
+  .img-list-header {
+    display: grid;
+    grid-template-columns: 28px 28px 1fr;
+    gap: 6px;
+    padding: 4px 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .img-list {
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .img-row {
+    display: grid;
+    grid-template-columns: 28px 28px 1fr;
+    gap: 6px;
+    align-items: center;
+    padding: 5px 6px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+    transition: background 0.1s;
+    cursor: default;
+  }
+  .img-row:hover { background: rgba(255,255,255,0.02); }
+  .img-row.is-ref { border-color: rgba(255,107,53,0.4); background: rgba(255,107,53,0.04); }
+
+  .img-row input[type=radio]  { accent-color: var(--accent2); width: 14px; height: 14px; cursor: pointer; }
+  .img-row input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+  .img-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- パラメータ行 ---- */
+  .param-group-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 10px 0 6px;
+  }
+  .param-group-title:first-child { margin-top: 0; }
+
+  .param-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 7px;
+  }
+
+  .param-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 160px;
+    flex-shrink: 0;
+  }
+
+  .param-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    width: 72px;
+    text-align: right;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .param-input:focus { border-color: var(--accent); }
+
+  .param-hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    flex: 1;
+  }
+
+  .param-checkbox {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  .param-checkbox-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  /* ---- search範囲モード ---- */
+  .radio-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+  }
+  .radio-row input[type=radio] { accent-color: var(--accent); cursor: pointer; }
+  .radio-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .radio-label.active { color: var(--text); }
+
+  /* ---- セパレータ ---- */
+  .sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 10px 0;
+  }
+
+  /* ---- 事前スキャン結果 ---- */
+  .prescan-result {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 44px;
+    margin: 8px 0;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  .prescan-result.ok    { border-color: rgba(0,255,136,0.4); color: var(--green); }
+  .prescan-result.warn  { border-color: rgba(255,107,53,0.4); color: var(--accent2); }
+  .prescan-result.error { border-color: rgba(255,68,68,0.4);  color: var(--red); }
+
+  /* ---- カラースケール ---- */
+  .scale-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 20px;
+  }
+
+  .scale-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .scale-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    width: 64px;
+    flex-shrink: 0;
+  }
+
+  .scale-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    width: 72px;
+    text-align: right;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .scale-input:focus { border-color: var(--accent); }
+  .scale-sep { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+  /* ---- フッター（実行ボタン） ---- */
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .btn-run {
+    padding: 10px 32px;
+    border: 1px solid var(--accent);
+    background: rgba(0,212,255,0.1);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    letter-spacing: 0.08em;
+  }
+  .btn-run:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
+  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-cancel {
+    padding: 10px 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .footer-status {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .footer-status.ok { color: var(--green); }
+  .footer-status.err { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="subtitle">Normal DIC Wizard</div>
+</header>
+
+<div class="main-layout">
+
+  <!-- ===== 左パネル: ①②  ===== -->
+  <div class="left-panel">
+
+    <!-- ① ファイル選択 -->
+    <div class="section">
+      <div class="section-title">① ファイル選択</div>
+
+      <div class="file-row">
+        <div class="file-label">画像フォルダ</div>
+        <div class="file-path" id="folder-path">（未選択）</div>
+        <button class="btn-sm accent" onclick="browseFolder()">選択…</button>
+      </div>
+
+      <div class="file-row">
+        <div class="file-label">Alignment JSON</div>
+        <div class="file-path skip" id="json-path">（スキップ）</div>
+        <button class="btn-sm" onclick="browseJson()">選択…</button>
+      </div>
+    </div>
+
+    <!-- ② REF / DEF 選択 -->
+    <div class="section" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="section-title">② REF / DEF 選択</div>
+      <div class="img-list-header">
+        <span style="color:var(--accent2)">REF</span>
+        <span style="color:var(--accent)">DEF</span>
+        <span>ファイル名</span>
+      </div>
+      <div class="img-list" id="img-list">
+        <div style="color:var(--text-dim); font-family:var(--mono); font-size:11px; padding:8px;">
+          フォルダを選択すると画像一覧が表示されます
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== 右パネル: ③④⑤ ===== -->
+  <div class="right-panel">
+
+    <!-- ③ DICパラメータ -->
+    <div class="section">
+      <div class="section-title">③ DICパラメータ</div>
+
+      <div class="param-group-title">Stage 1 — 粗い探索</div>
+
+      <div class="param-row">
+        <label class="param-label">step [px]</label>
+        <input class="param-input" type="number" id="s1-step" value="60" min="1" max="512">
+        <span class="param-hint">← サブセット間隔</span>
+      </div>
+
+      <div class="param-row">
+        <input type="checkbox" class="param-checkbox" id="use-prev-s1" checked>
+        <label class="param-checkbox-label" for="use-prev-s1">前段Stage1結果を初期値に使用（2枚目以降を高速化）</label>
+      </div>
+
+      <!-- search範囲モード -->
+      <div class="param-row" style="align-items:flex-start; flex-direction:column; gap:6px;">
+        <span class="param-label" style="width:auto;">search 範囲</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <div class="radio-row" style="margin:0">
+            <input type="radio" name="s1-mode" id="s1-auto" value="auto" checked onchange="updateS1Mode()">
+            <label class="radio-label" for="s1-auto">グローバルシフト +</label>
+            <input class="param-input" type="number" id="s1-margin" value="15" min="0" max="200" style="width:56px;">
+            <span class="param-hint" style="white-space:nowrap">px（自動）</span>
+          </div>
+          <div class="radio-row" style="margin:0">
+            <input type="radio" name="s1-mode" id="s1-fixed" value="fixed" onchange="updateS1Mode()">
+            <label class="radio-label" for="s1-fixed">固定値</label>
+            <input class="param-input" type="number" id="s1-fixed-val" value="30" min="1" max="512" style="width:56px;" disabled>
+            <span class="param-hint" style="white-space:nowrap">px</span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="param-group-title">Stage 2 — 精密探索</div>
+
+      <div class="param-row">
+        <label class="param-label">step [px]</label>
+        <input class="param-input" type="number" id="s2-step" value="15" min="1" max="512">
+        <span class="param-hint">← サブセット間隔</span>
+      </div>
+      <div class="param-row">
+        <label class="param-label">search [px]</label>
+        <input class="param-input" type="number" id="s2-search" value="5" min="1" max="512">
+        <span class="param-hint">← 探索範囲（Stage1初期値使用）</span>
+      </div>
+
+      <hr class="sep">
+
+      <div class="param-group-title">共通設定</div>
+
+      <div class="param-row">
+        <label class="param-label">サブセットサイズ [px]</label>
+        <input class="param-input" type="number" id="subset-size" value="31" min="1" max="512">
+        <span class="param-hint">← 奇数推奨（例: 31, 41, 51）</span>
+      </div>
+
+      <hr class="sep">
+
+      <div class="param-group-title">品質フィルタ</div>
+
+      <div class="param-row">
+        <label class="param-label">NCCマスク閾値</label>
+        <input class="param-input" type="number" id="ncc-thr" value="0.20" min="0" max="1" step="0.05">
+        <span class="param-hint">← この値未満のNCC点をNaN化（0で無効）</span>
+      </div>
+
+      <hr class="sep">
+
+      <div class="param-group-title">ひずみ計算</div>
+
+      <div class="param-row">
+        <label class="param-label">ゲージ長さ [倍]</label>
+        <input class="param-input" type="number" id="gauge-length" value="1" min="1" max="20">
+        <span class="param-hint">← Step_fine の整数倍（1=隣接差分）</span>
+      </div>
+
+      <hr class="sep">
+
+      <div class="param-group-title">並列処理</div>
+
+      <div class="param-row">
+        <label class="param-label">ワーカー数</label>
+        <input class="param-input" type="number" id="n-workers" value="6" min="-1" max="32">
+        <span class="param-hint">← -1で全コア、推奨6</span>
+      </div>
+    </div>
+
+    <!-- ④ 事前スキャン -->
+    <div class="section">
+      <div class="section-title">④ 事前スキャン（search範囲の確認）</div>
+
+      <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.6;">
+        最後のDEF（最大変形）に対して粗い探索を行い、推奨Stage1 search範囲を表示します。
+      </div>
+
+      <div class="param-row">
+        <label class="param-label">探索範囲 [px]</label>
+        <input class="param-input" type="number" id="prescan-search" value="50" min="1" max="512">
+        <span class="param-hint">← 事前スキャン専用（広めに設定推奨）</span>
+      </div>
+
+      <div class="prescan-result" id="prescan-result">（未実行）</div>
+
+      <div style="display:flex; gap:8px; margin-top:4px;">
+        <button class="btn-sm accent" id="btn-prescan" onclick="runPrescan()">事前スキャン実行</button>
+        <button class="btn-sm" id="btn-apply-rec" onclick="applyRec()" disabled>推奨値をStage1 searchに反映</button>
+      </div>
+    </div>
+
+    <!-- ⑤ カラースケール -->
+    <div class="section">
+      <div class="section-title">⑤ カラースケール（空欄 = 自動）</div>
+
+      <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.6;">
+        事前スキャン後に参考値を確認して入力してください。空欄の場合は自動設定されます。
+      </div>
+
+      <div style="margin-bottom:8px;">
+        <button class="btn-sm" onclick="loadConfig()">📂 dic_config.txt を読み込む</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:80px 6px 1fr 20px 80px 6px 1fr; gap:4px; align-items:center; margin-bottom:6px;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">変数</span>
+        <span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max</span>
+        <span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">変数</span>
+        <span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max</span>
+      </div>
+
+      <div class="scale-grid" id="scale-grid">
+        <!-- JS で生成 -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- フッター -->
+<footer>
+  <button class="btn-run" id="btn-run" onclick="onRun()">実行</button>
+  <button class="btn-cancel" onclick="onCancel()">キャンセル</button>
+  <div class="footer-status" id="footer-status"></div>
+</footer>
+
+<script>
+// ---- 状態 ----
+let images = [];       // [{name, path}]
+let refIdx = -1;
+let defChecked = [];   // boolean[]
+let prescanRec = 0;
+
+const SCALE_KEYS   = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy'];
+const SCALE_LABELS = ['u [px]','v [px]','εxx','εyy','εxy','e1','γmax','ωxy'];
+
+// ---- 初期化 ----
+window.addEventListener('load', () => {
+  buildScaleGrid();
+  updateS1Mode();
+  // ランチャーから作業フォルダを引き継ぐ
+  eel.get_work_dir()().then(path => {
+    if (path) {
+      document.getElementById('folder-path').textContent = path;
+      document.getElementById('folder-path').classList.add('set');
+      eel.dic_list_images(path)().then(setImageList);
+    }
+  });
+});
+
+// ---- カラースケールグリッド生成 ----
+function buildScaleGrid() {
+  const grid = document.getElementById('scale-grid');
+  grid.innerHTML = '';
+  SCALE_KEYS.forEach((k, i) => {
+    const div = document.createElement('div');
+    div.className = 'scale-row';
+    div.innerHTML = `
+      <span class="scale-label">${SCALE_LABELS[i]}</span>
+      <input class="scale-input" type="text" id="smin-${k}" placeholder="自動" style="width:62px;">
+      <span class="scale-sep">〜</span>
+      <input class="scale-input" type="text" id="smax-${k}" placeholder="自動" style="width:62px;">
+    `;
+    grid.appendChild(div);
+  });
+}
+
+// ---- S1モード切り替え ----
+function updateS1Mode() {
+  const isAuto = document.getElementById('s1-auto').checked;
+  document.getElementById('s1-margin').disabled  =  !isAuto;
+  document.getElementById('s1-fixed-val').disabled = isAuto;
+}
+
+// ---- フォルダ選択 ----
+async function browseFolder() {
+  const path = await eel.dic_browse_folder()();
+  if (!path) return;
+  const el = document.getElementById('folder-path');
+  el.textContent = path;
+  el.classList.add('set');
+  const imgs = await eel.dic_list_images(path)();
+  setImageList(imgs);
+}
+
+// ---- JSON選択 ----
+async function browseJson() {
+  const folder = document.getElementById('folder-path').textContent;
+  const path = await eel.dic_browse_json(folder)();
+  const el = document.getElementById('json-path');
+  if (path) {
+    el.textContent = path;
+    el.classList.remove('skip');
+    el.classList.add('set');
+  } else {
+    el.textContent = '（スキップ）';
+    el.classList.add('skip');
+    el.classList.remove('set');
+  }
+}
+
+// ---- 画像リスト構築 ----
+function setImageList(imgs) {
+  images = imgs;
+  defChecked = imgs.map(() => true);
+  refIdx = imgs.length > 0 ? 0 : -1;
+  if (imgs.length > 0) defChecked[0] = false;
+  renderImageList();
+}
+
+function renderImageList() {
+  const list = document.getElementById('img-list');
+  list.innerHTML = '';
+  if (images.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-family:var(--mono);font-size:11px;padding:8px;">画像が見つかりません</div>';
+    return;
+  }
+  images.forEach((img, i) => {
+    const row = document.createElement('div');
+    row.className = 'img-row' + (i === refIdx ? ' is-ref' : '');
+    row.id = `img-row-${i}`;
+    row.innerHTML = `
+      <input type="radio" name="ref" ${i === refIdx ? 'checked' : ''} onchange="onRefChange(${i})">
+      <input type="checkbox" ${defChecked[i] ? 'checked' : ''} onchange="onDefChange(${i}, this.checked)">
+      <span class="img-name" title="${img.path}">${img.name}</span>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function onRefChange(i) {
+  refIdx = i;
+  defChecked[i] = false;
+  renderImageList();
+}
+
+function onDefChange(i, checked) {
+  defChecked[i] = checked;
+}
+
+// ---- 事前スキャン ----
+async function runPrescan() {
+  const folder = document.getElementById('folder-path').textContent;
+  if (!folder || folder === '（未選択）') { alert('フォルダを選択してください'); return; }
+  if (refIdx < 0) { alert('REFを選択してください'); return; }
+  const defIdxs = defChecked.map((c,i) => c && i !== refIdx ? i : -1).filter(i => i >= 0);
+  if (defIdxs.length === 0) { alert('DEFを1枚以上選択してください'); return; }
+
+  const resEl = document.getElementById('prescan-result');
+  resEl.textContent = '実行中...';
+  resEl.className = 'prescan-result';
+  document.getElementById('btn-prescan').disabled = true;
+
+  const params = {
+    ref_path:      images[refIdx].path,
+    def_path:      images[defIdxs[defIdxs.length - 1]].path,
+    json_path:     getJsonPath(),
+    subset_size:   parseInt(document.getElementById('subset-size').value),
+    prescan_search: parseInt(document.getElementById('prescan-search').value),
+    s1_margin:     parseInt(document.getElementById('s1-margin').value),
+  };
+
+  const result = await eel.dic_run_prescan(params)();
+  document.getElementById('btn-prescan').disabled = false;
+
+  if (result.error) {
+    resEl.textContent = 'エラー: ' + result.error;
+    resEl.className = 'prescan-result error';
+    return;
+  }
+
+  prescanRec = result.rec_search;
+  document.getElementById('btn-apply-rec').disabled = false;
+
+  const s1margin = parseInt(document.getElementById('s1-margin').value);
+  const isOk = result.rec_search <= s1margin;
+  resEl.textContent = result.text;
+  resEl.className = 'prescan-result ' + (isOk ? 'ok' : 'warn');
+
+  // カラースケール参考値を自動入力
+  if (result.estimates) {
+    SCALE_KEYS.forEach(k => {
+      const lo = result.estimates[k] ? result.estimates[k][0] : null;
+      const hi = result.estimates[k] ? result.estimates[k][1] : null;
+      if (lo !== null) document.getElementById(`smin-${k}`).value = lo.toFixed(4);
+      if (hi !== null) document.getElementById(`smax-${k}`).value = hi.toFixed(4);
+    });
+  }
+}
+
+function applyRec() {
+  if (prescanRec <= 0) { alert('先に事前スキャンを実行してください'); return; }
+  document.getElementById('s1-margin').value = prescanRec;
+  const resEl = document.getElementById('prescan-result');
+  resEl.textContent += `\n→ Stage1 search を ${prescanRec}px に更新しました`;
+}
+
+// ---- config読み込み ----
+async function loadConfig() {
+  const folder = document.getElementById('folder-path').textContent;
+  const result = await eel.dic_load_config(folder !== '（未選択）' ? folder : '')();
+  if (!result) return;
+
+  if (result.s1_step)    document.getElementById('s1-step').value       = result.s1_step;
+  if (result.s1_auto != null) {
+    document.getElementById(result.s1_auto ? 's1-auto' : 's1-fixed').checked = true;
+    updateS1Mode();
+  }
+  if (result.s1_margin)  document.getElementById('s1-margin').value     = result.s1_margin;
+  if (result.s1_fixed)   document.getElementById('s1-fixed-val').value  = result.s1_fixed;
+  if (result.s2_step)    document.getElementById('s2-step').value        = result.s2_step;
+  if (result.s2_search)  document.getElementById('s2-search').value      = result.s2_search;
+  if (result.subset)     document.getElementById('subset-size').value    = result.subset;
+  if (result.ncc_thr != null) document.getElementById('ncc-thr').value  = result.ncc_thr;
+  if (result.gauge)      document.getElementById('gauge-length').value   = result.gauge;
+  if (result.workers != null) document.getElementById('n-workers').value = result.workers;
+
+  if (result.scale) {
+    SCALE_KEYS.forEach(k => {
+      if (result.scale[k]) {
+        const [lo, hi] = result.scale[k];
+        document.getElementById(`smin-${k}`).value = lo !== null ? lo : '';
+        document.getElementById(`smax-${k}`).value = hi !== null ? hi : '';
+      }
+    });
+  }
+}
+
+// ---- ユーティリティ ----
+function getJsonPath() {
+  const el = document.getElementById('json-path');
+  return el.classList.contains('set') ? el.textContent : null;
+}
+
+function parseScale(key) {
+  const lo = document.getElementById(`smin-${key}`).value.trim();
+  const hi = document.getElementById(`smax-${key}`).value.trim();
+  return [lo ? parseFloat(lo) : null, hi ? parseFloat(hi) : null];
+}
+
+// ---- 実行 ----
+async function onRun() {
+  const folder = document.getElementById('folder-path').textContent;
+  if (!folder || folder === '（未選択）') { setStatus('フォルダを選択してください', false); return; }
+  if (refIdx < 0) { setStatus('REFを選択してください', false); return; }
+  const defIdxs = defChecked.map((c,i) => c && i !== refIdx ? i : -1).filter(i => i >= 0);
+  if (defIdxs.length === 0) { setStatus('DEFを1枚以上選択してください', false); return; }
+
+  const params = {
+    ref_path:    images[refIdx].path,
+    def_paths:   defIdxs.map(i => images[i].path),
+    json_path:   getJsonPath(),
+    folder:      folder,
+    s1_step:     parseInt(document.getElementById('s1-step').value),
+    s1_auto:     document.getElementById('s1-auto').checked,
+    s1_margin:   parseInt(document.getElementById('s1-margin').value),
+    s1_fixed:    parseInt(document.getElementById('s1-fixed-val').value),
+    s2_step:     parseInt(document.getElementById('s2-step').value),
+    s2_search:   parseInt(document.getElementById('s2-search').value),
+    subset_size: parseInt(document.getElementById('subset-size').value),
+    ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
+    n_workers:   parseInt(document.getElementById('n-workers').value),
+    gauge_length: parseInt(document.getElementById('gauge-length').value),
+    use_prev_stage1: document.getElementById('use-prev-s1').checked,
+    scale: Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
+  };
+
+  document.getElementById('btn-run').disabled = true;
+  setStatus('解析を開始しています...', true);
+  await eel.dic_start_analysis(params)();
+}
+
+function onCancel() {
+  eel.dic_cancel()();
+}
+
+function setStatus(msg, ok) {
+  const el = document.getElementById('footer-status');
+  el.textContent = msg;
+  el.className = 'footer-status ' + (ok ? 'ok' : 'err');
+}
+
+// ---- Pythonからのコールバック ----
+eel.expose(dic_on_status);
+function dic_on_status(msg, type) {
+  setStatus(msg, type === 'ok');
+}
+</script>
+</body>
+</html>
