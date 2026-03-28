@@ -6,6 +6,7 @@ __pycache__/
 # Claude Code internal
 DIC/.claude/
 DIC/.dist/
+CLAUDE.md
 
 # Demo/experimental data (too large for GitHub)
 DIC/解析実行に必要なデータ (デモ用)/
