@@ -200,8 +200,15 @@ def render_deformed_grain_image(cx_def, cy_def, grain_ids, step=None):
     step_est : float  推定DICステップ [px]
     """
     if step is None:
-        xs_u = np.unique(np.round(cx_def, 0))
-        step_est = float(np.median(np.diff(xs_u))) if len(xs_u) > 1 else 15.0
+        # 点の密度から推定（大変形時でも安定）
+        # 変形後の座標は非等間隔になるため、x 差分の中央値は過小推定になりやすい
+        x_range = float(cx_def.max() - cx_def.min())
+        y_range = float(cy_def.max() - cy_def.min())
+        n = len(cx_def)
+        if n > 1 and x_range > 0 and y_range > 0:
+            step_est = float(np.sqrt(x_range * y_range / n))
+        else:
+            step_est = 15.0
     else:
         step_est = float(step)
 
