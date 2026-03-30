@@ -708,21 +708,33 @@ def assign_subset_ids(data, meta, H, cx_def, cy_def, subset_ids,
     ypos = data[:, 4]
     ebsd_ix = (xpos - x_min) / x_step if x_step > 0 else np.zeros(len(xpos))
     ebsd_iy = (ypos - y_min) / y_step if y_step > 0 else np.zeros(len(ypos))
+    print(f"  [debug] EBSD canvas  ix: {ebsd_ix.min():.1f} – {ebsd_ix.max():.1f}")
+    print(f"  [debug] EBSD canvas  iy: {ebsd_iy.min():.1f} – {ebsd_iy.max():.1f}")
 
     # H_inv: EBSDキャンバスピクセル → 変形後DICキャンバスピクセル
     H_full   = np.vstack([H, [0.0, 0.0, 1.0]])
     H_inv    = np.linalg.inv(H_full)[:2]           # (2, 3)
+    print(f"  [debug] H =\n{H}")
+    print(f"  [debug] H_inv =\n{H_inv}")
 
     N = len(ebsd_ix)
     ebsd_pts_h = np.column_stack([ebsd_ix, ebsd_iy, np.ones(N)])  # (N, 3)
     dic_canvas = (H_inv @ ebsd_pts_h.T).T                         # (N, 2)
+    print(f"  [debug] DIC canvas (after H_inv)  x: {dic_canvas[:,0].min():.1f} – {dic_canvas[:,0].max():.1f}")
+    print(f"  [debug] DIC canvas (after H_inv)  y: {dic_canvas[:,1].min():.1f} – {dic_canvas[:,1].max():.1f}")
 
     # キャンバスピクセル → DIC実座標
     dic_cx_actual = dic_canvas[:, 0] + x_offset
     dic_cy_actual = dic_canvas[:, 1] + y_offset
+    print(f"  [debug] x_offset={x_offset},  y_offset={y_offset}")
+    print(f"  [debug] dic_cx_actual: {dic_cx_actual.min():.1f} – {dic_cx_actual.max():.1f}")
+    print(f"  [debug] dic_cy_actual: {dic_cy_actual.min():.1f} – {dic_cy_actual.max():.1f}")
+    print(f"  [debug] cx_def range : {cx_def.min():.1f} – {cx_def.max():.1f}")
+    print(f"  [debug] cy_def range : {cy_def.min():.1f} – {cy_def.max():.1f}")
 
     # KDTree で最近傍DICサブセットを検索
     max_dist = dic_step * 1.5
+    print(f"  [debug] dic_step={dic_step:.2f}  max_dist={max_dist:.2f}")
     tree = cKDTree(np.column_stack([cx_def, cy_def]))
     dists, idxs = tree.query(np.column_stack([dic_cx_actual, dic_cy_actual]), k=1)
 
