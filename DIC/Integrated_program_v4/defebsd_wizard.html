@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v1 -->
+<!-- v2 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -58,7 +58,7 @@
     gap: 14px;
   }
 
-  /* ---- カード共通 ---- */
+  /* ---- カード ---- */
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -90,94 +90,110 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default;
   }
   .file-path.set  { color: var(--text); border-color: rgba(0,212,255,0.3); }
+
   .btn-sm {
     padding: 5px 12px; border: 1px solid var(--border); background: var(--surface2);
     color: var(--text); font-family: var(--mono); font-size: 11px;
     cursor: pointer; border-radius: 3px; transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
   }
-  .btn-sm:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+  .btn-sm:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
   .btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  /* ---- ステージリスト ---- */
+  /* ---- モード切替 ---- */
+  .mode-row {
+    padding: 0 16px 12px;
+    display: flex;
+    gap: 6px;
+  }
+  .btn-mode {
+    padding: 5px 18px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn-mode.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,0.10);
+  }
+  .btn-mode:hover:not(.active) {
+    border-color: var(--text-dim);
+    color: var(--text);
+  }
+
+  /* ---- ステージヘッダー ---- */
   .stages-header {
     padding: 0 16px 8px;
     display: flex;
     align-items: center;
     gap: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
   }
   .stages-title {
     font-family: var(--mono); font-size: 10px; color: var(--accent);
     text-transform: uppercase; letter-spacing: 0.12em; flex: 1;
   }
-  .btn-add {
-    padding: 4px 12px; border: 1px solid var(--accent);
-    background: rgba(0,212,255,0.08); color: var(--accent);
-    font-family: var(--mono); font-size: 11px; cursor: pointer;
-    border-radius: 3px; transition: all 0.15s;
+  .stages-hint {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
   }
-  .btn-add:hover { background: rgba(0,212,255,0.18); }
-  .btn-add:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .stages-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+  /* ---- チェックボックスリスト ---- */
+  .stages-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 4px; }
 
   .stage-row {
     display: grid;
-    grid-template-columns: 160px 1fr 120px 1fr auto auto;
-    gap: 6px;
+    grid-template-columns: 22px 140px 1fr auto 70px;
+    gap: 8px;
     align-items: center;
-    background: var(--surface2);
-    border: 1px solid var(--border);
+    padding: 6px 8px;
+    border: 1px solid transparent;
     border-radius: 4px;
-    padding: 8px 10px;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, background 0.2s;
   }
-  .stage-row.running { border-color: var(--accent); }
-  .stage-row.done    { border-color: var(--green); }
-  .stage-row.error   { border-color: var(--accent2); }
+  .stage-row:hover { background: rgba(255,255,255,0.02); }
+  .stage-row.running { border-color: var(--accent);  background: rgba(0,212,255,0.04); }
+  .stage-row.done    { border-color: var(--green);   background: rgba(0,255,136,0.03); }
+  .stage-row.error   { border-color: var(--accent2); background: rgba(255,107,53,0.04); }
+  .stage-row.unchecked { opacity: 0.38; }
 
-  .stage-label-input {
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 3px; padding: 4px 8px;
+  .stage-check {
+    width: 14px; height: 14px; cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .stage-label-text {
     font-family: var(--mono); font-size: 11px; color: var(--text);
-    width: 100%;
-  }
-  .stage-label-input:focus { outline: none; border-color: var(--accent); }
-
-  .stage-mode-select {
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 3px; padding: 4px 6px;
-    font-family: var(--mono); font-size: 11px; color: var(--text);
-    width: 100%; cursor: pointer;
-  }
-
-  .stage-path {
-    flex: 1; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 3px; padding: 4px 8px; font-family: var(--mono);
-    font-size: 10px; color: var(--text-dim);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    cursor: default;
   }
-  .stage-path.set { color: var(--text); border-color: rgba(0,212,255,0.25); }
+
+  .stage-path-text {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 8px; cursor: default;
+  }
+  .stage-path-text.set { color: var(--text); border-color: rgba(0,212,255,0.25); }
+  .stage-path-text.missing { border-color: rgba(255,107,53,0.4); color: var(--accent2); }
 
   .stage-status {
-    font-family: var(--mono); font-size: 10px; min-width: 60px; text-align: center;
-    padding: 2px 6px; border-radius: 3px;
+    font-family: var(--mono); font-size: 9px; text-align: center;
+    padding: 2px 6px; border-radius: 3px; white-space: nowrap;
+    color: var(--text-dim);
   }
   .stage-status.running { color: var(--accent);  background: rgba(0,212,255,0.12); }
   .stage-status.done    { color: var(--green);   background: rgba(0,255,136,0.10); }
   .stage-status.error   { color: var(--accent2); background: rgba(255,107,53,0.10); }
-  .stage-status.idle    { color: var(--text-dim); }
-
-  .btn-del {
-    padding: 4px 8px; border: 1px solid var(--border); background: transparent;
-    color: var(--text-dim); font-family: var(--mono); font-size: 12px;
-    cursor: pointer; border-radius: 3px; transition: all 0.15s; line-height: 1;
-  }
-  .btn-del:hover { border-color: var(--red); color: var(--red); }
 
   .empty-hint {
     font-size: 11px; color: var(--text-dim); text-align: center;
-    padding: 10px 0; font-style: italic;
+    padding: 14px 0; font-style: italic;
   }
 
   /* ---- フッター ---- */
@@ -238,16 +254,25 @@
     </div>
   </div>
 
-  <!-- Step 2: 変形段階リスト -->
+  <!-- Step 2: EBSDデータ形式 + 変形段階 -->
   <div class="card">
-    <div class="stages-header">
-      <div class="stages-title">Step 2 — 変形段階（Def_nth）</div>
-      <button class="btn-add" id="btn-add" onclick="addStage()" disabled>＋ 追加</button>
+    <div class="card-title">Step 2 — EBSDデータ形式と変形段階</div>
+
+    <!-- モード切替（全段階共通） -->
+    <div class="mode-row">
+      <button class="btn-mode active" id="btn-mode-mat"   onclick="setMode('mat')"  >.mat (CrossCourt)　HR-EBSD</button>
+      <button class="btn-mode"        id="btn-mode-grain" onclick="setMode('grain')">Grain File (.txt)　Normal EBSD</button>
     </div>
+
+    <!-- 変形段階リストヘッダー -->
+    <div class="stages-header">
+      <div class="stages-title">変形段階チェックリスト</div>
+      <span class="stages-hint" id="stages-hint"></span>
+      <button class="btn-sm" id="btn-bulk" onclick="browseFiles()" disabled>一括選択…</button>
+    </div>
+
     <div class="stages-list" id="stages-list">
-      <div class="empty-hint" id="empty-hint">
-        georef.xlsx を選択すると変形段階を追加できます
-      </div>
+      <div class="empty-hint" id="empty-hint">georef.xlsx を選択すると変形段階が表示されます</div>
     </div>
   </div>
 
@@ -262,10 +287,26 @@
 <script>
   let _georefPath = null;
   let _outPath    = null;
-  let _stages     = [];       // [{id, label, mode, path}]
-  let _labels     = [];       // georef.xlsx から取得した変形段階ラベル
-  let _stageIdSeq = 0;
-  let _running    = false;
+  let _mode       = 'mat';      // グローバルモード
+  let _labels     = [];         // georef.xlsx から取得したラベル
+  // _stageState[label] = { checked: bool, path: string|null, status: 'idle'|'running'|'done'|'error' }
+  const _stageState = {};
+  let _running = false;
+
+  // ── モード切替 ───────────────────────────────────────────────────────────
+  function setMode(mode) {
+    _mode = mode;
+    document.getElementById('btn-mode-mat').classList.toggle('active',   mode === 'mat');
+    document.getElementById('btn-mode-grain').classList.toggle('active', mode === 'grain');
+    // ファイルパスをリセット（形式が変わるので）
+    _labels.forEach(lbl => {
+      _stageState[lbl].path = null;
+      const el = document.getElementById(`stage-path-${_safeId(lbl)}`);
+      if (el) { el.textContent = '（未選択）'; el.className = 'stage-path-text'; }
+    });
+    updateHint();
+    updateRunButton();
+  }
 
   // ── georef.xlsx 選択 ──────────────────────────────────────────────────────
   async function browseGeoref() {
@@ -279,7 +320,7 @@
     document.getElementById('georef-path').textContent = path;
     document.getElementById('georef-path').classList.add('set');
 
-    // 自動で出力フォルダを設定（georef.xlsx と同じフォルダ内の defebsd_georef/）
+    // 出力フォルダの自動設定
     if (!_outPath) {
       const dir = path.replace(/[/\\][^/\\]+$/, '');
       _outPath = dir + '/defebsd_georef';
@@ -287,14 +328,12 @@
       document.getElementById('out-path').classList.add('set');
     }
 
-    // 変形段階ラベルを取得
+    // ラベル読み込み → チェックリスト生成
     setStatus('ラベルを読み込み中...', true);
     try {
       _labels = await eel.defebsd_get_labels(path)();
-      setStatus(`${_labels.length} 段階のラベルを読み込みました`, true);
-      document.getElementById('btn-add').disabled = false;
-      document.getElementById('empty-hint').textContent =
-        '「＋ 追加」で変形段階を追加してください';
+      buildChecklist();
+      setStatus(`${_labels.length} 段階を読み込みました`, true);
     } catch(e) {
       setStatus('ラベルの読み込みに失敗しました', false);
     }
@@ -311,149 +350,179 @@
     document.getElementById('out-path').classList.add('set');
   }
 
-  // ── ステージ追加 ─────────────────────────────────────────────────────────
-  function addStage() {
-    const id = ++_stageIdSeq;
-    _stages.push({ id, label: '', mode: 'mat', path: null });
-
-    // emptyヒントを消す
-    const hint = document.getElementById('empty-hint');
-    if (hint) hint.remove();
+  // ── チェックリスト生成 ───────────────────────────────────────────────────
+  function buildChecklist() {
+    // stateを初期化（既存は保持）
+    _labels.forEach(lbl => {
+      if (!_stageState[lbl]) _stageState[lbl] = { checked: true, path: null, status: 'idle' };
+    });
 
     const list = document.getElementById('stages-list');
-    const row  = document.createElement('div');
-    row.className = 'stage-row';
-    row.id = `stage-row-${id}`;
+    list.innerHTML = '';
 
-    // ラベル選択（ドロップダウン or 手入力）
-    const labelSel = document.createElement('select');
-    labelSel.className = 'stage-label-input';
-    labelSel.id = `stage-label-${id}`;
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = '-- 段階を選択 --';
-    labelSel.appendChild(defaultOpt);
+    if (_labels.length === 0) {
+      list.innerHTML = '<div class="empty-hint">変形段階が見つかりませんでした</div>';
+      document.getElementById('btn-bulk').disabled = true;
+      return;
+    }
+
+    document.getElementById('btn-bulk').disabled = false;
+
     _labels.forEach(lbl => {
-      const opt = document.createElement('option');
-      opt.value = lbl;
-      opt.textContent = lbl;
-      labelSel.appendChild(opt);
-    });
-    labelSel.addEventListener('change', () => {
-      const s = _stages.find(s => s.id === id);
-      if (s) s.label = labelSel.value;
-      updateRunButton();
-    });
+      const sid = _safeId(lbl);
+      const st  = _stageState[lbl];
 
-    // モード切替
-    const modeSel = document.createElement('select');
-    modeSel.className = 'stage-mode-select';
-    modeSel.id = `stage-mode-${id}`;
-    [['mat', '.mat (HR-EBSD)'], ['grain', 'Grain File (.txt)']].forEach(([v, t]) => {
-      const opt = document.createElement('option');
-      opt.value = v; opt.textContent = t;
-      modeSel.appendChild(opt);
-    });
-    modeSel.addEventListener('change', () => {
-      const s = _stages.find(s => s.id === id);
-      if (s) s.mode = modeSel.value;
-    });
+      const row = document.createElement('div');
+      row.className = 'stage-row' + (st.checked ? '' : ' unchecked');
+      row.id = `stage-row-${sid}`;
 
-    // ファイルパス表示
-    const pathDiv = document.createElement('div');
-    pathDiv.className = 'stage-path';
-    pathDiv.id = `stage-path-${id}`;
-    pathDiv.textContent = '（未選択）';
-
-    // ファイル選択ボタン
-    const browseBtn = document.createElement('button');
-    browseBtn.className = 'btn-sm';
-    browseBtn.textContent = '選択…';
-    browseBtn.onclick = async () => {
-      const s = _stages.find(s => s.id === id);
-      if (!s) return;
-      const wd = window._workDir || '';
-      let path = '';
-      if (s.mode === 'mat') {
-        path = await eel.defebsd_browse_file('EBSD .mat ファイルを選択',
-          [['MATLAB file', '*.mat'], ['All files', '*.*']], wd)();
-      } else {
-        path = await eel.defebsd_browse_file('Grain File を選択',
-          [['Grain File', '*.txt'], ['All files', '*.*']], wd)();
-      }
-      if (path) {
-        s.path = path;
-        pathDiv.textContent = path.replace(/.*[/\\]/, '');  // ファイル名のみ表示
-        pathDiv.title = path;
-        pathDiv.classList.add('set');
+      // チェックボックス
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'stage-check';
+      cb.checked = st.checked;
+      cb.onchange = () => {
+        _stageState[lbl].checked = cb.checked;
+        row.classList.toggle('unchecked', !cb.checked);
+        updateHint();
         updateRunButton();
+      };
+
+      // ラベル名
+      const labelEl = document.createElement('div');
+      labelEl.className = 'stage-label-text';
+      labelEl.textContent = lbl;
+      labelEl.title = lbl;
+
+      // ファイルパス表示
+      const pathEl = document.createElement('div');
+      pathEl.className = 'stage-path-text' + (st.path ? ' set' : '');
+      pathEl.id = `stage-path-${sid}`;
+      pathEl.textContent = st.path ? _basename(st.path) : '（未選択）';
+      pathEl.title = st.path || '';
+
+      // 個別選択ボタン
+      const browseBtn = document.createElement('button');
+      browseBtn.className = 'btn-sm';
+      browseBtn.textContent = '選択…';
+      browseBtn.onclick = () => browseFileSingle(lbl);
+
+      // ステータスバッジ
+      const statEl = document.createElement('div');
+      statEl.className = 'stage-status ' + (st.status === 'idle' ? '' : st.status);
+      statEl.id = `stage-status-${sid}`;
+      statEl.textContent = st.status === 'idle' ? '—' :
+                           st.status === 'running' ? 'RUNNING' :
+                           st.status === 'done'    ? 'DONE'    : 'ERROR';
+
+      row.appendChild(cb);
+      row.appendChild(labelEl);
+      row.appendChild(pathEl);
+      row.appendChild(browseBtn);
+      row.appendChild(statEl);
+      list.appendChild(row);
+    });
+
+    updateHint();
+  }
+
+  // ── 一括ファイル選択 ─────────────────────────────────────────────────────
+  async function browseFiles() {
+    const wd = window._workDir || '';
+    let title, filetypes;
+    if (_mode === 'mat') {
+      title     = 'EBSD .mat ファイルを一括選択（チェック済み段階の数だけ選択）';
+      filetypes = [['MATLAB file', '*.mat'], ['All files', '*.*']];
+    } else {
+      title     = 'Grain File を一括選択（チェック済み段階の数だけ選択）';
+      filetypes = [['Grain File', '*.txt'], ['All files', '*.*']];
+    }
+
+    const paths = await eel.defebsd_browse_files(title, filetypes, wd)();
+    if (!paths || paths.length === 0) return;
+
+    // チェック済みラベルに順番に割り当て
+    const checkedLabels = _labels.filter(lbl => _stageState[lbl].checked);
+    paths.forEach((p, i) => {
+      if (i >= checkedLabels.length) return;
+      const lbl = checkedLabels[i];
+      _stageState[lbl].path = p;
+      const sid = _safeId(lbl);
+      const el  = document.getElementById(`stage-path-${sid}`);
+      if (el) {
+        el.textContent = _basename(p);
+        el.title = p;
+        el.className = 'stage-path-text set';
       }
-    };
+    });
 
-    // ステータス
-    const statusDiv = document.createElement('div');
-    statusDiv.className = 'stage-status idle';
-    statusDiv.id = `stage-status-${id}`;
-    statusDiv.textContent = 'IDLE';
-
-    // 削除ボタン
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn-del';
-    delBtn.textContent = '✕';
-    delBtn.title = 'この段階を削除';
-    delBtn.onclick = () => {
-      _stages = _stages.filter(s => s.id !== id);
-      row.remove();
-      if (_stages.length === 0) {
-        const list2 = document.getElementById('stages-list');
-        const hint2 = document.createElement('div');
-        hint2.className = 'empty-hint';
-        hint2.id = 'empty-hint';
-        hint2.textContent = '「＋ 追加」で変形段階を追加してください';
-        list2.appendChild(hint2);
-      }
-      updateRunButton();
-    };
-
-    row.appendChild(labelSel);
-    row.appendChild(modeSel);
-    row.appendChild(pathDiv);
-    row.appendChild(browseBtn);
-    row.appendChild(statusDiv);
-    row.appendChild(delBtn);
-    list.appendChild(row);
+    const n = Math.min(paths.length, checkedLabels.length);
+    setStatus(`${n} 件のファイルを割り当てました`, true);
     updateRunButton();
+  }
+
+  // ── 個別ファイル選択 ─────────────────────────────────────────────────────
+  async function browseFileSingle(lbl) {
+    const wd = window._workDir || '';
+    let title, filetypes;
+    if (_mode === 'mat') {
+      title     = `${lbl} — .mat ファイルを選択`;
+      filetypes = [['MATLAB file', '*.mat'], ['All files', '*.*']];
+    } else {
+      title     = `${lbl} — Grain File を選択`;
+      filetypes = [['Grain File', '*.txt'], ['All files', '*.*']];
+    }
+    const path = await eel.defebsd_browse_file(title, filetypes, wd)();
+    if (!path) return;
+
+    _stageState[lbl].path = path;
+    const sid = _safeId(lbl);
+    const el  = document.getElementById(`stage-path-${sid}`);
+    if (el) {
+      el.textContent = _basename(path);
+      el.title = path;
+      el.className = 'stage-path-text set';
+    }
+    updateRunButton();
+  }
+
+  // ── ヒント更新 ───────────────────────────────────────────────────────────
+  function updateHint() {
+    const checked = _labels.filter(lbl => _stageState[lbl].checked).length;
+    document.getElementById('stages-hint').textContent =
+      _labels.length > 0 ? `${checked} / ${_labels.length} 段階を選択中` : '';
   }
 
   // ── 実行ボタン有効/無効 ──────────────────────────────────────────────────
   function updateRunButton() {
-    const ok = _georefPath
-      && _outPath
-      && _stages.length > 0
-      && _stages.every(s => s.label && s.path)
-      && !_running;
+    const checkedLabels = _labels.filter(lbl => _stageState[lbl].checked);
+    const allHaveFiles  = checkedLabels.length > 0
+      && checkedLabels.every(lbl => _stageState[lbl].path);
+    const ok = _georefPath && _outPath && allHaveFiles && !_running;
     document.getElementById('btn-run').disabled = !ok;
   }
 
   // ── 実行 ─────────────────────────────────────────────────────────────────
   async function onRun() {
-    if (!_georefPath)       { setStatus('georef.xlsx を選択してください', false); return; }
-    if (_stages.length===0) { setStatus('変形段階を1つ以上追加してください', false); return; }
-    if (_stages.some(s => !s.label)) { setStatus('すべての段階にラベルを選択してください', false); return; }
-    if (_stages.some(s => !s.path))  { setStatus('すべての段階にファイルを選択してください', false); return; }
+    const checkedLabels = _labels.filter(lbl => _stageState[lbl].checked);
+    if (!_georefPath)             { setStatus('georef.xlsx を選択してください', false); return; }
+    if (checkedLabels.length===0) { setStatus('1段階以上チェックしてください', false); return; }
+    if (checkedLabels.some(lbl => !_stageState[lbl].path)) {
+      setStatus('チェック済み段階すべてにファイルを割り当ててください', false); return;
+    }
 
     _running = true;
     document.getElementById('btn-run').disabled = true;
-    document.getElementById('btn-add').disabled = true;
+    document.getElementById('btn-bulk').disabled = true;
     setStatus('解析を開始しています...', true);
 
     const params = {
       georef_xlsx: _georefPath,
       out_dir:     _outPath,
-      stages: _stages.map(s => ({
-        label:     s.label,
-        ebsd_path: s.path,
-        mode:      s.mode,
+      stages: checkedLabels.map(lbl => ({
+        label:     lbl,
+        ebsd_path: _stageState[lbl].path,
+        mode:      _mode,
       })),
     };
 
@@ -463,25 +532,28 @@
   // ── Python コールバック ──────────────────────────────────────────────────
   eel.expose(defebsd_on_stage_status);
   function defebsd_on_stage_status(label, msg, type) {
-    // 対応するステージ行を検索してステータス更新
-    const stage = _stages.find(s => s.label === label);
-    if (!stage) return;
-    const row  = document.getElementById(`stage-row-${stage.id}`);
-    const stat = document.getElementById(`stage-status-${stage.id}`);
-    if (!row || !stat) return;
-
-    row.className = 'stage-row ' + (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
-    stat.className = 'stage-status ' + (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
-    stat.textContent = type === 'ok' ? 'RUNNING' : type === 'done' ? 'DONE' : 'ERROR';
+    if (!_stageState[label]) return;
+    _stageState[label].status = type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error';
+    const sid  = _safeId(label);
+    const row  = document.getElementById(`stage-row-${sid}`);
+    const stat = document.getElementById(`stage-status-${sid}`);
+    if (row) {
+      row.className = 'stage-row ' +
+        (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
+    }
+    if (stat) {
+      stat.className = 'stage-status ' +
+        (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
+      stat.textContent = type === 'ok' ? 'RUNNING' : type === 'done' ? 'DONE' : 'ERROR';
+    }
   }
 
   eel.expose(defebsd_on_complete);
   function defebsd_on_complete(success, msg) {
     _running = false;
     setStatus(msg, success);
-    document.getElementById('btn-add').disabled = false;
+    document.getElementById('btn-bulk').disabled = false;
     updateRunButton();
-    // 完了した段階はDONE表示を維持
   }
 
   // ── ユーティリティ ───────────────────────────────────────────────────────
@@ -489,6 +561,15 @@
     const el = document.getElementById('footer-status');
     el.textContent = msg;
     el.className = 'footer-status ' + (ok ? 'ok' : 'err');
+  }
+
+  function _basename(p) {
+    return p.replace(/.*[/\\]/, '');
+  }
+
+  function _safeId(lbl) {
+    // ラベルを DOM ID に使えるよう英数字・ハイフン以外を置換
+    return lbl.replace(/[^a-zA-Z0-9\-]/g, '_');
   }
 
   window.addEventListener('load', async () => {

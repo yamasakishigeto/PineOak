@@ -535,6 +535,23 @@ def defebsd_browse_file(title: str, filetypes: list, initialdir: str):
 
 
 @eel.expose
+def defebsd_browse_files(title: str, filetypes: list, initialdir: str):
+    """複数ファイルを一括選択して、パスのリストを返す"""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    paths = filedialog.askopenfilenames(
+        title=title,
+        filetypes=[tuple(f) for f in filetypes],
+        initialdir=initialdir or _work_dir,
+    )
+    root.destroy()
+    return list(paths)
+
+
+@eel.expose
 def defebsd_browse_dir(title: str, initialdir: str):
     return _tk_filedialog('dir', title, initialdir=initialdir or _work_dir)
 
