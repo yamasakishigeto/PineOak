@@ -146,6 +146,7 @@ def _run_ebsd_analysis(paths: dict):
     # JSONパスを直接 ebsd_georef_v68.py に渡す（ファイル選択ダイアログをスキップ）
     _env = os.environ.copy()
     _env['MPLBACKEND'] = 'QtAgg'
+    _env['PYTHONIOENCODING'] = 'utf-8'
     proc = subprocess.Popen(
         [PYTHON, ebsd_script, param_file],
         cwd=TOOLS_DIR,
@@ -198,6 +199,7 @@ def _run_hv_analysis(paths: dict):
     # JSONパスを直接 heaviside_dic_v81.py に渡す（ウィザードをスキップ）
     _env = os.environ.copy()
     _env['MPLBACKEND'] = 'QtAgg'
+    _env['PYTHONIOENCODING'] = 'utf-8'
     proc = subprocess.Popen(
         [PYTHON, hv_script, param_file],
         cwd=TOOLS_DIR,
@@ -361,10 +363,13 @@ def dic_run_prescan(params: dict):
         script = os.path.join(TOOLS_DIR, "_prescan_runner.py")
         _write_prescan_runner(script)
 
+        _env = os.environ.copy()
+        _env['PYTHONIOENCODING'] = 'utf-8'
         proc = subprocess.run(
             [PYTHON, script, param_file, result_file,
              os.path.join(TOOLS_DIR, "dic_sem_strain_v58.py")],
-            timeout=120
+            timeout=120,
+            env=_env,
         )
 
         if os.path.exists(result_file):
@@ -383,6 +388,11 @@ def _write_prescan_runner(path: str):
     code = '''
 import sys, json
 from pathlib import Path
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 param_file  = sys.argv[1]
 result_file = sys.argv[2]
@@ -474,6 +484,7 @@ def _run_dic_analysis(params: dict):
 
     _env = os.environ.copy()
     _env['MPLBACKEND'] = 'QtAgg'
+    _env['PYTHONIOENCODING'] = 'utf-8'
     proc = subprocess.Popen(
         [PYTHON, script, param_file, os.path.join(TOOLS_DIR, "dic_sem_strain_v58.py")],
         cwd=TOOLS_DIR,

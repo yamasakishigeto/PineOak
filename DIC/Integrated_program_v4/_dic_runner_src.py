@@ -1,6 +1,12 @@
 import sys, json
 from pathlib import Path
 
+# 非日本語環境でも日本語出力が文字化けしないようにUTF-8に固定する
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 param_file = sys.argv[1]
 dic_module = sys.argv[2]
 
