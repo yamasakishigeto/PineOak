@@ -207,7 +207,12 @@ def load_mat_file(path):
                   grain_tol_angle, phases)
     """
     import scipy.io
-    mat = scipy.io.loadmat(path)
+    _NEEDED = [
+        'grain_number', 'euler_phi1', 'euler_phi', 'euler_phi2',
+        'xpos', 'ypos', 'image_quality', 'confidence_index',
+        'phasetxt', 'xstep', 'ystep',
+    ]
+    mat = scipy.io.loadmat(path, variable_names=_NEEDED)
 
     # グリッドサイズ（shape は (ny, nx) = (rows, cols)）
     ny, nx = mat['grain_number'].shape
