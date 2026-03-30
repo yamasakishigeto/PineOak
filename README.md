@@ -1,7 +1,7 @@
 # PineOak SEM-DIC/HR-EBSD Tools
 
 SEM-DIC と HR-EBSD の実験・解析で使うための Python ツール集です。
-SEM 画像からのひずみ測定、EBSD との地理参照、応力–ひずみ曲線の可視化などをサポートします。
+SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、応力–ひずみ曲線の可視化などをサポートします。
 
 ---
 
