@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<!-- v1 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Def EBSD Georef Wizard</title>
+<script src="/eel.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --red: #ff4444;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .logo { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .subtitle { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ---- カード共通 ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .card-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 12px 16px 0;
+    margin-bottom: 10px;
+  }
+
+  /* ---- ファイル行 ---- */
+  .file-rows { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .file-row  { display: flex; align-items: center; gap: 8px; }
+  .file-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    width: 160px; flex-shrink: 0;
+  }
+  .file-label .required { color: var(--accent2); margin-left: 2px; }
+  .file-path {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 5px 10px; font-family: var(--mono);
+    font-size: 10px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default;
+  }
+  .file-path.set  { color: var(--text); border-color: rgba(0,212,255,0.3); }
+  .btn-sm {
+    padding: 5px 12px; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-family: var(--mono); font-size: 11px;
+    cursor: pointer; border-radius: 3px; transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+  .btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---- ステージリスト ---- */
+  .stages-header {
+    padding: 0 16px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .stages-title {
+    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.12em; flex: 1;
+  }
+  .btn-add {
+    padding: 4px 12px; border: 1px solid var(--accent);
+    background: rgba(0,212,255,0.08); color: var(--accent);
+    font-family: var(--mono); font-size: 11px; cursor: pointer;
+    border-radius: 3px; transition: all 0.15s;
+  }
+  .btn-add:hover { background: rgba(0,212,255,0.18); }
+  .btn-add:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .stages-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+  .stage-row {
+    display: grid;
+    grid-template-columns: 160px 1fr 120px 1fr auto auto;
+    gap: 6px;
+    align-items: center;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    transition: border-color 0.2s;
+  }
+  .stage-row.running { border-color: var(--accent); }
+  .stage-row.done    { border-color: var(--green); }
+  .stage-row.error   { border-color: var(--accent2); }
+
+  .stage-label-input {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    width: 100%;
+  }
+  .stage-label-input:focus { outline: none; border-color: var(--accent); }
+
+  .stage-mode-select {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 6px;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    width: 100%; cursor: pointer;
+  }
+
+  .stage-path {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 8px; font-family: var(--mono);
+    font-size: 10px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: default;
+  }
+  .stage-path.set { color: var(--text); border-color: rgba(0,212,255,0.25); }
+
+  .stage-status {
+    font-family: var(--mono); font-size: 10px; min-width: 60px; text-align: center;
+    padding: 2px 6px; border-radius: 3px;
+  }
+  .stage-status.running { color: var(--accent);  background: rgba(0,212,255,0.12); }
+  .stage-status.done    { color: var(--green);   background: rgba(0,255,136,0.10); }
+  .stage-status.error   { color: var(--accent2); background: rgba(255,107,53,0.10); }
+  .stage-status.idle    { color: var(--text-dim); }
+
+  .btn-del {
+    padding: 4px 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); font-family: var(--mono); font-size: 12px;
+    cursor: pointer; border-radius: 3px; transition: all 0.15s; line-height: 1;
+  }
+  .btn-del:hover { border-color: var(--red); color: var(--red); }
+
+  .empty-hint {
+    font-size: 11px; color: var(--text-dim); text-align: center;
+    padding: 10px 0; font-style: italic;
+  }
+
+  /* ---- フッター ---- */
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .btn-run {
+    padding: 9px 28px; border: 1px solid var(--accent);
+    background: rgba(0,212,255,0.1); color: var(--accent);
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    cursor: pointer; border-radius: 4px; transition: all 0.15s; letter-spacing: 0.08em;
+  }
+  .btn-run:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
+  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-cancel {
+    padding: 9px 18px; border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); font-family: var(--mono); font-size: 12px;
+    cursor: pointer; border-radius: 4px; transition: all 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--accent2); color: var(--accent2); }
+  .footer-status {
+    flex: 1; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); text-align: right;
+  }
+  .footer-status.ok  { color: var(--green); }
+  .footer-status.err { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="subtitle">Def EBSD Georef Wizard</div>
+</header>
+
+<div class="main">
+
+  <!-- Step 1: 入力ファイル -->
+  <div class="card">
+    <div class="card-title">Step 1 — 入力ファイル</div>
+    <div class="file-rows">
+      <div class="file-row">
+        <div class="file-label">dic_results_georef.xlsx<span class="required">*</span></div>
+        <div class="file-path" id="georef-path">（未選択）</div>
+        <button class="btn-sm" onclick="browseGeoref()">選択…</button>
+      </div>
+      <div class="file-row">
+        <div class="file-label">出力フォルダ<span class="required">*</span></div>
+        <div class="file-path" id="out-path">（未選択、自動設定）</div>
+        <button class="btn-sm" onclick="browseOut()">変更…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: 変形段階リスト -->
+  <div class="card">
+    <div class="stages-header">
+      <div class="stages-title">Step 2 — 変形段階（Def_nth）</div>
+      <button class="btn-add" id="btn-add" onclick="addStage()" disabled>＋ 追加</button>
+    </div>
+    <div class="stages-list" id="stages-list">
+      <div class="empty-hint" id="empty-hint">
+        georef.xlsx を選択すると変形段階を追加できます
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <button class="btn-run" id="btn-run" onclick="onRun()" disabled>実行</button>
+  <button class="btn-cancel" onclick="window.close()">キャンセル</button>
+  <div class="footer-status" id="footer-status"></div>
+</footer>
+
+<script>
+  let _georefPath = null;
+  let _outPath    = null;
+  let _stages     = [];       // [{id, label, mode, path}]
+  let _labels     = [];       // georef.xlsx から取得した変形段階ラベル
+  let _stageIdSeq = 0;
+  let _running    = false;
+
+  // ── georef.xlsx 選択 ──────────────────────────────────────────────────────
+  async function browseGeoref() {
+    const wd = window._workDir || '';
+    const path = await eel.defebsd_browse_file(
+      'dic_results_georef.xlsx を選択',
+      [['Excel files', '*.xlsx'], ['All files', '*.*']], wd)();
+    if (!path) return;
+
+    _georefPath = path;
+    document.getElementById('georef-path').textContent = path;
+    document.getElementById('georef-path').classList.add('set');
+
+    // 自動で出力フォルダを設定（georef.xlsx と同じフォルダ内の defebsd_georef/）
+    if (!_outPath) {
+      const dir = path.replace(/[/\\][^/\\]+$/, '');
+      _outPath = dir + '/defebsd_georef';
+      document.getElementById('out-path').textContent = _outPath;
+      document.getElementById('out-path').classList.add('set');
+    }
+
+    // 変形段階ラベルを取得
+    setStatus('ラベルを読み込み中...', true);
+    try {
+      _labels = await eel.defebsd_get_labels(path)();
+      setStatus(`${_labels.length} 段階のラベルを読み込みました`, true);
+      document.getElementById('btn-add').disabled = false;
+      document.getElementById('empty-hint').textContent =
+        '「＋ 追加」で変形段階を追加してください';
+    } catch(e) {
+      setStatus('ラベルの読み込みに失敗しました', false);
+    }
+    updateRunButton();
+  }
+
+  // ── 出力フォルダ選択 ─────────────────────────────────────────────────────
+  async function browseOut() {
+    const wd = window._workDir || '';
+    const path = await eel.defebsd_browse_dir('出力フォルダを選択', wd)();
+    if (!path) return;
+    _outPath = path;
+    document.getElementById('out-path').textContent = path;
+    document.getElementById('out-path').classList.add('set');
+  }
+
+  // ── ステージ追加 ─────────────────────────────────────────────────────────
+  function addStage() {
+    const id = ++_stageIdSeq;
+    _stages.push({ id, label: '', mode: 'mat', path: null });
+
+    // emptyヒントを消す
+    const hint = document.getElementById('empty-hint');
+    if (hint) hint.remove();
+
+    const list = document.getElementById('stages-list');
+    const row  = document.createElement('div');
+    row.className = 'stage-row';
+    row.id = `stage-row-${id}`;
+
+    // ラベル選択（ドロップダウン or 手入力）
+    const labelSel = document.createElement('select');
+    labelSel.className = 'stage-label-input';
+    labelSel.id = `stage-label-${id}`;
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '-- 段階を選択 --';
+    labelSel.appendChild(defaultOpt);
+    _labels.forEach(lbl => {
+      const opt = document.createElement('option');
+      opt.value = lbl;
+      opt.textContent = lbl;
+      labelSel.appendChild(opt);
+    });
+    labelSel.addEventListener('change', () => {
+      const s = _stages.find(s => s.id === id);
+      if (s) s.label = labelSel.value;
+      updateRunButton();
+    });
+
+    // モード切替
+    const modeSel = document.createElement('select');
+    modeSel.className = 'stage-mode-select';
+    modeSel.id = `stage-mode-${id}`;
+    [['mat', '.mat (HR-EBSD)'], ['grain', 'Grain File (.txt)']].forEach(([v, t]) => {
+      const opt = document.createElement('option');
+      opt.value = v; opt.textContent = t;
+      modeSel.appendChild(opt);
+    });
+    modeSel.addEventListener('change', () => {
+      const s = _stages.find(s => s.id === id);
+      if (s) s.mode = modeSel.value;
+    });
+
+    // ファイルパス表示
+    const pathDiv = document.createElement('div');
+    pathDiv.className = 'stage-path';
+    pathDiv.id = `stage-path-${id}`;
+    pathDiv.textContent = '（未選択）';
+
+    // ファイル選択ボタン
+    const browseBtn = document.createElement('button');
+    browseBtn.className = 'btn-sm';
+    browseBtn.textContent = '選択…';
+    browseBtn.onclick = async () => {
+      const s = _stages.find(s => s.id === id);
+      if (!s) return;
+      const wd = window._workDir || '';
+      let path = '';
+      if (s.mode === 'mat') {
+        path = await eel.defebsd_browse_file('EBSD .mat ファイルを選択',
+          [['MATLAB file', '*.mat'], ['All files', '*.*']], wd)();
+      } else {
+        path = await eel.defebsd_browse_file('Grain File を選択',
+          [['Grain File', '*.txt'], ['All files', '*.*']], wd)();
+      }
+      if (path) {
+        s.path = path;
+        pathDiv.textContent = path.replace(/.*[/\\]/, '');  // ファイル名のみ表示
+        pathDiv.title = path;
+        pathDiv.classList.add('set');
+        updateRunButton();
+      }
+    };
+
+    // ステータス
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'stage-status idle';
+    statusDiv.id = `stage-status-${id}`;
+    statusDiv.textContent = 'IDLE';
+
+    // 削除ボタン
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-del';
+    delBtn.textContent = '✕';
+    delBtn.title = 'この段階を削除';
+    delBtn.onclick = () => {
+      _stages = _stages.filter(s => s.id !== id);
+      row.remove();
+      if (_stages.length === 0) {
+        const list2 = document.getElementById('stages-list');
+        const hint2 = document.createElement('div');
+        hint2.className = 'empty-hint';
+        hint2.id = 'empty-hint';
+        hint2.textContent = '「＋ 追加」で変形段階を追加してください';
+        list2.appendChild(hint2);
+      }
+      updateRunButton();
+    };
+
+    row.appendChild(labelSel);
+    row.appendChild(modeSel);
+    row.appendChild(pathDiv);
+    row.appendChild(browseBtn);
+    row.appendChild(statusDiv);
+    row.appendChild(delBtn);
+    list.appendChild(row);
+    updateRunButton();
+  }
+
+  // ── 実行ボタン有効/無効 ──────────────────────────────────────────────────
+  function updateRunButton() {
+    const ok = _georefPath
+      && _outPath
+      && _stages.length > 0
+      && _stages.every(s => s.label && s.path)
+      && !_running;
+    document.getElementById('btn-run').disabled = !ok;
+  }
+
+  // ── 実行 ─────────────────────────────────────────────────────────────────
+  async function onRun() {
+    if (!_georefPath)       { setStatus('georef.xlsx を選択してください', false); return; }
+    if (_stages.length===0) { setStatus('変形段階を1つ以上追加してください', false); return; }
+    if (_stages.some(s => !s.label)) { setStatus('すべての段階にラベルを選択してください', false); return; }
+    if (_stages.some(s => !s.path))  { setStatus('すべての段階にファイルを選択してください', false); return; }
+
+    _running = true;
+    document.getElementById('btn-run').disabled = true;
+    document.getElementById('btn-add').disabled = true;
+    setStatus('解析を開始しています...', true);
+
+    const params = {
+      georef_xlsx: _georefPath,
+      out_dir:     _outPath,
+      stages: _stages.map(s => ({
+        label:     s.label,
+        ebsd_path: s.path,
+        mode:      s.mode,
+      })),
+    };
+
+    await eel.defebsd_start_batch(params)();
+  }
+
+  // ── Python コールバック ──────────────────────────────────────────────────
+  eel.expose(defebsd_on_stage_status);
+  function defebsd_on_stage_status(label, msg, type) {
+    // 対応するステージ行を検索してステータス更新
+    const stage = _stages.find(s => s.label === label);
+    if (!stage) return;
+    const row  = document.getElementById(`stage-row-${stage.id}`);
+    const stat = document.getElementById(`stage-status-${stage.id}`);
+    if (!row || !stat) return;
+
+    row.className = 'stage-row ' + (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
+    stat.className = 'stage-status ' + (type === 'ok' ? 'running' : type === 'done' ? 'done' : 'error');
+    stat.textContent = type === 'ok' ? 'RUNNING' : type === 'done' ? 'DONE' : 'ERROR';
+  }
+
+  eel.expose(defebsd_on_complete);
+  function defebsd_on_complete(success, msg) {
+    _running = false;
+    setStatus(msg, success);
+    document.getElementById('btn-add').disabled = false;
+    updateRunButton();
+    // 完了した段階はDONE表示を維持
+  }
+
+  // ── ユーティリティ ───────────────────────────────────────────────────────
+  function setStatus(msg, ok) {
+    const el = document.getElementById('footer-status');
+    el.textContent = msg;
+    el.className = 'footer-status ' + (ok ? 'ok' : 'err');
+  }
+
+  window.addEventListener('load', async () => {
+    const workDir = await eel.get_work_dir()();
+    if (workDir) window._workDir = workDir;
+  });
+</script>
+</body>
+</html>

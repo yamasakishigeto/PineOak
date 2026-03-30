@@ -518,6 +518,116 @@ def dic_cancel():
 
 
 # ================================================================
+# Def EBSD Georef ウィザード用
+# ================================================================
+
+@eel.expose
+def launch_defebsd():
+    """Def EBSD Georef ウィザードHTMLを別ウィンドウで開く"""
+    eel.start("defebsd_wizard.html", size=(820, 720), block=False)
+
+
+@eel.expose
+def defebsd_browse_file(title: str, filetypes: list, initialdir: str):
+    return _tk_filedialog('file', title,
+                          filetypes=[tuple(f) for f in filetypes],
+                          initialdir=initialdir or _work_dir)
+
+
+@eel.expose
+def defebsd_browse_dir(title: str, initialdir: str):
+    return _tk_filedialog('dir', title, initialdir=initialdir or _work_dir)
+
+
+@eel.expose
+def defebsd_get_labels(georef_xlsx: str):
+    """dic_results_georef.xlsx の 'u' シートからラベル一覧を取得する"""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(georef_xlsx, read_only=True)
+        if 'u' not in wb.sheetnames:
+            wb.close()
+            return []
+        ws = wb['u']
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        wb.close()
+        skip = {'subset_id', 'x [px]', 'y [px]'}
+        return [h for h in headers if h and h not in skip]
+    except Exception:
+        return []
+
+
+@eel.expose
+def defebsd_start_batch(params: dict):
+    threading.Thread(target=_run_defebsd_batch, args=(params,), daemon=True).start()
+
+
+def _run_defebsd_batch(params: dict):
+    import json, tempfile, re as _re
+    param_file = tempfile.mktemp(suffix='.json')
+    with open(param_file, 'w', encoding='utf-8') as f:
+        json.dump(params, f, ensure_ascii=False)
+
+    script = os.path.join(TOOLS_DIR, 'defebsd_georef_v1.py')
+    stage_labels = [s['label'] for s in params.get('stages', [])]
+
+    _env = os.environ.copy()
+    _env['MPLBACKEND'] = 'QtAgg'
+    _env['PYTHONIOENCODING'] = 'utf-8'
+    _env['PYTHONUNBUFFERED'] = '1'
+
+    proc = subprocess.Popen(
+        [PYTHON, script, param_file],
+        cwd=TOOLS_DIR,
+        env=_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+    )
+    _procs['defebsd'] = proc
+
+    for line in proc.stdout:
+        line_s = line.rstrip()
+        print(line_s)
+
+        # ステージ開始: [Stage N/M]  label  (file)
+        m = _re.match(r'\[Stage \d+/\d+\]\s+(\S+)', line_s)
+        if m:
+            lbl = m.group(1)
+            if lbl in stage_labels:
+                try:
+                    eel.defebsd_on_stage_status(lbl, '処理中...', 'ok')()
+                except Exception:
+                    pass
+
+        # ステージ完了: "  Stage 'label' complete."
+        m2 = _re.search(r"Stage '(.+?)' complete", line_s)
+        if m2:
+            lbl = m2.group(1)
+            if lbl in stage_labels:
+                try:
+                    eel.defebsd_on_stage_status(lbl, '完了', 'done')()
+                except Exception:
+                    pass
+
+    proc.wait()
+    _procs.pop('defebsd', None)
+
+    if proc.returncode == 0:
+        try:
+            eel.defebsd_on_complete(True, '全ステージ完了')()
+        except Exception:
+            pass
+    else:
+        try:
+            eel.defebsd_on_complete(False, f'エラー（終了コード {proc.returncode}）')()
+        except Exception:
+            pass
+
+
+# ================================================================
 # メイン
 # ================================================================
 
