@@ -405,12 +405,17 @@ def make_grain_id_image(data, meta):
 # =============================================================================
 # コントロールポイント指定 GUI（両パネル RGB 対応版）
 # =============================================================================
-def pick_control_points(left_img, right_img):
+def pick_control_points(left_img, right_img, left_label='', right_label=''):
     """
     左（変形後DIC Grain IDマップ）と右（EBSD Grain IDマップ）を並べて表示し、
     左→右の順に交互クリックでコントロールポイントを指定する。
 
     左パネルは RGB 画像（render_deformed_grain_image の出力）を想定。
+
+    Parameters
+    ----------
+    left_label  : str  左パネルのデータ識別名（DIC ラベル）
+    right_label : str  右パネルのデータ識別名（EBSD ファイル名など）
 
     Returns
     -------
@@ -437,8 +442,11 @@ def pick_control_points(left_img, right_img):
             sp.set_edgecolor(_C['border'])
         ax.tick_params(colors=_C['dim'], labelsize=11)
     fig.subplots_adjust(bottom=0.15, top=0.88, left=0.04, right=0.97, wspace=0.08)
+
+    _win_left  = f'Deformed DIC  [{left_label}]'  if left_label  else 'Deformed DIC Grain ID'
+    _win_right = f'EBSD  [{right_label}]'          if right_label else 'EBSD Grain ID'
     fig.canvas.manager.set_window_title(
-        'Def EBSD Georef  |  Deformed DIC Grain ID (L) → EBSD Grain ID (R)'
+        f'Def EBSD Georef  |  {_win_left} (L) → {_win_right} (R)'
         '  |  Right-click: undo  |  q: confirm')
 
     ax_left, ax_right = axes
@@ -446,10 +454,11 @@ def pick_control_points(left_img, right_img):
     # 両パネルとも RGB 表示
     ax_left.imshow(left_img,  origin='upper')
     ax_right.imshow(right_img, origin='upper')
-    ax_left.set_title('Deformed DIC Grain ID  [ click here first ]',
-                      fontsize=13, color=_C['accent'], pad=8)
-    ax_right.set_title('EBSD Grain ID map  [ click here second ]',
-                       fontsize=13, color=_C['dim'], pad=8)
+
+    _title_left  = f'Deformed DIC Grain ID  —  {left_label}\n[ click here first ]'  if left_label  else 'Deformed DIC Grain ID  [ click here first ]'
+    _title_right = f'EBSD Grain ID  —  {right_label}\n[ click here second ]'         if right_label else 'EBSD Grain ID map  [ click here second ]'
+    ax_left.set_title(_title_left,  fontsize=12, color=_C['accent'], pad=8)
+    ax_right.set_title(_title_right, fontsize=12, color=_C['dim'],   pad=8)
 
     # オーバーレイ（EBSDをワープして左パネルに半透明表示）
     _overlay_im = ax_left.imshow(
@@ -979,7 +988,11 @@ if __name__ == '__main__':
         print("[4/5] Please specify control points in the GUI...")
         print("  Left(Deformed DIC) → Right(EBSD) click alternately")
         print("  Right-click: undo  /  q: confirm")
-        pts_left, pts_right = pick_control_points(dic_grain_img, ebsd_grain_img)
+        pts_left, pts_right = pick_control_points(
+            dic_grain_img, ebsd_grain_img,
+            left_label=label,
+            right_label=Path(ebsd_path).name,
+        )
 
         n_pts = len(pts_left)
         if n_pts < 3:
