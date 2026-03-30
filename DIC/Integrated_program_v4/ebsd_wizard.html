@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v1 -->
+<!-- v2 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -55,7 +55,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 32px 24px;
+    padding: 16px 24px;
     gap: 0;
   }
 
@@ -126,6 +126,34 @@
   }
   .file-path.set  { color: var(--text); border-color: rgba(0,212,255,0.3); }
   .file-path.skip { color: var(--text-dim); font-style: italic; }
+
+  /* モード切替ボタン */
+  .mode-row {
+    padding: 0 18px 14px;
+    display: flex;
+    gap: 6px;
+  }
+  .btn-mode {
+    padding: 5px 18px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn-mode.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,0.10);
+  }
+  .btn-mode:hover:not(.active) {
+    border-color: var(--text-dim);
+    color: var(--text);
+  }
 
   .btn-sm {
     padding: 6px 14px;
@@ -201,13 +229,27 @@
 
 <div class="main">
   <div class="card">
+    <div class="card-title">EBSDデータ形式</div>
+    <div class="mode-row">
+      <button class="btn-mode active" id="btn-mode-grain" onclick="setMode('grain')">Grain File (.txt)　Normal EBSD / OIM</button>
+      <button class="btn-mode"        id="btn-mode-mat"   onclick="setMode('mat')"  >.mat (CrossCourt)　HR-EBSD</button>
+    </div>
+
     <div class="card-title">ファイル選択</div>
     <div class="file-rows">
 
-      <div class="file-row">
+      <!-- Normal EBSD: Grain File -->
+      <div class="file-row" id="row-grain">
         <div class="file-label">Grain File<span class="required">*</span></div>
         <div class="file-path" id="grain-path">（未選択）</div>
         <button class="btn-sm" onclick="browse('grain')">選択…</button>
+      </div>
+
+      <!-- HR-EBSD: .mat ファイル -->
+      <div class="file-row" id="row-mat" style="display:none">
+        <div class="file-label">.mat ファイル<span class="required">*</span></div>
+        <div class="file-path" id="mat-path">（未選択）</div>
+        <button class="btn-sm" onclick="browse('mat')">選択…</button>
       </div>
 
       <div class="file-row">
@@ -239,7 +281,18 @@
 </footer>
 
 <script>
-  const paths = { grain: null, sem: null, xlsx: null, out: null };
+  let currentMode = 'grain';   // 'grain' or 'mat'
+  const paths = { grain: null, mat: null, sem: null, xlsx: null, out: null };
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('btn-mode-grain').classList.toggle('active', mode === 'grain');
+    document.getElementById('btn-mode-mat').classList.toggle('active', mode === 'mat');
+    document.getElementById('row-grain').style.display = mode === 'grain' ? '' : 'none';
+    document.getElementById('row-mat').style.display   = mode === 'mat'   ? '' : 'none';
+    document.getElementById('footer-status').textContent = '';
+    document.getElementById('footer-status').className  = 'footer-status';
+  }
 
   window.addEventListener('load', async () => {
     const workDir = await eel.get_work_dir()();
@@ -256,6 +309,9 @@
     if (key === 'grain') {
       path = await eel.ebsd_browse_file('Grain File (Grain_File_*.txt) を選択',
         [['Grain File', '*.txt'], ['All files', '*.*']], wd)();
+    } else if (key === 'mat') {
+      path = await eel.ebsd_browse_file('.mat ファイルを選択',
+        [['MATLAB file', '*.mat'], ['All files', '*.*']], wd)();
     } else if (key === 'sem') {
       path = await eel.ebsd_browse_file('SEM参照画像を選択',
         [['Image files', '*.bmp *.png *.tif *.tiff'], ['All files', '*.*']], wd)();
@@ -276,14 +332,15 @@
   }
 
   async function onRun() {
-    if (!paths.grain) { setStatus('Grain File を選択してください', false); return; }
-    if (!paths.sem)   { setStatus('SEM参照画像を選択してください', false); return; }
-    if (!paths.xlsx)  { setStatus('dic_results.xlsx を選択してください', false); return; }
-    if (!paths.out)   { setStatus('出力フォルダを選択してください', false); return; }
+    if (currentMode === 'grain' && !paths.grain) { setStatus('Grain File を選択してください', false); return; }
+    if (currentMode === 'mat'   && !paths.mat)   { setStatus('.mat ファイルを選択してください', false); return; }
+    if (!paths.sem)  { setStatus('SEM参照画像を選択してください', false); return; }
+    if (!paths.xlsx) { setStatus('dic_results.xlsx を選択してください', false); return; }
+    if (!paths.out)  { setStatus('出力フォルダを選択してください', false); return; }
 
     document.getElementById('btn-run').disabled = true;
     setStatus('解析を開始しています...', true);
-    await eel.ebsd_start_analysis(paths)();
+    await eel.ebsd_start_analysis({ ...paths, mode: currentMode })();
   }
 
   function setStatus(msg, ok) {

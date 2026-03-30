@@ -104,7 +104,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 
 # =============================================================================
-# Grain File 読み込み
+# Grain File 読み込み（Normal EBSD / OIM Analysis）
 # =============================================================================
 def load_grain_file(path):
     """
@@ -181,6 +181,97 @@ def load_grain_file(path):
         x_max=x_max, y_max=y_max,
         grain_tol_angle=grain_tol_angle,
         phases=unique_phases,
+    )
+    return data, phase_names, meta
+
+
+# =============================================================================
+# .mat ファイル読み込み（HR-EBSD / CrossCourt4）
+# =============================================================================
+def load_mat_file(path):
+    """
+    CrossCourt v4 の .mat ファイルを読み込み、load_grain_file と同じ形式で返す。
+
+    .mat は scipy.io.loadmat で読める MATLAB 5.0 形式（v7.2 以前）。
+
+    Returns
+    -------
+    data : ndarray (N, 10)
+        列構成は load_grain_file と同一:
+        0:phi1[rad]  1:PHI[rad]  2:phi2[rad]  3:x[μm]  4:y[μm]
+        5:IQ  6:CI  7:Fit(=0)  8:GrainID  9:Edge(=0)
+        ※ Euler角は .mat 内では度単位 → ここでラジアンに変換して格納
+        ※ 未解析点（grain_number=NaN）は GrainID=0、Euler角=NaN のまま保持
+    phase_names : ndarray (N,)
+    meta : dict  (nx, ny, x_step, y_step, x_min, y_min, x_max, y_max,
+                  grain_tol_angle, phases)
+    """
+    import scipy.io
+    mat = scipy.io.loadmat(path)
+
+    # グリッドサイズ（shape は (ny, nx) = (rows, cols)）
+    ny, nx = mat['grain_number'].shape
+
+    # 2D配列 → 1D（C順 = 行優先）に展開
+    phi1_deg = mat['euler_phi1'].flatten()        # [deg]
+    PHI_deg  = mat['euler_phi'].flatten()         # [deg]
+    phi2_deg = mat['euler_phi2'].flatten()        # [deg]
+    xpos     = mat['xpos'].flatten()              # [μm]
+    ypos     = mat['ypos'].flatten()              # [μm]
+    IQ       = mat['image_quality'].flatten()
+    CI       = mat['confidence_index'].flatten()
+    gid_raw  = mat['grain_number'].flatten()
+
+    # Euler角: 度 → ラジアン変換（NaN はそのまま保持）
+    phi1_rad = np.radians(phi1_deg)
+    PHI_rad  = np.radians(PHI_deg)
+    phi2_rad = np.radians(phi2_deg)
+
+    # GrainID: NaN（未解析）→ 0（粒界・未解析扱い）
+    gid = np.where(np.isnan(gid_raw), 0.0, gid_raw)
+
+    # Fit・Edge は .mat に存在しないため 0 で埋める
+    zeros = np.zeros(len(phi1_rad), dtype=np.float64)
+
+    # data 配列を組み立て（load_grain_file と同一列順）
+    data = np.column_stack([
+        phi1_rad, PHI_rad, phi2_rad,
+        xpos, ypos,
+        IQ, CI,
+        zeros,   # Fit
+        gid,
+        zeros,   # Edge
+    ])
+
+    # Phase 名（CrossCourt は通常1相）
+    try:
+        phase_name = str(mat['phasetxt'][0, 0][0])
+    except Exception:
+        phase_name = 'unknown'
+    phase_names = np.array([phase_name] * len(data))
+
+    # メタ情報
+    x_step = float(mat['xstep'][0, 0])
+    y_step = float(mat['ystep'][0, 0])
+    x_min  = float(xpos.min())
+    x_max  = float(xpos.max())
+    y_min  = float(ypos.min())
+    y_max  = float(ypos.max())
+
+    n_valid = int(np.sum(gid > 0))
+    print(f"  .mat loaded: {len(data)} pixels  ({nx} x {ny})")
+    print(f"  Step: x={x_step:.4f} um, y={y_step:.4f} um")
+    print(f"  FOV: x={x_min:.2f}~{x_max:.2f} um, y={y_min:.2f}~{y_max:.2f} um")
+    print(f"  Valid grains (GrainID>0): {n_valid}")
+    print(f"  Phase: {phase_name}")
+
+    meta = dict(
+        nx=nx, ny=ny,
+        x_step=x_step, y_step=y_step,
+        x_min=x_min, y_min=y_min,
+        x_max=x_max, y_max=y_max,
+        grain_tol_angle=None,
+        phases=[phase_name],
     )
     return data, phase_names, meta
 
@@ -1683,12 +1774,17 @@ if __name__ == '__main__':
         # ウィザードスキップ: JSONからパスを取得
         with open(_param_json, encoding='utf-8') as _f:
             _p = _json.load(_f)
-        grain_path    = _p['grain']
+        input_mode    = _p.get('mode', 'grain')   # 'grain' or 'mat'
+        grain_path    = _p.get('grain', '')
+        mat_path      = _p.get('mat', '')
         sem_path      = _p['sem']
         dic_xlsx_path = _p['xlsx']
         out_dir       = _p['out']
     else:
-        # ① Grain File 選択
+        # ① 入力モード選択（ダイアログなし・デフォルトは grain）
+        input_mode = 'grain'
+
+        # ② Grain File 選択（Normal EBSD モード）
         print("Select EBSD Grain File...")
         grain_path, _ = QFileDialog.getOpenFileName(
             None, 'Select EBSD Grain File (Grain_File_*.txt)',
@@ -1696,8 +1792,9 @@ if __name__ == '__main__':
             'Grain File (*.txt);;All files (*.*)')
         if not grain_path:
             raise SystemExit('Cancelled')
+        mat_path = ''
 
-        # ② SEM 参照画像選択
+        # ③ SEM 参照画像選択
         print("Select SEM reference image (Ref_0th)...")
         sem_path, _ = QFileDialog.getOpenFileName(
             None, 'Select SEM reference image',
@@ -1706,7 +1803,7 @@ if __name__ == '__main__':
         if not sem_path:
             raise SystemExit('Cancelled')
 
-        # ③ dic_results.xlsx 選択
+        # ④ dic_results.xlsx 選択
         print("Select dic_results.xlsx...")
         dic_xlsx_path, _ = QFileDialog.getOpenFileName(
             None, 'Select dic_results.xlsx',
@@ -1715,7 +1812,7 @@ if __name__ == '__main__':
         if not dic_xlsx_path:
             raise SystemExit('Cancelled')
 
-        # ④ 出力先フォルダ選択
+        # ⑤ 出力先フォルダ選択
         print("Select output folder...")
         out_dir = QFileDialog.getExistingDirectory(
             None, 'Select output folder (will create ebsd_georef/ subfolder)',
@@ -1728,9 +1825,13 @@ if __name__ == '__main__':
 
     print("\n" + "=" * 60)
 
-    # [1] Grain File 読み込み
-    print("[1/4] Loading Grain File...")
-    data, phase_names, meta = load_grain_file(grain_path)
+    # [1] EBSD データ読み込み（モードに応じて切替）
+    if input_mode == 'mat':
+        print(f"[1/4] Loading .mat file (CrossCourt)... ({Path(mat_path).name})")
+        data, phase_names, meta = load_mat_file(mat_path)
+    else:
+        print(f"[1/4] Loading Grain File (OIM)... ({Path(grain_path).name})")
+        data, phase_names, meta = load_grain_file(grain_path)
 
     # [2] Grain ID マップ生成
     print("[2/4] Generating Grain ID map...")

@@ -101,7 +101,7 @@ def launch_dic():
 @eel.expose
 def launch_ebsd():
     """EBSDウィザードHTMLを別ウィンドウで開く"""
-    eel.start("ebsd_wizard.html", size=(740, 420), block=False)
+    eel.start("ebsd_wizard.html", size=(740, 510), block=False)
 
 
 @eel.expose
