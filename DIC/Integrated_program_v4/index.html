@@ -379,6 +379,18 @@
       <button class="btn-launch" id="btn-heaviside" onclick="launch('heaviside')">起動</button>
     </div>
 
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-patrep">
+      <div class="step-num">6</div>
+      <div class="tool-info">
+        <div class="tool-name">EBSD PatRep</div>
+        <div class="tool-desc">変形後EBSDパターン置換・misorientation照合</div>
+      </div>
+      <div class="status-badge" id="badge-patrep">IDLE</div>
+      <button class="btn-launch" id="btn-patrep" onclick="launch('patrep')">起動</button>
+    </div>
+
   </div>
 
   <div class="log-area">
@@ -395,8 +407,9 @@
     sem_align: "SEM Alignment",
     dic:       "Normal DIC",
     ebsd:      "EBSD Georef",
-    heaviside: "Heaviside DIC",
     defebsd:   "Def EBSD Georef",
+    heaviside: "Heaviside DIC",
+    patrep:    "EBSD PatRep",
   };
 
   function addLog(msg, cls = "info") {
@@ -448,8 +461,9 @@
       sem_align: () => eel.launch_sem_align()(),
       dic:       () => eel.launch_dic()(),
       ebsd:      () => eel.launch_ebsd()(),
-      heaviside: () => eel.launch_heaviside()(),
       defebsd:   () => eel.launch_defebsd()(),
+      heaviside: () => eel.launch_heaviside()(),
+      patrep:    () => eel.launch_patrep()(),
     };
 
     fn[toolId]().catch(err => {

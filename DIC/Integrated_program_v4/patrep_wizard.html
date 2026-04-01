@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<!-- v1 -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EBSD PatRep Wizard</title>
+<script src="/eel.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #2a2d35;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --text: #e0e4ec;
+    --text-dim: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .logo { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .subtitle { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ---- カード ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .card-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 12px 16px 8px;
+  }
+
+  /* ---- ファイル行 ---- */
+  .file-rows { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .file-row  { display: flex; align-items: center; gap: 8px; }
+  .file-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    width: 140px; flex-shrink: 0;
+  }
+  .required { color: var(--accent2); margin-left: 2px; }
+  .file-path {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 5px 10px; font-family: var(--mono);
+    font-size: 10px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default;
+  }
+  .file-path.set { color: var(--text); border-color: rgba(0,212,255,0.3); }
+
+  .btn-sm {
+    padding: 5px 12px; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-family: var(--mono); font-size: 11px;
+    cursor: pointer; border-radius: 3px; transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-sm:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+  .btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---- パラメータ行 ---- */
+  .param-rows { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .param-row  { display: flex; align-items: center; gap: 10px; }
+  .param-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    width: 200px; flex-shrink: 0;
+  }
+  .param-input {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 5px 10px; font-family: var(--mono);
+    font-size: 11px; color: var(--text); width: 120px;
+  }
+  .param-input:focus { outline: none; border-color: var(--accent); }
+  .param-unit { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+  /* ---- Phase 対称性 ---- */
+  .phase-rows { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .phase-row  { display: flex; align-items: center; gap: 10px; }
+  .phase-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    width: 180px; flex-shrink: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sym-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 5px 8px; font-family: var(--mono);
+    font-size: 11px; color: var(--text); cursor: pointer; flex: 1;
+  }
+  .sym-select:focus { outline: none; border-color: var(--accent); }
+
+  /* ---- nth チェックリスト ---- */
+  .nth-list {
+    padding: 0 16px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 260px; overflow-y: auto;
+  }
+  .nth-row {
+    display: grid;
+    grid-template-columns: 22px 1fr 70px;
+    gap: 8px; align-items: center;
+    padding: 5px 8px; border: 1px solid transparent; border-radius: 4px;
+    transition: border-color 0.2s;
+  }
+  .nth-row:hover { background: rgba(255,255,255,0.02); }
+  .nth-row.running { border-color: var(--accent);  background: rgba(0,212,255,0.04); }
+  .nth-row.done    { border-color: var(--green);   background: rgba(0,255,136,0.03); }
+  .nth-row.error   { border-color: var(--accent2); background: rgba(255,107,53,0.04); }
+  .nth-row.unchecked { opacity: 0.38; }
+
+  .nth-check { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
+  .nth-name  { font-family: var(--mono); font-size: 11px; color: var(--text); }
+
+  .nth-status {
+    font-family: var(--mono); font-size: 9px; text-align: center;
+    padding: 2px 6px; border-radius: 3px; white-space: nowrap; color: var(--text-dim);
+  }
+  .nth-status.running { color: var(--accent);  background: rgba(0,212,255,0.12); }
+  .nth-status.done    { color: var(--green);   background: rgba(0,255,136,0.10); }
+  .nth-status.error   { color: var(--accent2); background: rgba(255,107,53,0.10); }
+
+  .nth-hint { font-size: 11px; color: var(--text-dim); text-align: center; padding: 12px 0; font-style: italic; }
+  .nth-header { padding: 0 16px 6px; display: flex; align-items: center; gap: 8px; }
+  .nth-header-title { font-family: var(--mono); font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em; flex: 1; }
+  .nth-header-hint  { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+  /* ---- フッター ---- */
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .btn-run {
+    padding: 9px 28px; border: 1px solid var(--accent);
+    background: rgba(0,212,255,0.1); color: var(--accent);
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    cursor: pointer; border-radius: 4px; transition: all 0.15s; letter-spacing: 0.08em;
+  }
+  .btn-run:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
+  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-cancel {
+    padding: 9px 18px; border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); font-family: var(--mono); font-size: 12px;
+    cursor: pointer; border-radius: 4px; transition: all 0.15s;
+  }
+  .btn-cancel:hover { border-color: var(--accent2); color: var(--accent2); }
+  .footer-status {
+    flex: 1; font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-align: right;
+  }
+  .footer-status.ok  { color: var(--green); }
+  .footer-status.err { color: var(--accent2); }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 2px 16px 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="subtitle">EBSD PatRep Wizard</div>
+</header>
+
+<div class="main">
+
+  <!-- Step 1: 親フォルダ -->
+  <div class="card">
+    <div class="card-title">Step 1 — 親フォルダ（0th を含むフォルダ）</div>
+    <div class="file-rows">
+      <div class="file-row">
+        <div class="file-label">親フォルダ<span class="required">*</span></div>
+        <div class="file-path" id="parent-path">（未選択）</div>
+        <button class="btn-sm" onclick="browseParent()">選択…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: 処理対象 nth フォルダ -->
+  <div class="card">
+    <div class="nth-header">
+      <div class="nth-header-title">Step 2 — 処理対象 nth フォルダ</div>
+      <span class="nth-header-hint" id="nth-hint"></span>
+    </div>
+    <div class="nth-list" id="nth-list">
+      <div class="nth-hint" id="nth-empty">親フォルダを選択すると自動検出されます</div>
+    </div>
+  </div>
+
+  <!-- Step 3: パラメータ -->
+  <div class="card">
+    <div class="card-title">Step 3 — パラメータ</div>
+    <div class="param-rows">
+      <div class="param-row">
+        <div class="param-label">Misorientation 閾値</div>
+        <input class="param-input" type="number" id="angle-thr" value="5.0" min="0" step="0.5">
+        <span class="param-unit">deg</span>
+      </div>
+      <div class="param-row">
+        <div class="param-label">Scale factor（tif ファイル名）</div>
+        <input class="param-input" type="number" id="scale-factor" value="100" min="1" step="1">
+        <span class="param-unit">（例: step=0.1μm, factor=100 → x10y20.tif）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4: Phase 別対称性 -->
+  <div class="card">
+    <div class="card-title">Step 4 — Phase 別 結晶対称性</div>
+    <div class="phase-rows" id="phase-rows">
+      <div class="nth-hint">親フォルダを選択すると Phase が自動検出されます</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <button class="btn-run" id="btn-run" onclick="onRun()" disabled>実行</button>
+  <button class="btn-cancel" onclick="window.close()">キャンセル</button>
+  <div class="footer-status" id="footer-status"></div>
+</footer>
+
+<script>
+  const SYM_OPTIONS = [
+    ['cubic',        'Cubic（立方晶）'],
+    ['hexagonal',    'Hexagonal（六方晶）'],
+    ['tetragonal',   'Tetragonal（正方晶）'],
+    ['orthorhombic', 'Orthorhombic（斜方晶）'],
+    ['trigonal',     'Trigonal（三方晶）'],
+    ['monoclinic',   'Monoclinic（単斜晶）'],
+    ['triclinic',    'Triclinic（三斜晶）'],
+  ];
+
+  let _parentFolder = null;
+  let _nthNames     = [];      // 全検出 nth 名
+  let _nthChecked   = {};      // {name: bool}
+  let _nthStatus    = {};      // {name: 'idle'|'running'|'done'|'error'}
+  let _phases       = [];      // [{index, name}]
+  let _running      = false;
+
+  // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
+  async function browseParent() {
+    const wd = window._workDir || '';
+    const path = await eel.patrep_browse_dir('親フォルダを選択（0th フォルダを含むフォルダ）', wd)();
+    if (!path) return;
+
+    _parentFolder = path;
+    const el = document.getElementById('parent-path');
+    el.textContent = path;
+    el.classList.add('set');
+
+    setStatus('フォルダ情報を読み込み中...', true);
+    try {
+      const info = await eel.patrep_get_info(path)();
+      if (info.error) { setStatus(info.error, false); return; }
+
+      _nthNames   = info.nth_names;
+      _phases     = info.phases;
+      _nthChecked = {};
+      _nthStatus  = {};
+      _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
+
+      buildNthList();
+      buildPhaseRows();
+      setStatus(`${_nthNames.length} 段階・${_phases.length} Phase を検出しました`, true);
+    } catch(e) {
+      setStatus('フォルダ情報の読み込みに失敗しました', false);
+    }
+    updateRunButton();
+  }
+
+  // ── nth チェックリスト構築 ───────────────────────────────────────────────────
+  function buildNthList() {
+    const list = document.getElementById('nth-list');
+    list.innerHTML = '';
+
+    if (_nthNames.length === 0) {
+      list.innerHTML = '<div class="nth-hint">対応する pre-processed .mat/.xlsx が見つかりませんでした</div>';
+      document.getElementById('nth-hint').textContent = '';
+      return;
+    }
+
+    _nthNames.forEach(name => {
+      const row = document.createElement('div');
+      row.className = 'nth-row';
+      row.id = `nth-row-${_sid(name)}`;
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'nth-check';
+      cb.checked = _nthChecked[name];
+      cb.onchange = () => {
+        _nthChecked[name] = cb.checked;
+        row.classList.toggle('unchecked', !cb.checked);
+        updateHint();
+        updateRunButton();
+      };
+
+      const label = document.createElement('div');
+      label.className = 'nth-name';
+      label.textContent = name;
+
+      const stat = document.createElement('div');
+      stat.className = 'nth-status';
+      stat.id = `nth-status-${_sid(name)}`;
+      stat.textContent = '—';
+
+      row.appendChild(cb);
+      row.appendChild(label);
+      row.appendChild(stat);
+      list.appendChild(row);
+    });
+
+    updateHint();
+  }
+
+  // ── Phase 対称性行の構築 ─────────────────────────────────────────────────────
+  function buildPhaseRows() {
+    const container = document.getElementById('phase-rows');
+    container.innerHTML = '';
+
+    if (_phases.length === 0) {
+      container.innerHTML = '<div class="nth-hint">Phase 情報が見つかりません</div>';
+      return;
+    }
+
+    _phases.forEach(ph => {
+      const row = document.createElement('div');
+      row.className = 'phase-row';
+
+      const label = document.createElement('div');
+      label.className = 'phase-label';
+      label.textContent = `Phase ${ph.index}  —  ${ph.name}`;
+      label.title = ph.name;
+
+      const sel = document.createElement('select');
+      sel.className = 'sym-select';
+      sel.id = `sym-${ph.index}`;
+      SYM_OPTIONS.forEach(([val, text]) => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = text;
+        sel.appendChild(opt);
+      });
+
+      row.appendChild(label);
+      row.appendChild(sel);
+      container.appendChild(row);
+    });
+  }
+
+  // ── ヒント更新 ───────────────────────────────────────────────────────────────
+  function updateHint() {
+    const checked = _nthNames.filter(n => _nthChecked[n]).length;
+    document.getElementById('nth-hint').textContent =
+      _nthNames.length > 0 ? `${checked} / ${_nthNames.length} 選択中` : '';
+  }
+
+  // ── 実行ボタン ───────────────────────────────────────────────────────────────
+  function updateRunButton() {
+    const hasChecked = _nthNames.some(n => _nthChecked[n]);
+    document.getElementById('btn-run').disabled =
+      !(_parentFolder && hasChecked && _phases.length > 0 && !_running);
+  }
+
+  // ── 実行 ─────────────────────────────────────────────────────────────────────
+  async function onRun() {
+    const checkedNames = _nthNames.filter(n => _nthChecked[n]);
+    if (!_parentFolder || checkedNames.length === 0) return;
+
+    // phase_sym 収集
+    const phaseSym = {};
+    _phases.forEach(ph => {
+      const sel = document.getElementById(`sym-${ph.index}`);
+      phaseSym[String(ph.index)] = sel ? sel.value : 'cubic';
+    });
+
+    _running = true;
+    document.getElementById('btn-run').disabled = true;
+    setStatus('解析を開始しています...', true);
+
+    const params = {
+      parent_folder:   _parentFolder,
+      nth_names:       checkedNames,
+      angle_threshold: parseFloat(document.getElementById('angle-thr').value) || 5.0,
+      scale_factor:    parseFloat(document.getElementById('scale-factor').value) || 100.0,
+      phase_sym:       phaseSym,
+    };
+
+    await eel.patrep_start_batch(params)();
+  }
+
+  // ── Python コールバック ───────────────────────────────────────────────────────
+  eel.expose(patrep_on_nth_status);
+  function patrep_on_nth_status(name, type) {
+    _nthStatus[name] = type;
+    const sid = _sid(name);
+    const row  = document.getElementById(`nth-row-${sid}`);
+    const stat = document.getElementById(`nth-status-${sid}`);
+    if (row) {
+      row.className = 'nth-row ' + (type === 'idle' ? '' : type);
+    }
+    if (stat) {
+      stat.className = 'nth-status ' + (type === 'idle' ? '' : type);
+      stat.textContent = type === 'running' ? 'RUNNING' :
+                         type === 'done'    ? 'DONE'    :
+                         type === 'error'   ? 'ERROR'   : '—';
+    }
+  }
+
+  eel.expose(patrep_on_complete);
+  function patrep_on_complete(success, msg) {
+    _running = false;
+    setStatus(msg, success);
+    updateRunButton();
+  }
+
+  // ── ユーティリティ ────────────────────────────────────────────────────────────
+  function setStatus(msg, ok) {
+    const el = document.getElementById('footer-status');
+    el.textContent = msg;
+    el.className = 'footer-status ' + (ok ? 'ok' : 'err');
+  }
+
+  function _sid(s) {
+    return s.replace(/[^a-zA-Z0-9\-]/g, '_');
+  }
+
+  window.addEventListener('load', async () => {
+    const wd = await eel.get_work_dir()();
+    if (wd) window._workDir = wd;
+  });
+</script>
+</body>
+</html>

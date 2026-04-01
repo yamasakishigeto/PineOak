@@ -645,6 +645,141 @@ def _run_defebsd_batch(params: dict):
 
 
 # ================================================================
+# EBSD PatRep ウィザード用
+# ================================================================
+
+PATREP_DIR = os.path.join(os.path.dirname(BASE_DIR), "EBSD PatRep")
+
+
+@eel.expose
+def launch_patrep():
+    eel.start("patrep_wizard.html", size=(700, 780), block=False)
+
+
+@eel.expose
+def patrep_browse_dir(title: str, initialdir: str):
+    return _tk_filedialog('dir', title, initialdir=initialdir or _work_dir)
+
+
+@eel.expose
+def patrep_get_info(parent_folder: str):
+    """親フォルダを検査して nth 名一覧と Phase 情報を返す"""
+    try:
+        import glob as _glob
+        import scipy.io as _sio
+        import numpy as _np
+        from pathlib import Path as _Path
+
+        parent = _Path(parent_folder)
+
+        # pre-processed {name}.mat が存在するものを nth として列挙
+        mats = sorted(parent.glob("pre-processed *.mat"))
+        nth_names = []
+        for m in mats:
+            name = m.stem.replace("pre-processed ", "")
+            if name.lower() == "0th":
+                continue
+            xlsx = parent / f"pre-processed {name}.xlsx"
+            if xlsx.exists():
+                nth_names.append(name)
+
+        # 0th .mat から phase 情報を読む
+        mat0_cands = sorted(parent.glob("pre-processed 0th*.mat"))
+        if not mat0_cands:
+            return {"error": "pre-processed 0th*.mat が見つかりません"}
+
+        mat0 = _sio.loadmat(str(mat0_cands[0]),
+                            variable_names=["phase_index", "phasetxt"])
+        phase_idx_map = mat0["phase_index"]
+        phase_names_raw = [str(n) for n in mat0["phasetxt"][0]]
+        idxs = sorted(set(
+            int(v) for v in phase_idx_map.flatten()
+            if not (isinstance(v, float) and _np.isnan(v))
+        ))
+        phases = [
+            {"index": i,
+             "name": phase_names_raw[i] if i < len(phase_names_raw) else f"Phase{i}"}
+            for i in idxs
+        ]
+
+        return {"nth_names": nth_names, "phases": phases}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@eel.expose
+def patrep_start_batch(params: dict):
+    threading.Thread(target=_run_patrep_batch, args=(params,), daemon=True).start()
+
+
+def _run_patrep_batch(params: dict):
+    import json, tempfile, re as _re
+    params["patrep_dir"] = PATREP_DIR
+
+    param_file = tempfile.mktemp(suffix=".json")
+    with open(param_file, "w", encoding="utf-8") as f:
+        json.dump(params, f, ensure_ascii=False)
+
+    script = os.path.join(TOOLS_DIR, "_patrep_runner.py")
+    nth_names = params.get("nth_names", [])
+
+    _env = os.environ.copy()
+    _env["PYTHONIOENCODING"] = "utf-8"
+    _env["PYTHONUNBUFFERED"] = "1"
+
+    proc = subprocess.Popen(
+        [PYTHON, script, param_file],
+        cwd=TOOLS_DIR,
+        env=_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    _procs["patrep"] = proc
+
+    for line in proc.stdout:
+        line_s = line.rstrip()
+        print(line_s)
+
+        # "Processing: name" → RUNNING
+        m = _re.search(r"Processing:\s+(.+)", line_s)
+        if m:
+            name = m.group(1).strip()
+            if name in nth_names:
+                try: eel.patrep_on_nth_status(name, "running")()
+                except Exception: pass
+
+        # "name: 完了" → DONE
+        m2 = _re.search(r"^\s+(.+?):\s+完了", line_s)
+        if m2:
+            name = m2.group(1).strip()
+            if name in nth_names:
+                try: eel.patrep_on_nth_status(name, "done")()
+                except Exception: pass
+
+        # "ERROR [name]" → ERROR
+        m3 = _re.search(r"ERROR \[(.+?)\]", line_s)
+        if m3:
+            name = m3.group(1).strip()
+            if name in nth_names:
+                try: eel.patrep_on_nth_status(name, "error")()
+                except Exception: pass
+
+    proc.wait()
+    _procs.pop("patrep", None)
+
+    if proc.returncode == 0:
+        try: eel.patrep_on_complete(True, "全処理完了")()
+        except Exception: pass
+    else:
+        try: eel.patrep_on_complete(False, f"エラー（終了コード {proc.returncode}）")()
+        except Exception: pass
+
+
+# ================================================================
 # メイン
 # ================================================================
 
