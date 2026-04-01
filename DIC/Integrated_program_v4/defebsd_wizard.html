@@ -145,7 +145,14 @@
   }
 
   /* ---- チェックボックスリスト ---- */
-  .stages-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .stages-list {
+    padding: 0 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 420px;
+    overflow-y: auto;
+  }
 
   .stage-row {
     display: grid;
