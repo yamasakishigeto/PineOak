@@ -771,34 +771,44 @@ def save_georef_mat(mat_path, subset_id_map, out_path):
 
 
 # =============================================================================
-# dic_results_georef.xlsx に新シート追加（Grain File モード用）
+# dic_results_georef_def.xlsx にシート追加（Grain File モード用）
 # =============================================================================
-def save_georef_xlsx_sheet(georef_xlsx, sheet_name, data, phase_names, meta,
+def save_georef_xlsx_sheet(out_dir, sheet_name, data, phase_names, meta,
                            subset_id_map):
     """
-    Grain File (.txt) モードの場合、dic_results_georef.xlsx に
-    'ebsd_georef_{label}' シートを追加する。
+    Grain File (.txt) モードの結果を out_dir/dic_results_georef_def.xlsx に書き出す。
+    同ファイルが既に存在する場合はシートを追加、なければ新規作成する。
+    元の dic_results_georef.xlsx は変更しない。
     """
-    import zipfile, re
+    out_path = Path(out_dir) / 'dic_results_georef_def.xlsx'
+    nx, ny   = meta['nx'], meta['ny']
 
-    nx, ny  = meta['nx'], meta['ny']
-    x_step  = meta['x_step']
-    y_step  = meta['y_step']
-    x_min   = meta['x_min']
-    y_min   = meta['y_min']
+    # ファイルが既存なら開く、なければ新規作成
+    if out_path.exists():
+        wb = openpyxl.load_workbook(str(out_path))
+        # 同名シートが既にあれば削除して上書き
+        if sheet_name in wb.sheetnames:
+            del wb[sheet_name]
+    else:
+        wb = openpyxl.Workbook()
+        # デフォルトシート（"Sheet"）を削除
+        wb.remove(wb.active)
 
-    # シートデータ組み立て
+    ws = wb.create_sheet(title=sheet_name)
+
+    # ヘッダ行
     header = ['subset_id', 'ebsd_ix', 'ebsd_iy', 'xpos_um', 'ypos_um',
               'grain_id', 'phase',
               'phi1_deg', 'PHI_deg', 'phi2_deg', 'IQ', 'CI']
-    rows_data = [header]
+    ws.append(header)
 
+    # データ行
     for flat_idx, row in enumerate(data):
-        iy = flat_idx // nx
-        ix = flat_idx %  nx
+        iy  = flat_idx // nx
+        ix  = flat_idx %  nx
         sid = int(subset_id_map[iy, ix])
-        rows_data.append([
-            sid if sid >= 0 else '',
+        ws.append([
+            sid if sid >= 0 else None,
             ix, iy,
             round(float(row[3]), 6), round(float(row[4]), 6),
             int(row[8]),
@@ -806,89 +816,12 @@ def save_georef_xlsx_sheet(georef_xlsx, sheet_name, data, phase_names, meta,
             round(float(np.degrees(row[0])), 6),
             round(float(np.degrees(row[1])), 6),
             round(float(np.degrees(row[2])), 6),
-            round(float(row[5]), 6) if not np.isnan(row[5]) else '',
-            round(float(row[6]), 6) if not np.isnan(row[6]) else '',
+            round(float(row[5]), 6) if not np.isnan(row[5]) else None,
+            round(float(row[6]), 6) if not np.isnan(row[6]) else None,
         ])
 
-    def _escape(v):
-        if v is None or v == '' or (isinstance(v, float) and np.isnan(v)):
-            return ''
-        s = str(v)
-        return (s.replace('&','&amp;').replace('<','&lt;')
-                  .replace('>','&gt;').replace('"','&quot;'))
-
-    sheet_xml_lines = [
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
-        '<sheetData>',
-    ]
-    for ri, row in enumerate(rows_data, start=1):
-        sheet_xml_lines.append(f'<row r="{ri}">')
-        for ci, val in enumerate(row):
-            col_letter = chr(ord('A') + ci)
-            ref = f'{col_letter}{ri}'
-            if isinstance(val, str) or val == '':
-                sheet_xml_lines.append(
-                    f'<c r="{ref}" t="inlineStr"><is><t>{_escape(val)}</t></is></c>')
-            elif val is None or (isinstance(val, float) and np.isnan(val)):
-                sheet_xml_lines.append(f'<c r="{ref}"/>')
-            else:
-                sheet_xml_lines.append(f'<c r="{ref}"><v>{val}</v></c>')
-        sheet_xml_lines.append('</row>')
-    sheet_xml_lines += ['</sheetData>', '</worksheet>']
-    sheet_xml = '\n'.join(sheet_xml_lines).encode('utf-8')
-
-    SHEET_NAME = sheet_name
-    SHEET_PATH = f'xl/worksheets/sheet_{sheet_name}.xml'
-    REL_ID     = f'rId_{sheet_name}'
-
-    import tempfile, shutil
-    tmp_path = georef_xlsx + '.tmp'
-
-    with zipfile.ZipFile(georef_xlsx, 'r') as zin, \
-         zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zout:
-
-        skip = {SHEET_PATH, 'xl/workbook.xml',
-                'xl/_rels/workbook.xml.rels', '[Content_Types].xml'}
-        for item in zin.infolist():
-            if item.filename in skip:
-                continue
-            zout.writestr(item, zin.read(item.filename))
-
-        wb_xml = zin.read('xl/workbook.xml').decode('utf-8')
-        wb_xml = re.sub(
-            rf'<sheet [^/]*name="{re.escape(SHEET_NAME)}"[^/]*/>', '', wb_xml)
-        ids = list(map(int, re.findall(r'sheetId="(\d+)"', wb_xml)))
-        new_id = max(ids) + 1 if ids else 1
-        new_sheet_tag = (f'<sheet name="{SHEET_NAME}" sheetId="{new_id}" '
-                         f'r:id="{REL_ID}"/>')
-        wb_xml = wb_xml.replace('</sheets>', new_sheet_tag + '</sheets>')
-        zout.writestr('xl/workbook.xml', wb_xml.encode('utf-8'))
-
-        rels_xml = zin.read('xl/_rels/workbook.xml.rels').decode('utf-8')
-        rels_xml = re.sub(
-            rf'<Relationship [^/]*Id="{re.escape(REL_ID)}"[^/]*/>', '', rels_xml)
-        new_rel = (f'<Relationship Id="{REL_ID}" '
-                   f'Type="http://schemas.openxmlformats.org/officeDocument/'
-                   f'2006/relationships/worksheet" '
-                   f'Target="worksheets/sheet_{sheet_name}.xml"/>')
-        rels_xml = rels_xml.replace('</Relationships>', new_rel + '</Relationships>')
-        zout.writestr('xl/_rels/workbook.xml.rels', rels_xml.encode('utf-8'))
-
-        ct_xml = zin.read('[Content_Types].xml').decode('utf-8')
-        ct_xml = re.sub(
-            rf'<Override PartName="/xl/worksheets/sheet_{re.escape(sheet_name)}\.xml"[^/]*/>', '',
-            ct_xml)
-        new_ct = (f'<Override PartName="/xl/worksheets/sheet_{sheet_name}.xml" '
-                  f'ContentType="application/vnd.openxmlformats-officedocument'
-                  f'.spreadsheetml.worksheet+xml"/>')
-        ct_xml = ct_xml.replace('</Types>', new_ct + '</Types>')
-        zout.writestr('[Content_Types].xml', ct_xml.encode('utf-8'))
-
-        zout.writestr(SHEET_PATH, sheet_xml)
-
-    shutil.move(tmp_path, georef_xlsx)
-    print(f"  Sheet '{SHEET_NAME}' added to {Path(georef_xlsx).name}")
+    wb.save(str(out_path))
+    print(f"  Sheet '{sheet_name}' saved to {out_path.name}")
 
 
 # =============================================================================
@@ -1029,7 +962,7 @@ if __name__ == '__main__':
             save_georef_mat(ebsd_path, subset_id_map, str(out_mat))
         else:
             sheet_name = f'ebsd_georef_{safe_label}'
-            save_georef_xlsx_sheet(georef_xlsx, sheet_name,
+            save_georef_xlsx_sheet(out_dir, sheet_name,
                                    data, phase_names, meta, subset_id_map)
 
         print(f"  Stage '{label}' complete.")
