@@ -39,12 +39,14 @@ if len(sys.argv) < 2:
 with open(sys.argv[1], encoding='utf-8') as _f:
     params = json.load(_f)
 
-patrep_dir    = params['patrep_dir']
-parent_folder = Path(params['parent_folder'])
-nth_names     = params['nth_names']
-angle_thr     = float(params['angle_threshold'])
-scale_factor  = float(params['scale_factor'])
-phase_sym     = params['phase_sym']   # {"0": "cubic", ...}
+patrep_dir       = params['patrep_dir']
+parent_folder    = Path(params['parent_folder'])
+nth_names        = params['nth_names']
+angle_thr        = float(params['angle_threshold'])
+scale_factor     = float(params['scale_factor'])
+phase_sym        = params['phase_sym']          # {"0": "cubic", ...}
+folder_0th_name  = params.get('folder_0th_name', '0th')
+nth_folder_names = params.get('nth_folder_names', {})  # {"8th": "1100MPa", ...}
 
 # EBSD PatRep モジュールをパスに追加
 sys.path.insert(0, patrep_dir)
@@ -86,8 +88,9 @@ mat_0th_candidates = sorted(parent_folder.glob("pre-processed 0th*.mat"))
 if not mat_0th_candidates:
     print("ERROR: pre-processed 0th*.mat が見つかりません")
     sys.exit(1)
-mat_0th   = mat_0th_candidates[0]
-folder_0th = parent_folder / "0th"
+mat_0th    = mat_0th_candidates[0]
+folder_0th = parent_folder / folder_0th_name
+print(f"  0th パターンフォルダ: {folder_0th_name}")
 
 # phase 情報を読む
 _mat0 = loadmat(str(mat_0th), variable_names=['phasetxt', 'phase_index'])
@@ -117,9 +120,11 @@ for nth_name in nth_names:
     print('='*55)
 
     try:
-        mat_nth   = parent_folder / f"pre-processed {nth_name}.mat"
-        excel_nth = parent_folder / f"pre-processed {nth_name}.xlsx"
-        folder_nth = parent_folder / nth_name
+        mat_nth    = parent_folder / f"pre-processed {nth_name}.mat"
+        excel_nth  = parent_folder / f"pre-processed {nth_name}.xlsx"
+        nth_dir_name = nth_folder_names.get(nth_name, nth_name)
+        folder_nth = parent_folder / nth_dir_name
+        print(f"  {nth_name} パターンフォルダ: {nth_dir_name}")
 
         missing = [p for p in [mat_0th, mat_nth, excel_nth] if not p.exists()]
         if missing:

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from preprocessed_loader import get_value_by_label
-from scipy.io import loadmat
+from preprocessed_loader import smart_loadmat as loadmat
 
 def generate_green_blue_color():
     r = np.random.uniform(0.0, 0.3)
@@ -22,7 +22,7 @@ def visualize_grain_map(mat_path, xlsx_path, csv_path, save_path=None):
     .matのgrain_numberを緑〜青で表示し、マッチ点を黒・非マッチ点を赤＋ファイル名付きで表示
     """
     # grainマップの準備
-    mat = loadmat(mat_path)
+    mat = loadmat(mat_path, variable_names=['grain_number'])
     grain_id = mat["grain_number"]
     nrows, ncols = grain_id.shape
     unique_ids = np.unique(grain_id[~np.isnan(grain_id)])

@@ -663,12 +663,12 @@ def patrep_browse_dir(title: str, initialdir: str):
 
 @eel.expose
 def patrep_get_info(parent_folder: str):
-    """親フォルダを検査して nth 名一覧と Phase 情報を返す"""
+    """親フォルダを検査して nth 名一覧・Phase 情報・tif フォルダ一覧を返す"""
     try:
-        import glob as _glob
-        import scipy.io as _sio
         import numpy as _np
         from pathlib import Path as _Path
+        sys.path.insert(0, TOOLS_DIR)
+        from preprocessed_loader import smart_loadmat
 
         parent = _Path(parent_folder)
 
@@ -688,8 +688,7 @@ def patrep_get_info(parent_folder: str):
         if not mat0_cands:
             return {"error": "pre-processed 0th*.mat が見つかりません"}
 
-        mat0 = _sio.loadmat(str(mat0_cands[0]),
-                            variable_names=["phase_index", "phasetxt"])
+        mat0 = smart_loadmat(str(mat0_cands[0]), variable_names=["phase_index", "phasetxt"])
         phase_idx_map = mat0["phase_index"]
         phase_names_raw = [str(n) for n in mat0["phasetxt"][0]]
         idxs = sorted(set(
@@ -702,7 +701,13 @@ def patrep_get_info(parent_folder: str):
             for i in idxs
         ]
 
-        return {"nth_names": nth_names, "phases": phases}
+        # tif ファイルを含むサブフォルダを列挙
+        tif_folders = sorted(
+            d.name for d in parent.iterdir()
+            if d.is_dir() and any(d.glob("*.tif"))
+        )
+
+        return {"nth_names": nth_names, "phases": phases, "tif_folders": tif_folders}
 
     except Exception as e:
         return {"error": str(e)}

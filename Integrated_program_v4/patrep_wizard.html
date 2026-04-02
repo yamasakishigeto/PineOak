@@ -135,11 +135,17 @@
   }
   .nth-row {
     display: grid;
-    grid-template-columns: 22px 1fr 70px;
+    grid-template-columns: 22px 1fr 1fr 70px;
     gap: 8px; align-items: center;
     padding: 5px 8px; border: 1px solid transparent; border-radius: 4px;
     transition: border-color 0.2s;
   }
+  .folder-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 3px 6px; font-family: var(--mono);
+    font-size: 10px; color: var(--text); cursor: pointer;
+  }
+  .folder-select:focus { outline: none; border-color: var(--accent); }
   .nth-row:hover { background: rgba(255,255,255,0.02); }
   .nth-row.running { border-color: var(--accent);  background: rgba(0,212,255,0.04); }
   .nth-row.done    { border-color: var(--green);   background: rgba(0,255,136,0.03); }
@@ -203,12 +209,16 @@
 
   <!-- Step 1: 親フォルダ -->
   <div class="card">
-    <div class="card-title">Step 1 — 親フォルダ（0th を含むフォルダ）</div>
+    <div class="card-title">Step 1 — 親フォルダ（pre-processed *.mat を含むフォルダ）</div>
     <div class="file-rows">
       <div class="file-row">
         <div class="file-label">親フォルダ<span class="required">*</span></div>
         <div class="file-path" id="parent-path">（未選択）</div>
         <button class="btn-sm" onclick="browseParent()">選択…</button>
+      </div>
+      <div class="file-row" id="row-folder-0th" style="display:none">
+        <div class="file-label">0th パターンフォルダ<span class="required">*</span></div>
+        <select class="folder-select" id="sel-folder-0th" style="flex:1"></select>
       </div>
     </div>
   </div>
@@ -273,6 +283,7 @@
   let _nthChecked   = {};      // {name: bool}
   let _nthStatus    = {};      // {name: 'idle'|'running'|'done'|'error'}
   let _phases       = [];      // [{index, name}]
+  let _tifFolders   = [];      // tif を含むサブフォルダ一覧
   let _running      = false;
 
   // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
@@ -293,16 +304,36 @@
 
       _nthNames   = info.nth_names;
       _phases     = info.phases;
+      _tifFolders = info.tif_folders || [];
       _nthChecked = {};
       _nthStatus  = {};
       _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
 
+      buildFolder0thSelector();
       buildNthList();
       buildPhaseRows();
       setStatus(`${_nthNames.length} 段階・${_phases.length} Phase を検出しました`, true);
     } catch(e) {
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
+    updateRunButton();
+  }
+
+  // ── 0th フォルダセレクタ構築 ─────────────────────────────────────────────────
+  function buildFolder0thSelector() {
+    const row = document.getElementById('row-folder-0th');
+    const sel = document.getElementById('sel-folder-0th');
+    sel.innerHTML = '';
+    if (_tifFolders.length === 0) { row.style.display = 'none'; return; }
+    _tifFolders.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    // "0th" があればデフォルト選択、なければ先頭
+    const pref = _tifFolders.find(n => n.toLowerCase() === '0th') || _tifFolders[0];
+    sel.value = pref;
+    row.style.display = '';
     updateRunButton();
   }
 
@@ -337,6 +368,19 @@
       label.className = 'nth-name';
       label.textContent = name;
 
+      // nth パターンフォルダ選択
+      const folderSel = document.createElement('select');
+      folderSel.className = 'folder-select';
+      folderSel.id = `sel-folder-nth-${_sid(name)}`;
+      _tifFolders.forEach(fn => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = fn;
+        folderSel.appendChild(opt);
+      });
+      // nth_name と同名フォルダがあればデフォルト選択
+      const pref = _tifFolders.find(fn => fn.toLowerCase() === name.toLowerCase());
+      if (pref) folderSel.value = pref;
+
       const stat = document.createElement('div');
       stat.className = 'nth-status';
       stat.id = `nth-status-${_sid(name)}`;
@@ -344,6 +388,7 @@
 
       row.appendChild(cb);
       row.appendChild(label);
+      row.appendChild(folderSel);
       row.appendChild(stat);
       list.appendChild(row);
     });
@@ -416,12 +461,21 @@
     document.getElementById('btn-run').disabled = true;
     setStatus('解析を開始しています...', true);
 
+    // nth フォルダ名マッピング収集
+    const nthFolderNames = {};
+    checkedNames.forEach(name => {
+      const sel = document.getElementById(`sel-folder-nth-${_sid(name)}`);
+      if (sel) nthFolderNames[name] = sel.value;
+    });
+
     const params = {
-      parent_folder:   _parentFolder,
-      nth_names:       checkedNames,
-      angle_threshold: parseFloat(document.getElementById('angle-thr').value) || 5.0,
-      scale_factor:    parseFloat(document.getElementById('scale-factor').value) || 100.0,
-      phase_sym:       phaseSym,
+      parent_folder:    _parentFolder,
+      nth_names:        checkedNames,
+      angle_threshold:  parseFloat(document.getElementById('angle-thr').value) || 5.0,
+      scale_factor:     parseFloat(document.getElementById('scale-factor').value) || 100.0,
+      phase_sym:        phaseSym,
+      folder_0th_name:  document.getElementById('sel-folder-0th').value,
+      nth_folder_names: nthFolderNames,
     };
 
     await eel.patrep_start_batch(params)();
