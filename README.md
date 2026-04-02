@@ -21,13 +21,15 @@ PineOak/
 `Integrated_program_v4/` に入っている統合解析プログラムです。
 GUI（ブラウザベース）から以下の解析を一括で実行できます。
 
-| モジュール | 内容 |
-|---|---|
-| SEM-DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
-| Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
-| EBSD ジオリファレンス | EBSD グレインマップを SEM 座標系に位置合わせ |
-| EBSD PatRep | EBSD パターンの参照パターン置換 |
-| SEM 位置合わせ | 複数ステージの SEM 画像の位置合わせ |
+| Step | モジュール | 内容 |
+|---|---|---|
+| 1 | EBSD PatRep | EBSD パターンの参照パターン置換 |
+| 2 | SEM Alignment | 複数ステージの SEM 画像の位置合わせ |
+| 3 | Normal DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
+| 4 | EBSD Georef | EBSD グレインマップを SEM 座標系に位置合わせ |
+| 5 | Def EBSD Georef | 変形後 EBSD グレインマップのジオリファレンス |
+| 6 | Stress-Strain curve mapper | 粒ごとの応力–ひずみ曲線の可視化（準備中） |
+| 7 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
 
 ### 起動方法
 ```bash
