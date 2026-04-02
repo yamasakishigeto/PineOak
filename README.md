@@ -9,7 +9,7 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 
 ```
 PineOak/
-├── Integrated_program_v4/          ← メインの統合プログラム（PineOak DIC/EBSD Suite）
+├── DIC-EBSD_Suite/          ← メインの統合プログラム（PineOak DIC/EBSD Suite）
 ├── stress_strain_mapper/           ← 応力–ひずみ曲線マッパー
 └── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
 ```
@@ -18,7 +18,7 @@ PineOak/
 
 ## PineOak DIC/EBSD Suite（メイン）
 
-`Integrated_program_v4/` に入っている統合解析プログラムです。
+`DIC-EBSD_Suite/` に入っている統合解析プログラムです。
 GUI（ブラウザベース）から以下の解析を一括で実行できます。
 
 | Step | モジュール | 内容 |
@@ -33,14 +33,14 @@ GUI（ブラウザベース）から以下の解析を一括で実行できま�
 
 ### 起動方法
 ```bash
-cd Integrated_program_v4
+cd DIC-EBSD_Suite
 python main.py
 ```
 → ブラウザが開き、GUI から各モジュールを選んで実行できます。
 
 ### 必要なライブラリ
 ```bash
-pip install -r Integrated_program_v4/requirements.txt
+pip install -r DIC-EBSD_Suite/requirements.txt
 ```
 
 ---

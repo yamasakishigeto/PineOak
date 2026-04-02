@@ -4,12 +4,12 @@ __pycache__/
 *.pyo
 
 # Claude Code internal
-DIC/.claude/
-DIC/.dist/
+.claude/
+.dist/
 CLAUDE.md
 
 # Demo/experimental data (too large for GitHub)
-DIC/解析実行に必要なデータ (デモ用)/
+解析実行に必要なデータ (デモ用)/
 
 # Other folders to exclude
 Narazaki H-DIC ver0.0.6/

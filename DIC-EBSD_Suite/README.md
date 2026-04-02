@@ -128,7 +128,7 @@ DICサブセットグリッドに結晶粒情報を割り当てます。
 ## ファイル構成
 
 ```
-Integrated_program_v4/
+DIC-EBSD_Suite/
 ├── main.py                                    # 統合ランチャー（Eel + Tkinter）
 ├── index.html                                 # ランチャーUI
 ├── dic_wizard.html                            # Normal DICウィザードUI
