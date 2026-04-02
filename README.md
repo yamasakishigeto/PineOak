@@ -9,19 +9,17 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 
 ```
 PineOak/
-├── DIC/
-│   └── Integrated_program_v4/   ← メインの統合プログラム（DIC Suite v4）
-├── GeoReferencer/               ← DIC–EBSD ジオリファレンスツール（旧バージョン）
-├── EBSD PatRep/                 ← EBSD パターン置換ツール
-├── stress_strain_mapper/        ← 応力–ひずみ曲線マッパー
-└── mat_to_excel_batch_exporter_250828.py
+├── Integrated_program_v4/          ← メインの統合プログラム（DIC Suite v4）
+├── Narazaki H-DIC ver0.0.6/        ← Narazaki 式 H-DIC ツール
+├── stress_strain_mapper/           ← 応力–ひずみ曲線マッパー
+└── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
 ```
 
 ---
 
 ## DIC Suite v4（メイン）
 
-`DIC/Integrated_program_v4/` に入っている統合解析プログラムです。
+`Integrated_program_v4/` に入っている統合解析プログラムです。
 GUI（ブラウザベース）から以下の解析を一括で実行できます。
 
 | モジュール | 内容 |
@@ -29,38 +27,32 @@ GUI（ブラウザベース）から以下の解析を一括で実行できま�
 | SEM-DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
 | EBSD ジオリファレンス | EBSD グレインマップを SEM 座標系に位置合わせ |
+| EBSD PatRep | EBSD パターンの参照パターン置換 |
 | SEM 位置合わせ | 複数ステージの SEM 画像の位置合わせ |
 
 ### 起動方法
 ```bash
-cd DIC/Integrated_program_v4
+cd Integrated_program_v4
 python main.py
 ```
 → ブラウザが開き、GUI から各モジュールを選んで実行できます。
 
 ### 必要なライブラリ
 ```bash
-pip install -r DIC/Integrated_program_v4/requirements.txt
+pip install -r Integrated_program_v4/requirements.txt
 ```
 
 ---
 
-## GeoReferencer
+## Narazaki H-DIC ver0.0.6
 
-`GeoReferencer/` に入っている DIC–EBSD ジオリファレンスツールです（旧バージョン）。
-DIC Suite v4 に同機能が統合されているため、現在はレガシー用途です。
+`Narazaki H-DIC ver0.0.6/` に入っている Heaviside DIC ツールです。
 
----
-
-## EBSD PatRep
-
-`EBSD PatRep/` に入っている EBSD パターン置換ツールです。
-
-- **pattern_replacer_allpoints_batch_250709.py**
-  複数フォルダのデータをまとめて処理し、EBSD パターンを参照と置き換えます。
+- **main_gui.py** : GUI を起動して H-DIC 解析を実行します。
 
 ```bash
-python "EBSD PatRep/pattern_replacer_allpoints_batch_250709.py"
+cd "Narazaki H-DIC ver0.0.6"
+python main_gui.py
 ```
 
 ---
@@ -76,13 +68,21 @@ python stress_strain_mapper/stress_strain_mapper_250828.py
 
 ---
 
-## mat → Excel 変換
+## デモ用サンプルデータ
 
-複数の `.mat` ファイルをまとめて Excel に変換します。
+`解析実行に必要なデータ (デモ用)/` に入っています。
+DIC Suite v4 の動作確認に使えるサンプルデータ一式です。
 
-```bash
-python mat_to_excel_batch_exporter_250828.py
-```
+| ファイル・フォルダ | 内容 |
+|---|---|
+| `SEM_images/` | SEM 画像（BMP） |
+| `Grain_file_OIM8/` | EBSD グレインファイル |
+| `0MPa.mat` | EBSD MAT ファイル（参照状態） |
+| `dic_config.txt` | DIC 設定ファイル |
+| `dic_results.xlsx` | DIC 解析結果（サンプル） |
+| `dic_results_georef.xlsx` | ジオリファレンス済み結果（サンプル） |
+| `sem_alignment.json` | SEM 位置合わせ情報（サンプル） |
+| `出力データ (デモ)/` | 出力結果のサンプル |
 
 ---
 
