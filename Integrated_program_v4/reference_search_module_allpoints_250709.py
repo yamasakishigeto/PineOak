@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import re
-from scipy.io import loadmat
+from preprocessed_loader import smart_loadmat as loadmat
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 import tkinter as tk

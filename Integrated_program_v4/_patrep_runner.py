@@ -52,7 +52,7 @@ sys.path.insert(0, patrep_dir)
 import numpy as np
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
-from scipy.io import loadmat
+from preprocessed_loader import smart_loadmat as loadmat
 
 import reference_search_module_allpoints_250709 as ref_mod
 from reference_search_module_allpoints_250709 import extract_target_points
