@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DIC Analysis Launcher</title>
+<title>PineOak DIC/EBSD Suite</title>
 <script src="/eel.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
@@ -301,7 +301,7 @@
 <body>
 
 <header>
-  <div class="logo">DIC<span>-</span>Suite</div>
+  <div class="logo">PineOak <span>DIC/EBSD</span> Suite</div>
   <div class="subtitle">Integrated Analysis Launcher</div>
 </header>
 
@@ -321,8 +321,20 @@
 
   <div class="tools-grid">
 
-    <div class="tool-card" id="card-sem_align">
+    <div class="tool-card" id="card-patrep">
       <div class="step-num">1</div>
+      <div class="tool-info">
+        <div class="tool-name">EBSD PatRep</div>
+        <div class="tool-desc">変形後EBSDパターン置換・misorientation照合</div>
+      </div>
+      <div class="status-badge" id="badge-patrep">IDLE</div>
+      <button class="btn-launch" id="btn-patrep" onclick="launch('patrep')">起動</button>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-sem_align">
+      <div class="step-num">2</div>
       <div class="tool-info">
         <div class="tool-name">SEM Alignment</div>
         <div class="tool-desc">SEM画像の位置合わせ・JSON出力</div>
@@ -334,7 +346,7 @@
     <div class="arrow">↓</div>
 
     <div class="tool-card" id="card-dic">
-      <div class="step-num">2</div>
+      <div class="step-num">3</div>
       <div class="tool-info">
         <div class="tool-name">Normal DIC</div>
         <div class="tool-desc">通常DIC計算・ひずみマップ生成</div>
@@ -346,7 +358,7 @@
     <div class="arrow">↓</div>
 
     <div class="tool-card" id="card-ebsd">
-      <div class="step-num">3</div>
+      <div class="step-num">4</div>
       <div class="tool-info">
         <div class="tool-name">EBSD Georef</div>
         <div class="tool-desc">EBSDジオリファレンス処理</div>
@@ -358,7 +370,7 @@
     <div class="arrow">↓</div>
 
     <div class="tool-card" id="card-defebsd">
-      <div class="step-num">4</div>
+      <div class="step-num">5</div>
       <div class="tool-info">
         <div class="tool-name">Def EBSD Georef</div>
         <div class="tool-desc">変形後EBSDジオリファレンス処理</div>
@@ -369,26 +381,26 @@
 
     <div class="arrow">↓</div>
 
+    <div class="tool-card" id="card-stress_strain">
+      <div class="step-num">6</div>
+      <div class="tool-info">
+        <div class="tool-name">Stress-Strain curve mapper</div>
+        <div class="tool-desc">応力–ひずみ曲線マッパー（準備中）</div>
+      </div>
+      <div class="status-badge" id="badge-stress_strain">IDLE</div>
+      <button class="btn-launch" id="btn-stress_strain" disabled>準備中</button>
+    </div>
+
+    <div class="arrow">↓</div>
+
     <div class="tool-card" id="card-heaviside">
-      <div class="step-num">5</div>
+      <div class="step-num">7</div>
       <div class="tool-info">
         <div class="tool-name">Heaviside DIC</div>
         <div class="tool-desc">不連続変位解析・Heaviside DIC計算</div>
       </div>
       <div class="status-badge" id="badge-heaviside">IDLE</div>
       <button class="btn-launch" id="btn-heaviside" onclick="launch('heaviside')">起動</button>
-    </div>
-
-    <div class="arrow">↓</div>
-
-    <div class="tool-card" id="card-patrep">
-      <div class="step-num">6</div>
-      <div class="tool-info">
-        <div class="tool-name">EBSD PatRep</div>
-        <div class="tool-desc">変形後EBSDパターン置換・misorientation照合</div>
-      </div>
-      <div class="status-badge" id="badge-patrep">IDLE</div>
-      <button class="btn-launch" id="btn-patrep" onclick="launch('patrep')">起動</button>
     </div>
 
   </div>

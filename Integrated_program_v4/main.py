@@ -790,12 +790,12 @@ def _run_patrep_batch(params: dict):
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  DIC Analysis Launcher")
+    print("  PineOak DIC/EBSD Suite")
     print(f"  Tools dir: {TOOLS_DIR}")
     print("=" * 50)
     eel.start(
         "index.html",
-        size=(820, 810),
+        size=(820, 1020),
         port=8765,
         host="localhost",
     )

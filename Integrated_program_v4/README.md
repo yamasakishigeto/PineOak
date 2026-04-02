@@ -1,4 +1,4 @@
-# DIC-Suite — Integrated Analysis Launcher
+# PineOak DIC/EBSD Suite
 
 SEM画像を用いたDIC（Digital Image Correlation）解析の統合ランチャーです。
 通常DIC・EBSDジオリファレンス・Heaviside DICを一つのGUIから順に実行できます。
@@ -27,17 +27,19 @@ py -3.13 main.py
 ## ワークフロー
 
 ```
-1. SEM Alignment      SEM画像の位置合わせ・アライメントJSON出力
+1. EBSD PatRep        EBSDパターンの参照パターン置換
         ↓
-2. Normal DIC         通常DIC計算・ひずみマップ生成（Excel出力）
+2. SEM Alignment      SEM画像の位置合わせ・アライメントJSON出力
         ↓
-3. EBSD Georef        EBSDデータのジオリファレンス・粒情報割り当て
+3. Normal DIC         通常DIC計算・ひずみマップ生成（Excel出力）
         ↓
-4. Heaviside DIC      不連続変位解析・Heaviside DIC計算
+4. EBSD Georef        EBSDデータのジオリファレンス・粒情報割り当て
         ↓
 5. Def EBSD Georef    変形後EBSDのジオリファレンス
         ↓
-6. EBSD PatRep        EBSDパターンの参照パターン置換
+6. Stress-Strain Mapper  応力–ひずみ曲線マッパー（準備中）
+        ↓
+7. Heaviside DIC      不連続変位解析・Heaviside DIC計算
 ```
 
 作業フォルダを選択してから各ツールを起動してください。

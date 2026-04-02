@@ -9,14 +9,14 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 
 ```
 PineOak/
-├── Integrated_program_v4/          ← メインの統合プログラム（DIC Suite v4）
+├── Integrated_program_v4/          ← メインの統合プログラム（PineOak DIC/EBSD Suite）
 ├── stress_strain_mapper/           ← 応力–ひずみ曲線マッパー
 └── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
 ```
 
 ---
 
-## DIC Suite v4（メイン）
+## PineOak DIC/EBSD Suite（メイン）
 
 `Integrated_program_v4/` に入っている統合解析プログラムです。
 GUI（ブラウザベース）から以下の解析を一括で実行できます。
@@ -57,7 +57,7 @@ python stress_strain_mapper/stress_strain_mapper_250828.py
 ## デモ用サンプルデータ
 
 `解析実行に必要なデータ (デモ用)/` に入っています。
-DIC Suite v4 の動作確認に使えるサンプルデータ一式です。
+PineOak DIC/EBSD Suite の動作確認に使えるサンプルデータ一式です。
 
 | ファイル・フォルダ | 内容 |
 |---|---|
