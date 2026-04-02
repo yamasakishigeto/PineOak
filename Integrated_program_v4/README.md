@@ -34,6 +34,10 @@ py -3.13 main.py
 3. EBSD Georef        EBSDデータのジオリファレンス・粒情報割り当て
         ↓
 4. Heaviside DIC      不連続変位解析・Heaviside DIC計算
+        ↓
+5. Def EBSD Georef    変形後EBSDのジオリファレンス
+        ↓
+6. EBSD PatRep        EBSDパターンの参照パターン置換
 ```
 
 作業フォルダを選択してから各ツールを起動してください。
@@ -123,16 +127,25 @@ DICサブセットグリッドに結晶粒情報を割り当てます。
 
 ```
 Integrated_program_v4/
-├── main.py                  # 統合ランチャー（Eel + Tkinter）
-├── index.html               # ランチャーUI
-├── dic_wizard.html          # Normal DICウィザードUI
-├── ebsd_wizard.html         # EBSDウィザードUI
-├── heaviside_wizard.html    # Heaviside DICウィザードUI
-├── sem_align_tool_v3.html   # SEM位置合わせUI
-├── dic_sem_strain_v58.py    # Normal DIC解析エンジン
-├── ebsd_georef_v68.py       # EBSDジオリファレンスエンジン
-├── heaviside_dic_v81.py     # Heaviside DIC解析エンジン
-├── _dic_runner_src.py       # DIC解析サブプロセス用スクリプト
+├── main.py                                    # 統合ランチャー（Eel + Tkinter）
+├── index.html                                 # ランチャーUI
+├── dic_wizard.html                            # Normal DICウィザードUI
+├── ebsd_wizard.html                           # EBSD Georefウィザードui
+├── heaviside_wizard.html                      # Heaviside DICウィザードUI
+├── sem_align_tool_v3.html                     # SEM位置合わせUI
+├── defebsd_wizard.html                        # Def EBSD Georefウィザードui
+├── patrep_wizard.html                         # EBSD PatRepウィザードUI
+├── dic_sem_strain_v58.py                      # Normal DIC解析エンジン
+├── ebsd_georef_v68.py                         # EBSDジオリファレンスエンジン
+├── heaviside_dic_v81.py                       # Heaviside DIC解析エンジン
+├── defebsd_georef_v1.py                       # 変形後EBSDジオリファレンスエンジン
+├── pattern_replacer_allpoints_batch_250709.py # EBSD PatRep解析エンジン
+├── reference_search_module_allpoints_250709.py# PatRep参照探索モジュール
+├── preprocessed_loader.py                     # 前処理済みデータローダー
+├── visualize_grain_map_overlay_250709.py      # 粒マップ重ね合わせ可視化
+├── _dic_runner.py                             # DIC実行管理
+├── _dic_runner_src.py                         # DIC解析サブプロセス用スクリプト
+├── _patrep_runner.py                          # PatRep実行管理
 └── requirements.txt
 ```
 

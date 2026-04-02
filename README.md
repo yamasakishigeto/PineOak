@@ -10,7 +10,6 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 ```
 PineOak/
 ├── Integrated_program_v4/          ← メインの統合プログラム（DIC Suite v4）
-├── Narazaki H-DIC ver0.0.6/        ← Narazaki 式 H-DIC ツール
 ├── stress_strain_mapper/           ← 応力–ひずみ曲線マッパー
 └── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
 ```
@@ -40,19 +39,6 @@ python main.py
 ### 必要なライブラリ
 ```bash
 pip install -r Integrated_program_v4/requirements.txt
-```
-
----
-
-## Narazaki H-DIC ver0.0.6
-
-`Narazaki H-DIC ver0.0.6/` に入っている Heaviside DIC ツールです。
-
-- **main_gui.py** : GUI を起動して H-DIC 解析を実行します。
-
-```bash
-cd "Narazaki H-DIC ver0.0.6"
-python main_gui.py
 ```
 
 ---
