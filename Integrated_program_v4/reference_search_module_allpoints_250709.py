@@ -78,11 +78,11 @@ def extract_target_points(excel_path, mat_path):
     extracted = target_lines.str.extract(r'(^.+\.tif),(\d+)$')
     extracted.columns = ["Deformed_Filename", "Deformed_Index"]
     extracted["Deformed_Index"] = extracted["Deformed_Index"].astype(int)
-    mat = loadmat(mat_path)
+    # char 型変数を読み飛ばすため variable_names で数値変数のみ指定
+    mat = loadmat(mat_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'phase_index'])
     phi1 = mat["euler_phi1"]
     Phi  = mat["euler_phi"]
     phi2 = mat["euler_phi2"]
-    phase = mat.get('phase_index', None)  # フェーズマップ
     phase = mat.get("phase_index", None)
     nrows, ncols = phi1.shape
     data = []
@@ -114,7 +114,7 @@ def run_misorientation_matching_all_vs_targets(
     target_phase=None):
     global cached_scale_factor
     print(f"Selected symmetry operations count: {len(sym_ops)}")
-    mat_0th = loadmat(mat_0th_path)
+    mat_0th = loadmat(mat_0th_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality', 'phase_index'])
     all_points_df, ncols = flatten_all_points(mat_0th)
     target_df = extract_target_points(excel_nth_path, mat_nth_path)
     # Filter reference points by phase
