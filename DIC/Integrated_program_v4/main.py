@@ -648,7 +648,7 @@ def _run_defebsd_batch(params: dict):
 # EBSD PatRep ウィザード用
 # ================================================================
 
-PATREP_DIR = os.path.join(os.path.dirname(BASE_DIR), "EBSD PatRep")
+PATREP_DIR = BASE_DIR
 
 
 @eel.expose
