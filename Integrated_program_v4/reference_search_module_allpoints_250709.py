@@ -36,6 +36,27 @@ def misorientation_angle_deg(g1, g2, sym_ops):
             min_angle = angle_deg
     return min_angle
 
+# numpy ベクトル化版 misorientation 一括計算
+# 回転行列が直交行列であることを利用し R^-1 = R^T とする（linalg.inv 不要）
+def _misorientation_batch(g_refs, g_target, sym_ops):
+    """
+    g_refs:   (N, 3, 3) — 参照点群の回転行列
+    g_target: (3, 3)    — 対象点の回転行列
+    sym_ops:  (S, 3, 3) — 対称操作行列群
+    戻り値:   (N,)      — 各参照点との最小 misorientation 角（度）
+    """
+    # g_target @ sym_ops[j] → (S, 3, 3)
+    g_target_sym = g_target[np.newaxis] @ sym_ops        # (S, 3, 3)
+    # R^-1 = R^T（直交行列の性質）
+    g_refs_inv = g_refs.transpose(0, 2, 1)               # (N, 3, 3)
+    # delta[i,j] = g_target_sym[j] @ g_refs_inv[i] → (N, S, 3, 3)
+    delta = g_target_sym[np.newaxis] @ g_refs_inv[:, np.newaxis]
+    # 対角和（trace） → (N, S)
+    traces = delta[..., 0, 0] + delta[..., 1, 1] + delta[..., 2, 2]
+    # misorientation 角（度）→ 対称操作ごとの最小値 → (N,)
+    angles = np.degrees(np.arccos(np.clip((traces - 1) / 2, -1.0, 1.0)))
+    return angles.min(axis=1)
+
 # Excelファイルから参照ステップを読み取り、DataFrameで返す
 def read_steps_from_excel(excel_path):
     df = pd.read_excel(excel_path, sheet_name="Project Details", header=None)
@@ -134,42 +155,63 @@ def run_misorientation_matching_all_vs_targets(
         root.destroy()
     scale_factor = cached_scale_factor
 
-    IQ_threshold = np.percentile(all_points_df["IQ"], iq_percentile)
+    # --- 参照点（0th）の回転行列をループ前に一括計算 ---
+    ref_eulers = all_points_df[["phi1", "phi", "phi2"]].values          # (N, 3)
+    ref_valid  = ~np.isnan(ref_eulers).any(axis=1)                      # (N,)
+    g_refs_all = np.array([
+        euler_to_matrix(*np.radians(e)) if ref_valid[i] else np.eye(3)
+        for i, e in enumerate(ref_eulers)
+    ])                                                                   # (N, 3, 3)
+    sym_ops_arr = np.asarray(sym_ops)                                    # (S, 3, 3)
+
     results = []
     for _, t_row in tqdm(target_df.iterrows(), total=len(target_df), desc="Computing misorientation"):
-        # 指定されている場合、現在のフェーズにないターゲットポイントをスキップ
         if target_phase is not None and t_row.get("phase") != target_phase:
             continue
         if np.isnan(t_row["phi1"]) or np.isnan(t_row["phi"]) or np.isnan(t_row["phi2"]):
             continue
-        g_target = euler_to_matrix(*np.radians([t_row["phi1"], t_row["phi"], t_row["phi2"]]))
+
+        g_target  = euler_to_matrix(*np.radians([t_row["phi1"], t_row["phi"], t_row["phi2"]]))
         tgt_phase = t_row.get("phase", None)
-        candidates = []
-        for _, a_row in all_points_df.iterrows():
-            if tgt_phase is not None and a_row.get("phase", None) != tgt_phase:
-                continue
-            g_ref = euler_to_matrix(*np.radians([a_row["phi1"], a_row["phi"], a_row["phi2"]]))
-            angle = misorientation_angle_deg(g_ref, g_target, sym_ops)
-            if angle <= angle_threshold:
-                row_copy = a_row.copy()
-                row_copy["angle"] = angle
-                candidates.append(row_copy)
-        if not candidates:
+
+        # 有効点 + 同一フェーズ のマスク
+        mask = ref_valid.copy()
+        if tgt_phase is not None and "phase" in all_points_df.columns:
+            mask &= (all_points_df["phase"].values == tgt_phase)
+
+        if not mask.any():
             continue
-        best_row = max(candidates, key=lambda x: x["IQ"])
-        min_angle = best_row["angle"]
-        if min_angle <= angle_threshold:
-            col = int(round(best_row["col"] * x_step * scale_factor))
-            row = int(round(best_row["row"] * y_step * scale_factor))
-            matched_filename = f"0th_x{col}y{row}.tif"
-            results.append({
-                "Deformed_Filename": t_row["Deformed_Filename"],
-                "Matched_0th_Filename": matched_filename,
-                "Deformed_Index": t_row["Deformed_Index"],
-                "Matched_0th_Index": best_row["Index"],
-                "Matched_0th_IQ": best_row["IQ"],
-                "Misorientation (deg)": round(min_angle, 1)
-            })
+
+        masked_idx = np.where(mask)[0]
+
+        # numpy ベクトル化で全参照点との misorientation を一括計算
+        min_angles = _misorientation_batch(g_refs_all[mask], g_target, sym_ops_arr)
+
+        # 閾値以内の候補のみ抽出
+        within = min_angles <= angle_threshold
+        if not within.any():
+            continue
+
+        # 候補の中で IQ 最大を選ぶ
+        cand_idx    = masked_idx[within]
+        cand_angles = min_angles[within]
+        cand_iqs    = all_points_df["IQ"].values[cand_idx]
+        best_local  = int(np.argmax(cand_iqs))
+        best_idx    = cand_idx[best_local]
+        best_angle  = float(cand_angles[best_local])
+
+        best_row = all_points_df.iloc[best_idx]
+        col = int(round(best_row["col"] * x_step * scale_factor))
+        row = int(round(best_row["row"] * y_step * scale_factor))
+        matched_filename = f"0th_x{col}y{row}.tif"
+        results.append({
+            "Deformed_Filename":   t_row["Deformed_Filename"],
+            "Matched_0th_Filename": matched_filename,
+            "Deformed_Index":      t_row["Deformed_Index"],
+            "Matched_0th_Index":   best_row["Index"],
+            "Matched_0th_IQ":      best_row["IQ"],
+            "Misorientation (deg)": round(best_angle, 1)
+        })
     df = pd.DataFrame(results)
     def natural_sort_key(s):
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
