@@ -16,6 +16,7 @@ japanize-matplotlib   # 任意: 日本語フォント自動設定
 
 # Excel入出力
 openpyxl
+pandas
 
 # MATLAB v7.3 (.mat HDF5形式) の読み込み
 h5py
