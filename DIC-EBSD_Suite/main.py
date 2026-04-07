@@ -522,6 +522,30 @@ def dic_cancel():
 # ================================================================
 
 @eel.expose
+def launch_stress_strain_mapper():
+    """Stress-Strain Mapper を起動する（matファイルをダイアログで選択）"""
+    mat_path = _tk_filedialog(
+        'file',
+        'integrated_georef.mat を選択',
+        filetypes=[('MAT files', '*.mat'), ('All files', '*.*')],
+        initialdir=_work_dir,
+    )
+    if not mat_path:
+        return
+    script = os.path.join(TOOLS_DIR, 'stress_strain_mapper_v2.py')
+    _env = os.environ.copy()
+    _env['QT_API'] = 'PyQt6'
+    _env['PYTHONIOENCODING'] = 'utf-8'
+    threading.Thread(
+        target=lambda: subprocess.Popen(
+            [PYTHON, script, '--file', mat_path],
+            cwd=TOOLS_DIR, env=_env,
+        ).wait(),
+        daemon=True,
+    ).start()
+
+
+@eel.expose
 def launch_defebsd():
     """Def EBSD Georef ウィザードHTMLを別ウィンドウで開く"""
     eel.start("defebsd_wizard.html", size=(820, 870), block=False)

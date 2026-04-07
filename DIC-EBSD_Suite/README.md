@@ -37,7 +37,7 @@ py -3.13 main.py
         ↓
 5. Def EBSD Georef    変形後EBSDのジオリファレンス
         ↓
-6. Stress-Strain Mapper  応力–ひずみ曲線マッパー（準備中）
+6. Stress-Strain Mapper  応力–ひずみ曲線マッパー
         ↓
 7. Heaviside DIC      不連続変位解析・Heaviside DIC計算
 ```
@@ -145,6 +145,7 @@ DIC-EBSD_Suite/
 ├── reference_search_module_allpoints_250709.py# PatRep参照探索モジュール
 ├── preprocessed_loader.py                     # 前処理済みデータローダー
 ├── visualize_grain_map_overlay_250709.py      # 粒マップ重ね合わせ可視化
+├── stress_strain_mapper_v2.py                 # Stress-Strain Mapper（PyQt6 GUI）
 ├── _dic_runner.py                             # DIC実行管理
 ├── _dic_runner_src.py                         # DIC解析サブプロセス用スクリプト
 ├── _patrep_runner.py                          # PatRep実行管理

@@ -385,10 +385,10 @@
       <div class="step-num">6</div>
       <div class="tool-info">
         <div class="tool-name">Stress-Strain curve mapper</div>
-        <div class="tool-desc">応力–ひずみ曲線マッパー（準備中）</div>
+        <div class="tool-desc">応力–ひずみ曲線マッパー</div>
       </div>
       <div class="status-badge" id="badge-stress_strain">IDLE</div>
-      <button class="btn-launch" id="btn-stress_strain" disabled>準備中</button>
+      <button class="btn-launch" id="btn-stress_strain" onclick="launch('stress_strain')">起動</button>
     </div>
 
     <div class="arrow">↓</div>
@@ -422,6 +422,7 @@
     defebsd:   "Def EBSD Georef",
     heaviside: "Heaviside DIC",
     patrep:    "EBSD PatRep",
+    stress_strain: "Stress-Strain Mapper",
   };
 
   function addLog(msg, cls = "info") {
@@ -476,6 +477,7 @@
       defebsd:   () => eel.launch_defebsd()(),
       heaviside: () => eel.launch_heaviside()(),
       patrep:    () => eel.launch_patrep()(),
+      stress_strain: () => eel.launch_stress_strain_mapper()(),
     };
 
     fn[toolId]().catch(err => {

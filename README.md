@@ -10,7 +10,6 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 ```
 PineOak/
 ├── DIC-EBSD_Suite/          ← メインの統合プログラム（PineOak DIC/EBSD Suite）
-├── stress_strain_mapper/           ← 応力–ひずみ曲線マッパー
 └── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
 ```
 
@@ -28,7 +27,7 @@ GUI（ブラウザベース）から以下の解析を一括で実行できま�
 | 3 | Normal DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
 | 4 | EBSD Georef | EBSD グレインマップを SEM 座標系に位置合わせ |
 | 5 | Def EBSD Georef | 変形後 EBSD グレインマップのジオリファレンス |
-| 6 | Stress-Strain curve mapper | 粒ごとの応力–ひずみ曲線の可視化（準備中） |
+| 6 | Stress-Strain curve mapper | 粒ごとの応力–ひずみ曲線の可視化 |
 | 7 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
 
 ### 起動方法
@@ -41,17 +40,6 @@ python main.py
 ### 必要なライブラリ
 ```bash
 pip install -r DIC-EBSD_Suite/requirements.txt
-```
-
----
-
-## 応力–ひずみ曲線マッパー
-
-`stress_strain_mapper/` に入っています。
-Excel ファイルを読み込み、粒ごとの散布図と応力–ひずみ曲線を同時に表示します。
-
-```bash
-python stress_strain_mapper/stress_strain_mapper_250828.py
 ```
 
 ---
