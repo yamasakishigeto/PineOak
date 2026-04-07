@@ -188,7 +188,7 @@ class MapCanvas(FigureCanvasQtAgg):
         self._colorbar = None
 
     def draw_scatter(self, x, y, data, cmap, vmin, vmax, title,
-                     xlim=None, ylim=None):
+                     xlim=None, ylim=None, cbar_label=None):
         # figure ごとクリアして axes を作り直す（colorbar による縮小を防ぐ）
         self._fig.clf()
         self.ax = self._fig.add_subplot(111)
@@ -196,6 +196,8 @@ class MapCanvas(FigureCanvasQtAgg):
 
         sc = self.ax.scatter(x, y, c=data, cmap=cmap, vmin=vmin, vmax=vmax, s=8, alpha=0.9)
         self._colorbar = self._fig.colorbar(sc, ax=self.ax)
+        if cbar_label:
+            self._colorbar.set_label(cbar_label)
         self.ax.set_title(title)
         self.ax.set_xlabel("X")
         self.ax.set_ylabel("Y")
@@ -484,6 +486,18 @@ class StressStrainMapperApp(QMainWindow):
             vmax = float(np.nanmax(data))
         return vmin, vmax
 
+    def _var_unit(self, base):
+        """変数名から単位文字列を返す。不明な場合は空文字。"""
+        if base in DIC_STRAIN_BASES or base.startswith("map_e") or base.startswith("rmap_e"):
+            return "-"
+        if base.startswith("map_w") or base.startswith("rmap_w"):
+            return "rad"
+        if base.startswith("map_s") or base.startswith("rmap_s"):
+            return "GPa"
+        if base in ("u", "v"):
+            return "px"
+        return ""
+
     def _map_auto_minmax(self):
         base = self._map_var_cb.currentText()
         data, _, _, _ = self._get_map_data(base, self._map_stage_slider.value())
@@ -497,7 +511,9 @@ class StressStrainMapperApp(QMainWindow):
         vmin, vmax = self._parse_minmax(data)
         cmap = self._map_cmap_cb.currentText()
         title = f"{base}  [{stage}]" if stage else base
-        self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim)
+        unit = self._var_unit(base)
+        cbar_label = f"{base} [{unit}]" if unit else base
+        self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
 
     def _on_map_scroll(self, event):
         """マウスホイールでステージスライダーを1段階ずつ切り替える。"""
@@ -521,7 +537,9 @@ class StressStrainMapperApp(QMainWindow):
         vmin, vmax = self._parse_minmax(data)
         cmap = self._map_cmap_cb.currentText()
         title = f"{base}  [{stage}]" if stage else base
-        self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim)
+        unit = self._var_unit(base)
+        cbar_label = f"{base} [{unit}]" if unit else base
+        self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         fname = f"map_{base}_{stage}.png" if stage else f"map_{base}.png"
         out = self.mat_path.parent / fname
         self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
@@ -541,6 +559,8 @@ class StressStrainMapperApp(QMainWindow):
             all_vals = np.concatenate([self.per_stage[base][st] for st in sts])
             vmin, vmax = float(np.nanmin(all_vals)), float(np.nanmax(all_vals))
 
+        unit = self._var_unit(base)
+        cbar_label = f"{base} [{unit}]" if unit else base
         for stage in sts:
             data = self.per_stage[base][stage]
             if self._map_coord_bg.checkedId() == 1 and \
@@ -549,7 +569,7 @@ class StressStrainMapperApp(QMainWindow):
                 y = self.cy + self.per_stage["v"].get(stage, np.zeros_like(self.cy))
             else:
                 x, y = self.cx, self.cy
-            self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, f"{base} [{stage}]", xlim=self._xlim, ylim=self._ylim)
+            self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, f"{base} [{stage}]", xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
             self.canvas_map._fig.savefig(
                 str(self.mat_path.parent / f"map_{base}_{stage}.png"),
                 dpi=150, bbox_inches="tight")
@@ -897,8 +917,8 @@ class StressStrainMapperApp(QMainWindow):
             vmax = float(np.nanmax(result[~np.isnan(result)])) if np.any(~np.isnan(result)) else 1.0
         return vmin, vmax
 
-    def _draw_derived(self, result, cmap, title, vmin, vmax):
-        self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim)
+    def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):
+        self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
 
     def _compute_hardening_rate(self):
         sv, ss, stages = self._build_derived_ss(self._hr_x_cb, self._hr_y_cb)
@@ -919,7 +939,9 @@ class StressStrainMapperApp(QMainWindow):
         result = compute_hardening_rate(sv, ss, n, m)
         self._derived_results["hardening_rate"] = result
         vmin, vmax = self._parse_derived_minmax(result, self._hr_vmin_edit, self._hr_vmax_edit)
-        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"Hardening Rate (n={n}, m={m})", vmin, vmax)
+        y_unit = self._var_unit(self._hr_y_cb.currentText())
+        cbar_label = f"Hardening Rate [{y_unit}]" if y_unit else "Hardening Rate"
+        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"Hardening Rate (n={n}, m={m})", vmin, vmax, cbar_label=cbar_label)
         self._derived_status_lbl.setText(f"加工硬化率を計算しました (n={n}, m={m})")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
@@ -936,7 +958,9 @@ class StressStrainMapperApp(QMainWindow):
         result = compute_yield_stress(sv, ss, offset=offset_pct / 100.0)
         self._derived_results["yield_stress"] = result
         vmin, vmax = self._parse_derived_minmax(result, self._ys_vmin_edit, self._ys_vmax_edit)
-        self._draw_derived(result, self._ys_cmap_cb.currentText(), f"Yield Stress (offset={offset_pct}%)", vmin, vmax)
+        y_unit = self._var_unit(self._ys_y_cb.currentText())
+        cbar_label = f"Yield Stress [{y_unit}]" if y_unit else "Yield Stress"
+        self._draw_derived(result, self._ys_cmap_cb.currentText(), f"Yield Stress (offset={offset_pct}%)", vmin, vmax, cbar_label=cbar_label)
         self._derived_status_lbl.setText(f"降伏応力を計算しました (offset={offset_pct}%)")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
@@ -947,7 +971,8 @@ class StressStrainMapperApp(QMainWindow):
         result = compute_strain_energy(sv, ss)
         self._derived_results["strain_energy"] = result
         vmin, vmax = self._parse_derived_minmax(result, self._se_vmin_edit, self._se_vmax_edit)
-        self._draw_derived(result, self._se_cmap_cb.currentText(), "Strain Energy", vmin, vmax)
+        cbar_label = "Strain Energy [GJ/m\u00b3]"
+        self._draw_derived(result, self._se_cmap_cb.currentText(), "Strain Energy", vmin, vmax, cbar_label=cbar_label)
         self._derived_status_lbl.setText("ひずみエネルギーを計算しました")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
