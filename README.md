@@ -1,7 +1,7 @@
 # PineOak SEM-DIC/HR-EBSD Tools
 
 SEM-DIC と HR-EBSD の実験・解析で使うための Python ツール集です。
-SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、Heviside DICによるすべり帯などの検出、DICサブセットごとの応力–ひずみ曲線の可視化などをサポートします。
+SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、Heaviside DICによるすべり帯などの検出、DICサブセットごとの応力–ひずみ曲線の可視化などをサポートします。
 
 ---
 
@@ -9,8 +9,9 @@ SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデー�
 
 ```
 PineOak/
-├── DIC-EBSD_Suite/          ← メインの統合プログラム（PineOak DIC/EBSD Suite）
-└── 解析実行に必要なデータ (デモ用)/  ← デモ用サンプルデータ
+├── DIC-EBSD_Suite/       ← メインの統合プログラム（PineOak DIC/EBSD Suite）
+├── Demo_input_data/      ← デモ用入力データ
+└── Demo_output_data/     ← デモ用出力データ（各Stepの実行結果サンプル）
 ```
 
 ---
@@ -27,7 +28,7 @@ GUI（ブラウザベース）から以下の解析を一括で実行できま�
 | 3 | Normal DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
 | 4 | EBSD Georef | EBSD グレインマップを SEM 座標系に位置合わせ |
 | 5 | Def EBSD Georef | 変形後 EBSD グレインマップのジオリファレンス |
-| 6 | Stress-Strain curve mapper | 粒ごとの応力–ひずみ曲線の可視化 |
+| 6 | Stress-Strain Mapper | サブセット・粒・相ごとの応力–ひずみ曲線の可視化 |
 | 7 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
 
 ### 起動方法
@@ -44,28 +45,34 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ---
 
-## デモ用サンプルデータ
+## デモ用データ
 
-`解析実行に必要なデータ (デモ用)/` に入っています。
-PineOak DIC/EBSD Suite の動作確認に使えるサンプルデータ一式です。
+### 入力データ（`Demo_input_data/`）
 
 | ファイル・フォルダ | 内容 |
 |---|---|
-| `SEM_images/` | SEM 画像（BMP） |
-| `Grain_file_OIM8/` | EBSD グレインファイル |
-| `0MPa.mat` | EBSD MAT ファイル（参照状態） |
-| `dic_config.txt` | DIC 設定ファイル |
-| `dic_results.xlsx` | DIC 解析結果（サンプル） |
-| `dic_results_georef.xlsx` | ジオリファレンス済み結果（サンプル） |
-| `sem_alignment.json` | SEM 位置合わせ情報（サンプル） |
-| `出力データ (デモ)/` | 出力結果のサンプル |
+| `SEM_images/` | SEM 画像（BMP、各負荷ステージ） |
+| `Grain_file_OIM8/` | EBSD グレインファイル（OIM8形式、各ステージ） |
+| `0MPa.mat` | HR-EBSD MAT ファイル（CrossCourt出力、参照状態） |
+
+### 出力データ（`Demo_output_data/`）
+
+各 Step の実行結果サンプルです。
+
+| フォルダ | 対応Step | 内容 |
+|---|---|---|
+| `2_SEM_Alignment_X750/` | Step 2 | SEM位置合わせ結果（JSON・GIF） |
+| `3_Normal_DIC_X750/` | Step 3 | DIC解析結果（xlsx・ひずみマップPNG） |
+| `4_EBSD_Georef_X750/` | Step 4 | EBSDジオリファレンス結果（xlsx・PNG） |
+| `5_Def_EBSD_Georef_X750/` | Step 5 | 変形後EBSDジオリファレンス結果（integrated_georef.mat・PNG） |
+| `7_Heaviside_DIC_X750_1100MPa/` | Step 7 | Heaviside DIC結果（xlsx・PNG） |
 
 ---
 
 ## 共通の必要環境
 
 - Python 3.13 以上
-- 主なライブラリ：`numpy`, `pandas`, `scipy`, `matplotlib`, `openpyxl`, `eel`
+- 主なライブラリ：`numpy`, `pandas`, `scipy`, `matplotlib`, `openpyxl`, `eel`, `PyQt6`
 
 ---
 
