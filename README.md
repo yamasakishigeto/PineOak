@@ -49,11 +49,18 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ### 入力データ（`Demo_input_data/`）
 
-| ファイル・フォルダ | 内容 |
-|---|---|
-| `SEM_images/` | SEM 画像（BMP、各負荷ステージ） |
-| `Grain_file_OIM8/` | EBSD グレインファイル（OIM8形式、各ステージ） |
-| `0MPa.mat` | HR-EBSD MAT ファイル（CrossCourt出力、参照状態） |
+各 Step の入力データがフォルダごとにまとめられています。
+
+| フォルダ | 対応Step | 内容 |
+|---|---|---|
+| `1_EBSD_PatRep_X750_750MPa/` | Step 1 | EBSD up2 ファイル、前処理済みデータ（.mat・.xlsx） |
+| `2_SEM_Alignment_X750/` | Step 2 | SEM 画像フォルダ（各負荷ステージの BMP） |
+| `3_Normal_DIC_X750/` | Step 3 | SEM 画像フォルダ、位置合わせ JSON |
+| `4_EBSD_Georef_X750/` | Step 4 | SEM 参照画像（BMP）、EBSD グレインファイル（.txt）、HR-EBSD MAT ファイル（.mat）、DIC 結果（.xlsx） |
+| `5_Def_EBSD_Georef_X750/` | Step 5 | EBSD グレインファイルフォルダ（各ステージ）、CrossCourt4 MAT フォルダ、DIC 結果（.xlsx） |
+| `6_Stress-Strain_curve_mapper_X750/` | Step 6 | 統合ジオリファレンスデータ（integrated_georef.mat） |
+| `7_Heaviside_DIC_X750/` | Step 7 | SEM 画像フォルダ、DIC 設定（.txt）、DIC 結果（.xlsx）、位置合わせ JSON |
+| `osc_files/` | — | 各負荷ステージの EBSD .osc ファイル |
 
 ### 出力データ（`Demo_output_data/`）
 
@@ -61,11 +68,13 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 | フォルダ | 対応Step | 内容 |
 |---|---|---|
-| `2_SEM_Alignment_X750/` | Step 2 | SEM位置合わせ結果（JSON・GIF） |
-| `3_Normal_DIC_X750/` | Step 3 | DIC解析結果（xlsx・ひずみマップPNG） |
-| `4_EBSD_Georef_X750/` | Step 4 | EBSDジオリファレンス結果（xlsx・PNG） |
-| `5_Def_EBSD_Georef_X750/` | Step 5 | 変形後EBSDジオリファレンス結果（integrated_georef.mat・PNG） |
-| `7_Heaviside_DIC_X750_1100MPa/` | Step 7 | Heaviside DIC結果（xlsx・PNG） |
+| `1_EBSD_PatRep_X750_750MPa/` | Step 1 | PatRep 結果（CSV・マッチングマップ PNG） |
+| `2_SEM_Alignment_X750/` | Step 2 | 位置合わせ結果（JSON・確認用 GIF） |
+| `3_Normal_DIC_X750/` | Step 3 | DIC 解析結果（xlsx・ひずみマップ ZIP） |
+| `4_EBSD_Georef_X750/` | Step 4 | EBSDジオリファレンス結果（xlsx・マップ画像 ZIP） |
+| `5_Def_EBSD_Georef_X750/` | Step 5 | 各ステージの制御点 JSON・統合ジオリファレンスデータ（integrated_georef.mat） |
+| `6_Stress-Strain_curve_mapper_X750/` | Step 6 | 応力–ひずみ曲線マッパーのスクリーンショット・派生マップ PNG |
+| `7_Heaviside_DIC_X750_1100MPa/` | Step 7 | Heaviside DIC 結果（xlsx・可視化 PNG） |
 
 ---
 
