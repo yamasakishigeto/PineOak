@@ -524,7 +524,7 @@ def dic_cancel():
 @eel.expose
 def launch_defebsd():
     """Def EBSD Georef ウィザードHTMLを別ウィンドウで開く"""
-    eel.start("defebsd_wizard.html", size=(820, 720), block=False)
+    eel.start("defebsd_wizard.html", size=(820, 870), block=False)
 
 
 @eel.expose

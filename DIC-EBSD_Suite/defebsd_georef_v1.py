@@ -82,6 +82,21 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 
 # =============================================================================
+# 変数名を MATLAB/scipy.io.savemat 互換の識別子に変換
+# =============================================================================
+def _mat_safe_name(s):
+    """
+    文字列を scipy.io.savemat で使える変数名に変換する。
+    例: '750MPa' → 's750MPa',  'gamma_max' → 'gamma_max'
+    """
+    import re
+    s = re.sub(r'[^a-zA-Z0-9]', '_', str(s)).strip('_')
+    if s and s[0].isdigit():
+        s = 's' + s
+    return s or 'unnamed'
+
+
+# =============================================================================
 # dic_results_georef.xlsx から変形後DICデータを読み込む
 # =============================================================================
 def load_deformed_dic_grain_map(georef_xlsx, label):
@@ -412,7 +427,8 @@ def make_grain_id_image(data, meta):
 # =============================================================================
 # コントロールポイント指定 GUI（両パネル RGB 対応版）
 # =============================================================================
-def pick_control_points(left_img, right_img, left_label='', right_label=''):
+def pick_control_points(left_img, right_img, left_label='', right_label='',
+                        ctrl_pts_path=None):
     """
     左（変形後DIC Grain IDマップ）と右（EBSD Grain IDマップ）を並べて表示し、
     左→右の順に交互クリックでコントロールポイントを指定する。
@@ -421,27 +437,34 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
 
     Parameters
     ----------
-    left_label  : str  左パネルのデータ識別名（DIC ラベル）
-    right_label : str  右パネルのデータ識別名（EBSD ファイル名など）
+    left_label     : str        左パネルのデータ識別名（DIC ラベル）
+    right_label    : str        右パネルのデータ識別名（EBSD ファイル名など）
+    ctrl_pts_path  : str|Path   コントロールポイントの保存/読込先 JSON パス
+
+    右クリック挙動:
+      左パネル上: 最近傍ペアをまとめて削除
+      右パネル上: 最近傍の右点のみ削除（対応する左点は保留状態で残る）
 
     Returns
     -------
     pts_left  : ndarray (N, 2)  左パネル画像座標 [px]
     pts_right : ndarray (N, 2)  右パネル画像座標 [px]
     """
+    import json as _json
     from matplotlib.widgets import Button
 
     _C = {
         'bg': '#0a0c0f', 'surface': '#111318', 'surface2': '#1a1d24',
         'border': '#2a2d35', 'accent': '#00d4ff', 'green': '#00ff88',
         'orange': '#ff6b35', 'text': '#e0e4ec', 'dim': '#6b7280',
+        'yellow': '#ffd700',
     }
 
     H_L, W_L = left_img.shape[:2]
     H_R, W_R = right_img.shape[:2]
 
     plt.style.use('dark_background')
-    fig, axes = plt.subplots(1, 2, figsize=(22, 10))
+    fig, axes = plt.subplots(1, 2, figsize=(22, 11.5))
     fig.patch.set_facecolor(_C['bg'])
     for ax in axes:
         ax.set_facecolor(_C['surface'])
@@ -454,7 +477,7 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
     _win_right = f'EBSD  [{right_label}]'          if right_label else 'EBSD Grain ID'
     fig.canvas.manager.set_window_title(
         f'Def EBSD Georef  |  {_win_left} (L) → {_win_right} (R)'
-        '  |  Right-click: undo  |  q: confirm')
+        '  |  L-Rclick: undo pair  R-Rclick: undo right only  |  q: confirm')
 
     ax_left, ax_right = axes
 
@@ -487,19 +510,50 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
         btn.label.set_fontfamily('monospace')
         return btn
 
-    _btn_overlay = _make_btn([0.12, 0.025, 0.14, 0.055], 'Overlay: ON',  _C['accent'])
-    _btn_done    = _make_btn([0.68, 0.025, 0.14, 0.055], 'Confirm',      _C['green'])
+    _btn_load    = _make_btn([0.12, 0.025, 0.14, 0.055], 'Load pts',    _C['orange'])
+    _btn_overlay = _make_btn([0.29, 0.025, 0.14, 0.055], 'Overlay: ON', _C['accent'])
+    _btn_done    = _make_btn([0.68, 0.025, 0.14, 0.055], 'Confirm',     _C['green'])
 
     pts_left  = []
     pts_right = []
-    artists_left  = []
+    artists_left  = []   # 確定ペア分のみ追跡
     artists_right = []
-    state = {'next': 0, 'overlay_visible': True}
+    # 保留中（左クリック済み・右クリック待ち）の左点アーティスト
+    state = {'next': 0, 'overlay_visible': True, 'pending_artist': None}
 
+    # ── 保留左点の描画/消去 ──────────────────────────────────────────────────
+    def _clear_pending():
+        if state['pending_artist'] is not None:
+            for a in state['pending_artist']:
+                try:
+                    a.remove()
+                except Exception:
+                    pass
+            state['pending_artist'] = None
+
+    def _draw_pending():
+        """pts_left に未ペアの点がある場合、黄色マーカーで表示する。"""
+        _clear_pending()
+        if len(pts_left) > len(pts_right):
+            i  = len(pts_left)          # このペア番号
+            pl = pts_left[-1]
+            mk, = ax_left.plot(pl[0], pl[1], '+', color=_C['yellow'],
+                               markersize=16, markeredgewidth=2.5, zorder=5)
+            lb  = ax_left.annotate(str(i), (pl[0], pl[1]),
+                                   color=_C['yellow'], fontsize=14,
+                                   fontweight='bold', xytext=(6, 6),
+                                   textcoords='offset points', zorder=5)
+            state['pending_artist'] = [mk, lb]
+
+    # ── 確定ペアの再描画 ─────────────────────────────────────────────────────
     def _redraw_labels():
+        _clear_pending()
         for a_l, a_r in zip(artists_left, artists_right):
             for a in a_l + a_r:
-                a.remove()
+                try:
+                    a.remove()
+                except Exception:
+                    pass
         artists_left.clear()
         artists_right.clear()
         for i, (pl, pr) in enumerate(zip(pts_left, pts_right), start=1):
@@ -513,8 +567,10 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
                                       textcoords='offset points', zorder=5)
             artists_left.append([mk_l, lb_l])
             artists_right.append([mk_r, lb_r])
+        _draw_pending()   # 保留左点があれば黄色で表示
         fig.canvas.draw_idle()
 
+    # ── オーバーレイ更新 ─────────────────────────────────────────────────────
     def _update_overlay():
         n = min(len(pts_left), len(pts_right))
         if n < 3 or not state['overlay_visible']:
@@ -560,25 +616,85 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
             fontsize=12, color=_C['accent'], fontfamily='monospace', y=0.97)
         fig.canvas.draw_idle()
 
+    # ── コントロールポイント 保存/読込 ───────────────────────────────────────
+    def _save_ctrl_pts():
+        if ctrl_pts_path is None:
+            return
+        n = min(len(pts_left), len(pts_right))
+        data = {
+            'label':      left_label,
+            'pts_left':   [list(map(float, p)) for p in pts_left[:n]],
+            'pts_right':  [list(map(float, p)) for p in pts_right[:n]],
+        }
+        try:
+            with open(ctrl_pts_path, 'w', encoding='utf-8') as f:
+                _json.dump(data, f, indent=2)
+            print(f"  Ctrl pts saved: {Path(ctrl_pts_path).name}  ({n} pairs)")
+        except Exception as e:
+            print(f"  Warning: could not save control points: {e}")
+
+    def _load_ctrl_pts(path=None):
+        load_path = path or ctrl_pts_path
+        if load_path is None or not Path(load_path).exists():
+            return False
+        try:
+            with open(load_path, 'r', encoding='utf-8') as f:
+                data = _json.load(f)
+            pts_left.clear()
+            pts_right.clear()
+            pts_left.extend(data['pts_left'])
+            pts_right.extend(data['pts_right'])
+            state['next'] = 0
+            _redraw_labels()
+            _update_title()
+            _update_overlay()
+            print(f"  Ctrl pts loaded: {Path(load_path).name}  ({len(pts_left)} pairs)")
+            return True
+        except Exception as e:
+            print(f"  Warning: could not load control points: {e}")
+            return False
+
+    # ── クリックハンドラ ─────────────────────────────────────────────────────
     def on_click(event):
         if event.inaxes is None or event.xdata is None:
             return
         x, y = event.xdata, event.ydata
 
-        if event.button == 3:  # 右クリック: 最近傍ペアを削除
-            n = min(len(pts_left), len(pts_right))
-            if n == 0:
-                return
-            pts_search = pts_left[:n] if event.inaxes is ax_left else pts_right[:n]
-            dists = [((p[0]-x)**2 + (p[1]-y)**2) for p in pts_search]
-            idx = int(np.argmin(dists))
-            pts_left.pop(idx)
-            pts_right.pop(idx)
-            if len(pts_left) > len(pts_right):
-                for a in artists_left.pop():
-                    a.remove()
-                pts_left.pop()
-                state['next'] = 0
+        if event.button == 3:  # 右クリック
+            if event.inaxes is ax_right:
+                # ── 右パネル右クリック: 右点のみ削除、左点は保留状態へ ──
+                n = len(pts_right)
+                if n == 0:
+                    return
+                dists = [((p[0]-x)**2 + (p[1]-y)**2) for p in pts_right]
+                idx   = int(np.argmin(dists))
+                saved_left = list(pts_left[idx])   # 対応左点を保存
+                pts_left.pop(idx)
+                pts_right.pop(idx)
+                # 既存の保留左点があれば捨てて、今回の左点を保留に昇格
+                if len(pts_left) > len(pts_right):
+                    pts_left.pop()
+                pts_left.append(saved_left)
+                state['next'] = 1
+            else:
+                # ── 左パネル右クリック: 最近傍ペアをまとめて削除 ──
+                n = min(len(pts_left), len(pts_right))
+                if n == 0:
+                    # 保留左点だけある場合は削除
+                    if len(pts_left) > 0:
+                        pts_left.pop()
+                        state['next'] = 0
+                    else:
+                        return
+                else:
+                    dists = [((p[0]-x)**2 + (p[1]-y)**2) for p in pts_left[:n]]
+                    idx   = int(np.argmin(dists))
+                    pts_left.pop(idx)
+                    pts_right.pop(idx)
+                    # 保留左点があれば一緒に削除
+                    if len(pts_left) > len(pts_right):
+                        pts_left.pop()
+                    state['next'] = 0
             _redraw_labels()
             _update_title()
             _update_overlay()
@@ -587,24 +703,30 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
         if event.button != 1:
             return
 
-        n_pair = min(len(pts_left), len(pts_right)) + 1
+        n_pair = len(pts_right) + 1   # 次のペア番号
 
         if state['next'] == 0 and event.inaxes is ax_left:
             pts_left.append([x, y])
-            mk, = ax_left.plot(x, y, 'r+', markersize=16, markeredgewidth=2.5, zorder=5)
-            lb  = ax_left.annotate(str(n_pair), (x, y), color='red', fontsize=14,
-                                   fontweight='bold', xytext=(6, 6),
-                                   textcoords='offset points', zorder=5)
-            artists_left.append([mk, lb])
             state['next'] = 1
+            _draw_pending()
+            fig.canvas.draw_idle()
         elif state['next'] == 1 and event.inaxes is ax_right:
             pts_right.append([x, y])
-            mk, = ax_right.plot(x, y, 'r+', markersize=16, markeredgewidth=2.5, zorder=5)
-            lb  = ax_right.annotate(str(n_pair), (x, y), color='red', fontsize=14,
-                                    fontweight='bold', xytext=(6, 6),
-                                    textcoords='offset points', zorder=5)
-            artists_right.append([mk, lb])
+            # 保留左点を確定ペアに昇格
+            _clear_pending()
+            pl = pts_left[-1]
+            mk_l, = ax_left.plot(pl[0], pl[1], 'r+', markersize=16, markeredgewidth=2.5, zorder=5)
+            lb_l  = ax_left.annotate(str(n_pair), (pl[0], pl[1]), color='red', fontsize=14,
+                                     fontweight='bold', xytext=(6, 6),
+                                     textcoords='offset points', zorder=5)
+            mk_r, = ax_right.plot(x, y, 'r+', markersize=16, markeredgewidth=2.5, zorder=5)
+            lb_r  = ax_right.annotate(str(n_pair), (x, y), color='red', fontsize=14,
+                                      fontweight='bold', xytext=(6, 6),
+                                      textcoords='offset points', zorder=5)
+            artists_left.append([mk_l, lb_l])
+            artists_right.append([mk_r, lb_r])
             state['next'] = 0
+            fig.canvas.draw_idle()
         else:
             return
 
@@ -613,6 +735,7 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
 
     def on_key(event):
         if event.key == 'q':
+            _save_ctrl_pts()
             plt.close(fig)
         elif event.key == 'o':
             state['overlay_visible'] = not state['overlay_visible']
@@ -629,14 +752,41 @@ def pick_control_points(left_img, right_img, left_label='', right_label=''):
         _update_overlay()
 
     def _on_btn_done(_event):
+        _save_ctrl_pts()
         plt.close(fig)
+
+    def _on_btn_load(_event):
+        # ファイルダイアログで JSON を選択
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.update()
+            init_dir = str(Path(ctrl_pts_path).parent) if ctrl_pts_path else str(Path.cwd())
+            chosen = filedialog.askopenfilename(
+                title='Load control points',
+                initialdir=init_dir,
+                filetypes=[('JSON files', '*.json'), ('All files', '*.*')],
+            )
+            root.destroy()
+            if chosen:
+                _load_ctrl_pts(path=chosen)
+        except Exception as e:
+            print(f"  Warning: file dialog failed: {e}")
 
     fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('key_press_event',    on_key)
     _btn_overlay.on_clicked(_on_btn_overlay)
     _btn_done.on_clicked(_on_btn_done)
+    _btn_load.on_clicked(_on_btn_load)
 
-    _update_title()
+    # 起動時に保存済みコントロールポイントを自動読込
+    if ctrl_pts_path and Path(ctrl_pts_path).exists():
+        _load_ctrl_pts()
+    else:
+        _update_title()
+
     plt.show()
 
     n = min(len(pts_left), len(pts_right))
@@ -740,34 +890,200 @@ def assign_subset_ids(data, meta, H, cx_def, cy_def, subset_ids,
 
 
 # =============================================================================
-# _georef.mat 保存（2D フィールド + subset_id）
+# 全ステージ統合 .mat 保存（DIC サブセット単位）
 # =============================================================================
-def save_georef_mat(mat_path, subset_id_map, out_path):
+def save_integrated_mat(stages_results, georef_xlsx, out_dir):
     """
-    元の .mat から 2D フィールド（3次元以上は除外）＋ subset_id を
-    _georef.mat として保存する。
+    全ステージの HR-EBSD データ（CrossCourt4 .mat）と
+    DIC データ（dic_results_georef.xlsx）を DIC サブセット単位に統合して
+    integrated_georef.mat として保存する。
+
+    出力変数の命名規則:
+      静的情報 : subset_id, cx, cy, grain_id, phi1_ref, PHI_ref, phi2_ref, IQ_ref, CI_ref
+      DIC      : {sheet}_{safe_stage}   例: exx_s750MPa, u_s0MPa
+      HR-EBSD  : {varname}_{safe_stage} 例: map_s11_s750MPa, map_vmstress_s750MPa
+
+    Parameters
+    ----------
+    stages_results : list of dict
+        各ステージの {'label', 'safe_label', 'ebsd_path', 'subset_id_map', 'mode'}
+    georef_xlsx    : str   dic_results_georef.xlsx のパス
+    out_dir        : Path  出力ディレクトリ
     """
     import scipy.io
 
-    mat_info = scipy.io.whosmat(mat_path)
+    # .mat から除外する変数（大型セル配列・文字列・不要なメタデータ）
+    EXCLUDE_VARS = {
+        'shiftsx', 'shiftsy', 'peakhgts', 'refloc', 'imagedir',
+        'xpos', 'ypos', 'roiloc', 'filters', 'pcfrac',
+        'voltage', 'pixelsize', 'stagetilt', 'scanformat',
+        'numims', 'numcols', 'numrows', 'xstep', 'ystep',
+        'imwid', 'imhig', 'numphase', 'phasetxt',
+        'roisize', 'numroi', 'numref',
+        'projectname', 'date', 'version',
+    }
+    NUMERIC_DTYPES = {'double', 'single', 'int32', 'int64', 'uint8', 'uint16', 'uint32'}
 
-    # 3次元以上の大型配列を除外
-    include_names = [name for name, shape, _ in mat_info if len(shape) < 3]
-    print(f"  Loading {len(include_names)} 2D fields from {Path(mat_path).name} ...")
+    print(f"\n{'='*60}")
+    print("  Building integrated_georef.mat ...")
+    print(f"{'='*60}")
 
-    mat = scipy.io.loadmat(mat_path, variable_names=include_names)
+    # ── [1/3] DIC データ読み込み ─────────────────────────────────────────────
+    print("  [1/3] Loading DIC data from xlsx ...")
+    wb = openpyxl.load_workbook(georef_xlsx, read_only=True)
 
-    # subset_id を追加（float64 で保存）
-    mat['subset_id'] = subset_id_map.astype(np.float64)
+    # u シートから全 subset_id と参照座標を取得
+    rows_u = list(wb['u'].iter_rows(values_only=True))
+    hdr_u  = list(rows_u[0])
+    sid_col = hdr_u.index('subset_id')
+    x_col   = hdr_u.index('x [px]')
+    y_col   = hdr_u.index('y [px]')
+    stage_col_labels = [h for h in hdr_u
+                        if h not in (None, 'subset_id', 'x [px]', 'y [px]')]
 
-    # MATLAB 内部変数を除去
-    mat_clean = {k: v for k, v in mat.items() if not k.startswith('_')}
+    data_rows      = rows_u[1:]
+    N              = len(data_rows)
+    all_subset_ids = np.array([int(r[sid_col]) for r in data_rows], dtype=np.int32)
+    cx_ref         = np.array([float(r[x_col]) if r[x_col] is not None else np.nan
+                               for r in data_rows])
+    cy_ref         = np.array([float(r[y_col]) if r[y_col] is not None else np.nan
+                               for r in data_rows])
+    sid_to_row     = {int(s): i for i, s in enumerate(all_subset_ids)}
 
-    print(f"  Saving to {Path(out_path).name} ...")
-    scipy.io.savemat(str(out_path), mat_clean)
+    # ebsd_georef シート（参照 EBSD 由来の grain_id 等）
+    rows_eg = list(wb['ebsd_georef'].iter_rows(values_only=True))
+    hdr_eg  = list(rows_eg[0])
+    def _col(hdr, name):
+        return hdr.index(name) if name in hdr else None
 
-    size_mb = Path(out_path).stat().st_size / 1024 / 1024
-    print(f"  Saved: {out_path}  ({size_mb:.1f} MB)")
+    grain_id_arr = np.full(N, np.nan)
+    phi1_ref_arr = np.full(N, np.nan)
+    PHI_ref_arr  = np.full(N, np.nan)
+    phi2_ref_arr = np.full(N, np.nan)
+    IQ_ref_arr   = np.full(N, np.nan)
+    CI_ref_arr   = np.full(N, np.nan)
+
+    c = {k: _col(hdr_eg, k) for k in
+         ('subset_id', 'grain_id', 'phi1 [deg]', 'PHI [deg]', 'phi2 [deg]', 'IQ', 'CI')}
+    for r in rows_eg[1:]:
+        if c['subset_id'] is None or r[c['subset_id']] is None:
+            continue
+        idx = sid_to_row.get(int(r[c['subset_id']]))
+        if idx is None:
+            continue
+        def _fv(key):
+            ci = c.get(key)
+            return float(r[ci]) if (ci is not None and r[ci] is not None) else np.nan
+        grain_id_arr[idx] = _fv('grain_id')
+        phi1_ref_arr[idx] = _fv('phi1 [deg]')
+        PHI_ref_arr[idx]  = _fv('PHI [deg]')
+        phi2_ref_arr[idx] = _fv('phi2 [deg]')
+        IQ_ref_arr[idx]   = _fv('IQ')
+        CI_ref_arr[idx]   = _fv('CI')
+
+    # DIC 各シート（ひずみ・変位等）を読み込み
+    DIC_SHEETS = ['u', 'v', 'ncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
+    out = {
+        'subset_id': all_subset_ids.astype(np.float64),
+        'cx':        cx_ref,
+        'cy':        cy_ref,
+        'grain_id':  grain_id_arr,
+        'phi1_ref':  phi1_ref_arr,
+        'PHI_ref':   PHI_ref_arr,
+        'phi2_ref':  phi2_ref_arr,
+        'IQ_ref':    IQ_ref_arr,
+        'CI_ref':    CI_ref_arr,
+    }
+
+    for sh in DIC_SHEETS:
+        if sh not in wb.sheetnames:
+            continue
+        rows_s = list(wb[sh].iter_rows(values_only=True))
+        hdr_s  = list(rows_s[0])
+        sc_sid = hdr_s.index('subset_id')
+        stage_cols_s = [(h, i) for i, h in enumerate(hdr_s)
+                        if h not in (None, 'subset_id', 'x [px]', 'y [px]')]
+        for stage_lbl, sc_i in stage_cols_s:
+            arr = np.full(N, np.nan)
+            for r in rows_s[1:]:
+                if r[sc_sid] is None:
+                    continue
+                idx = sid_to_row.get(int(r[sc_sid]))
+                if idx is not None and r[sc_i] is not None:
+                    arr[idx] = float(r[sc_i])
+            out[f'{sh}_{_mat_safe_name(stage_lbl)}'] = arr
+
+    wb.close()
+    print(f"    Subsets loaded : {N}")
+    print(f"    DIC variables  : {len(out) - 9}")  # 静的9変数を除いた数
+
+    # ── [2/3] HR-EBSD データをサブセット座標にマッピング ─────────────────
+    print("  [2/3] Mapping HR-EBSD data to subsets ...")
+    for stg in stages_results:
+        if stg.get('mode', 'mat') != 'mat':
+            continue
+        ebsd_path     = stg['ebsd_path']
+        safe_label    = stg['safe_label']
+        subset_id_map = stg['subset_id_map']
+        mat_sfx       = _mat_safe_name(safe_label)
+
+        print(f"    {Path(ebsd_path).name}  ({safe_label}) ...", end='', flush=True)
+
+        # 2D 数値変数のみ抽出（不要変数・セル・文字列を除外）
+        mat_info      = scipy.io.whosmat(ebsd_path)
+        include_names = [
+            name for name, shape, dtype in mat_info
+            if len(shape) == 2
+            and name not in EXCLUDE_VARS
+            and dtype in NUMERIC_DTYPES
+        ]
+
+        # EBSDピクセル → サブセット行インデックス の対応表
+        sid_flat   = subset_id_map.flatten().astype(np.int64)
+        result_idx = np.array([sid_to_row.get(int(s), -1) for s in sid_flat],
+                               dtype=np.int64)
+        valid_ebsd = result_idx >= 0
+
+        # 一括読み込み（失敗時は1変数ずつ）
+        try:
+            mat_data = scipy.io.loadmat(ebsd_path, variable_names=include_names)
+        except Exception:
+            mat_data = {}
+            for vname in include_names:
+                try:
+                    tmp = scipy.io.loadmat(ebsd_path, variable_names=[vname])
+                    mat_data.update({k: v for k, v in tmp.items()
+                                     if not k.startswith('_')})
+                except Exception:
+                    pass
+
+        n_mapped = 0
+        for vname in include_names:
+            if vname not in mat_data:
+                continue
+            var_flat = mat_data[vname].flatten().astype(np.float64)
+            if len(var_flat) != len(sid_flat):
+                continue
+
+            # 複数EBSDピクセルが同じサブセットに対応する場合は平均
+            sums   = np.zeros(N, dtype=np.float64)
+            counts = np.zeros(N, dtype=np.int32)
+            valid  = valid_ebsd & ~np.isnan(var_flat)
+            np.add.at(sums,   result_idx[valid], var_flat[valid])
+            np.add.at(counts, result_idx[valid], 1)
+            out[f'{vname}_{mat_sfx}'] = np.where(counts > 0,
+                                                  sums / counts, np.nan)
+            n_mapped += 1
+
+        print(f"  {n_mapped} vars mapped")
+
+    # ── [3/3] 保存 ───────────────────────────────────────────────────────────
+    print("  [3/3] Saving ...")
+    out_path = out_dir / 'integrated_georef.mat'
+    scipy.io.savemat(str(out_path), out)
+    size_mb = out_path.stat().st_size / 1024 / 1024
+    print(f"  Saved : {out_path}")
+    print(f"  Variables : {len(out)}  /  Subsets : {N}  /  Size : {size_mb:.1f} MB")
 
 
 # =============================================================================
@@ -894,6 +1210,8 @@ if __name__ == '__main__':
     print(f"  Output dir  : {out_dir}")
     print(f"{'='*60}")
 
+    stages_results = []   # 全ステージのジオリファレンス結果を蓄積
+
     for stage_idx, stage in enumerate(stages, 1):
         label     = stage['label']
         ebsd_path = stage['ebsd_path']
@@ -901,6 +1219,9 @@ if __name__ == '__main__':
 
         print(f"\n[Stage {stage_idx}/{len(stages)}]  {label}  ({Path(ebsd_path).name})")
         print('-' * 60)
+
+        safe_label    = label.replace('/', '-').replace(' ', '_')
+        ctrl_pts_path = out_dir / f'ctrl_pts_{safe_label}.json'
 
         # [1] 変形後DIC Grain IDマップ読み込み
         print("[1/5] Loading deformed DIC Grain ID map...")
@@ -927,11 +1248,12 @@ if __name__ == '__main__':
         # [4] コントロールポイント指定
         print("[4/5] Please specify control points in the GUI...")
         print("  Left(Deformed DIC) → Right(EBSD) click alternately")
-        print("  Right-click: undo  /  q: confirm")
+        print("  L-Rclick: undo pair  /  R-Rclick: undo right only  /  q: confirm")
         pts_left, pts_right = pick_control_points(
             dic_grain_img, ebsd_grain_img,
             left_label=label,
             right_label=Path(ebsd_path).name,
+            ctrl_pts_path=ctrl_pts_path,
         )
 
         n_pts = len(pts_left)
@@ -950,22 +1272,39 @@ if __name__ == '__main__':
             x_offset, y_offset, dic_step,
         )
 
-        # 出力
-        safe_label = label.replace('/', '-').replace(' ', '_')
+        # オーバーレイ PNG 保存
         overlay_png = out_dir / f'overlay_{safe_label}.png'
         save_overlay_png(dic_grain_img, ebsd_grain_img,
                          pts_left, pts_right, overlay_png)
 
-        if mode == 'mat':
-            stem     = Path(ebsd_path).stem
-            out_mat  = out_dir / f'{stem}_georef.mat'
-            save_georef_mat(ebsd_path, subset_id_map, str(out_mat))
-        else:
-            sheet_name = f'ebsd_georef_{safe_label}'
-            save_georef_xlsx_sheet(out_dir, sheet_name,
-                                   data, phase_names, meta, subset_id_map)
+        # ステージ結果を蓄積（matモード・grainモード共通）
+        stages_results.append({
+            'label':         label,
+            'safe_label':    safe_label,
+            'ebsd_path':     ebsd_path,
+            'subset_id_map': subset_id_map,
+            'mode':          mode,
+            'data':          data,
+            'phase_names':   phase_names,
+            'meta':          meta,
+        })
 
         print(f"  Stage '{label}' complete.")
+
+    # ── 全ステージ統合 .mat を1ファイルに出力 ────────────────────────────
+    if stages_results:
+        mat_stages  = [s for s in stages_results if s['mode'] == 'mat']
+        grain_stages = [s for s in stages_results if s['mode'] == 'grain']
+
+        if mat_stages:
+            save_integrated_mat(mat_stages, georef_xlsx, out_dir)
+
+        # grain モードは従来通り xlsx にシート追加
+        for s in grain_stages:
+            sheet_name = f'ebsd_georef_{s["safe_label"]}'
+            save_georef_xlsx_sheet(out_dir, sheet_name,
+                                   s['data'], s['phase_names'],
+                                   s['meta'], s['subset_id_map'])
 
     print(f"\n{'='*60}")
     print(f"  All {len(stages)} stage(s) complete.")
