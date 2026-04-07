@@ -1043,6 +1043,32 @@ def save_integrated_mat(stages_results, georef_xlsx, out_dir):
         result_idx = np.array([sid_to_row.get(int(s), -1) for s in sid_flat],
                                dtype=np.int64)
         valid_ebsd = result_idx >= 0
+        valid_pixel_indices = np.where(valid_ebsd)[0]
+
+        if len(valid_pixel_indices) == 0:
+            print(f"  valid EBSDピクセルなし、スキップ")
+            continue
+
+        # DIC→EBSD 方向: 各DICサブセットから最近傍EBSDピクセルを検索
+        # EBSDの有効ピクセルのDIC座標を取得
+        ebsd_dic_x = cx_ref[result_idx[valid_pixel_indices]]
+        ebsd_dic_y = cy_ref[result_idx[valid_pixel_indices]]
+
+        # EBSDピクセル座標でKDTree構築
+        ebsd_tree = cKDTree(np.column_stack([ebsd_dic_x, ebsd_dic_y]))
+
+        # EBSDステップ推定（最近傍EBSDピクセル間距離の中央値）
+        if len(valid_pixel_indices) > 1:
+            nn_d, _ = ebsd_tree.query(np.column_stack([ebsd_dic_x, ebsd_dic_y]), k=2)
+            ebsd_step_est = float(np.median(nn_d[:, 1]))
+        else:
+            ebsd_step_est = 1e9
+        max_ebsd_dist = ebsd_step_est * 2.0
+
+        # 各DICサブセット → 最近傍EBSDピクセル
+        dists_to_ebsd, nearest_in_valid = ebsd_tree.query(
+            np.column_stack([cx_ref, cy_ref]), k=1)
+        valid_mapping = dists_to_ebsd <= max_ebsd_dist
 
         # 一括読み込み（失敗時は1変数ずつ）
         try:
@@ -1065,14 +1091,11 @@ def save_integrated_mat(stages_results, georef_xlsx, out_dir):
             if len(var_flat) != len(sid_flat):
                 continue
 
-            # 複数EBSDピクセルが同じサブセットに対応する場合は平均
-            sums   = np.zeros(N, dtype=np.float64)
-            counts = np.zeros(N, dtype=np.int32)
-            valid  = valid_ebsd & ~np.isnan(var_flat)
-            np.add.at(sums,   result_idx[valid], var_flat[valid])
-            np.add.at(counts, result_idx[valid], 1)
-            out[f'{vname}_{mat_sfx}'] = np.where(counts > 0,
-                                                  sums / counts, np.nan)
+            # 有効EBSDピクセルの値 → 各DICサブセットへ割り当て
+            valid_var    = var_flat[valid_pixel_indices]
+            mapped_vals  = valid_var[nearest_in_valid]
+            out[f'{vname}_{mat_sfx}'] = np.where(
+                valid_mapping & ~np.isnan(mapped_vals), mapped_vals, np.nan)
             n_mapped += 1
 
         print(f"  {n_mapped} vars mapped")
