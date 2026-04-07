@@ -94,7 +94,10 @@ def compute_hardening_rate(sv, ss, n, m):
         y = ss[i, n:m + 1]
         valid = ~(np.isnan(x) | np.isnan(y))
         if valid.sum() >= 2:
-            result[i] = np.polyfit(x[valid], y[valid], 1)[0]
+            try:
+                result[i] = np.polyfit(x[valid], y[valid], 1)[0]
+            except np.linalg.LinAlgError:
+                pass  # SVD失敗（x値が一定など）はnanのまま
     return result
 
 
@@ -757,10 +760,20 @@ class StressStrainMapperApp(QMainWindow):
 
     def _build_tab_derived(self, parent):
         layout = QVBoxLayout(parent)
+        x_choices = [b for b in DIC_STRAIN_BASES if b in self.per_stage]
+        y_choices = self._ss_y_choices()
 
         # 加工硬化率
         grp1 = QGroupBox("加工硬化率 (Hardening Rate)")
         g1 = QVBoxLayout(grp1)
+        ra1 = QHBoxLayout()
+        ra1.addWidget(QLabel("X軸 (ひずみ):"))
+        self._hr_x_cb = QComboBox(); self._hr_x_cb.addItems(x_choices)
+        ra1.addWidget(self._hr_x_cb, stretch=1)
+        ra1.addWidget(QLabel("Y軸 (応力):"))
+        self._hr_y_cb = QComboBox(); self._hr_y_cb.addItems(y_choices)
+        ra1.addWidget(self._hr_y_cb, stretch=1)
+        g1.addLayout(ra1)
         r1 = QHBoxLayout()
         r1.addWidget(QLabel("Stage n:"))
         self._hr_n_edit = QLineEdit("0"); self._hr_n_edit.setFixedWidth(50)
@@ -772,6 +785,14 @@ class StressStrainMapperApp(QMainWindow):
         self._hr_cmap_cb = QComboBox(); self._hr_cmap_cb.addItems(CMAPS)
         r1.addWidget(self._hr_cmap_cb)
         g1.addLayout(r1)
+        rmm1 = QHBoxLayout()
+        rmm1.addWidget(QLabel("Min:"))
+        self._hr_vmin_edit = QLineEdit(); self._hr_vmin_edit.setPlaceholderText("auto")
+        rmm1.addWidget(self._hr_vmin_edit)
+        rmm1.addWidget(QLabel("Max:"))
+        self._hr_vmax_edit = QLineEdit(); self._hr_vmax_edit.setPlaceholderText("auto")
+        rmm1.addWidget(self._hr_vmax_edit)
+        g1.addLayout(rmm1)
         r2 = QHBoxLayout()
         b1 = QPushButton("Compute & Map"); b1.clicked.connect(self._compute_hardening_rate)
         b2 = QPushButton("Export PNG"); b2.clicked.connect(lambda: self._export_derived("hardening_rate"))
@@ -782,6 +803,14 @@ class StressStrainMapperApp(QMainWindow):
         # 降伏応力
         grp2 = QGroupBox("降伏応力 (Yield Stress)")
         g2 = QVBoxLayout(grp2)
+        ra2 = QHBoxLayout()
+        ra2.addWidget(QLabel("X軸 (ひずみ):"))
+        self._ys_x_cb = QComboBox(); self._ys_x_cb.addItems(x_choices)
+        ra2.addWidget(self._ys_x_cb, stretch=1)
+        ra2.addWidget(QLabel("Y軸 (応力):"))
+        self._ys_y_cb = QComboBox(); self._ys_y_cb.addItems(y_choices)
+        ra2.addWidget(self._ys_y_cb, stretch=1)
+        g2.addLayout(ra2)
         r3 = QHBoxLayout()
         r3.addWidget(QLabel("オフセット (%):"))
         self._ys_offset_edit = QLineEdit("0.2"); self._ys_offset_edit.setFixedWidth(60)
@@ -790,6 +819,14 @@ class StressStrainMapperApp(QMainWindow):
         self._ys_cmap_cb = QComboBox(); self._ys_cmap_cb.addItems(CMAPS)
         r3.addWidget(self._ys_cmap_cb)
         g2.addLayout(r3)
+        rmm2 = QHBoxLayout()
+        rmm2.addWidget(QLabel("Min:"))
+        self._ys_vmin_edit = QLineEdit(); self._ys_vmin_edit.setPlaceholderText("auto")
+        rmm2.addWidget(self._ys_vmin_edit)
+        rmm2.addWidget(QLabel("Max:"))
+        self._ys_vmax_edit = QLineEdit(); self._ys_vmax_edit.setPlaceholderText("auto")
+        rmm2.addWidget(self._ys_vmax_edit)
+        g2.addLayout(rmm2)
         r4 = QHBoxLayout()
         b3 = QPushButton("Compute & Map"); b3.clicked.connect(self._compute_yield_stress)
         b4 = QPushButton("Export PNG"); b4.clicked.connect(lambda: self._export_derived("yield_stress"))
@@ -800,11 +837,27 @@ class StressStrainMapperApp(QMainWindow):
         # ひずみエネルギー
         grp3 = QGroupBox("ひずみエネルギー (Strain Energy)")
         g3 = QVBoxLayout(grp3)
+        ra3 = QHBoxLayout()
+        ra3.addWidget(QLabel("X軸 (ひずみ):"))
+        self._se_x_cb = QComboBox(); self._se_x_cb.addItems(x_choices)
+        ra3.addWidget(self._se_x_cb, stretch=1)
+        ra3.addWidget(QLabel("Y軸 (応力):"))
+        self._se_y_cb = QComboBox(); self._se_y_cb.addItems(y_choices)
+        ra3.addWidget(self._se_y_cb, stretch=1)
+        g3.addLayout(ra3)
         r5 = QHBoxLayout()
         r5.addWidget(QLabel("カラーマップ:"))
         self._se_cmap_cb = QComboBox(); self._se_cmap_cb.addItems(CMAPS)
         r5.addWidget(self._se_cmap_cb)
         g3.addLayout(r5)
+        rmm3 = QHBoxLayout()
+        rmm3.addWidget(QLabel("Min:"))
+        self._se_vmin_edit = QLineEdit(); self._se_vmin_edit.setPlaceholderText("auto")
+        rmm3.addWidget(self._se_vmin_edit)
+        rmm3.addWidget(QLabel("Max:"))
+        self._se_vmax_edit = QLineEdit(); self._se_vmax_edit.setPlaceholderText("auto")
+        rmm3.addWidget(self._se_vmax_edit)
+        g3.addLayout(rmm3)
         r6 = QHBoxLayout()
         b5 = QPushButton("Compute & Map"); b5.clicked.connect(self._compute_strain_energy)
         b6 = QPushButton("Export PNG"); b6.clicked.connect(lambda: self._export_derived("strain_energy"))
@@ -813,65 +866,90 @@ class StressStrainMapperApp(QMainWindow):
         layout.addWidget(grp3)
 
         self._derived_status_lbl = QLabel("")
-        self._derived_status_lbl.setStyleSheet("color: blue;")
+        self._derived_status_lbl.setStyleSheet("color: goldenrod;")
         layout.addWidget(self._derived_status_lbl)
         layout.addStretch()
 
-    def _check_ss_ready(self):
-        if self.sv is None or self.ss is None:
-            self._derived_status_lbl.setText(
-                "エラー: SS Curve タブで Apply を先に実行してください。")
+    def _build_derived_ss(self, x_cb, y_cb):
+        """Derived Maps 用に指定変数から sv/ss を構築する。エラー時は None を返す。"""
+        x_base = x_cb.currentText()
+        y_base = y_cb.currentText()
+        if not x_base or not y_base:
+            self._derived_status_lbl.setText("エラー: X軸・Y軸を選択してください。")
             self._derived_status_lbl.setStyleSheet("color: red;")
-            return False
-        return True
+            return None, None, None
+        try:
+            sv, ss, stages = build_ss(self.per_stage, x_base, y_base)
+            return sv, ss, stages
+        except Exception as e:
+            self._derived_status_lbl.setText(f"エラー: {e}")
+            self._derived_status_lbl.setStyleSheet("color: red;")
+            return None, None, None
 
-    def _draw_derived(self, result, cmap, title):
-        valid = result[~np.isnan(result)]
-        vmin = float(np.nanmin(valid)) if len(valid) else 0.0
-        vmax = float(np.nanmax(valid)) if len(valid) else 1.0
+    def _parse_derived_minmax(self, result, vmin_edit, vmax_edit):
+        try:
+            vmin = float(vmin_edit.text())
+        except ValueError:
+            vmin = float(np.nanmin(result[~np.isnan(result)])) if np.any(~np.isnan(result)) else 0.0
+        try:
+            vmax = float(vmax_edit.text())
+        except ValueError:
+            vmax = float(np.nanmax(result[~np.isnan(result)])) if np.any(~np.isnan(result)) else 1.0
+        return vmin, vmax
+
+    def _draw_derived(self, result, cmap, title, vmin, vmax):
         self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim)
 
     def _compute_hardening_rate(self):
-        if not self._check_ss_ready():
+        sv, ss, stages = self._build_derived_ss(self._hr_x_cb, self._hr_y_cb)
+        if sv is None:
             return
         try:
             n, m = int(self._hr_n_edit.text()), int(self._hr_m_edit.text())
         except ValueError:
             self._derived_status_lbl.setText("エラー: n, m には整数を入力してください。")
+            self._derived_status_lbl.setStyleSheet("color: red;")
             return
         if n > m:
             n, m = m, n
-        if m >= self.sv.shape[1]:
-            self._derived_status_lbl.setText(f"エラー: m はステージ数({self.sv.shape[1]}) 未満にしてください。")
+        if m >= sv.shape[1]:
+            self._derived_status_lbl.setText(f"エラー: m はステージ数({sv.shape[1]}) 未満にしてください。")
+            self._derived_status_lbl.setStyleSheet("color: red;")
             return
-        result = compute_hardening_rate(self.sv, self.ss, n, m)
+        result = compute_hardening_rate(sv, ss, n, m)
         self._derived_results["hardening_rate"] = result
-        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"加工硬化率 (n={n}, m={m})")
+        vmin, vmax = self._parse_derived_minmax(result, self._hr_vmin_edit, self._hr_vmax_edit)
+        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"Hardening Rate (n={n}, m={m})", vmin, vmax)
         self._derived_status_lbl.setText(f"加工硬化率を計算しました (n={n}, m={m})")
-        self._derived_status_lbl.setStyleSheet("color: blue;")
+        self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _compute_yield_stress(self):
-        if not self._check_ss_ready():
+        sv, ss, stages = self._build_derived_ss(self._ys_x_cb, self._ys_y_cb)
+        if sv is None:
             return
         try:
             offset_pct = float(self._ys_offset_edit.text())
         except ValueError:
             self._derived_status_lbl.setText("エラー: オフセットには数値を入力してください。")
+            self._derived_status_lbl.setStyleSheet("color: red;")
             return
-        result = compute_yield_stress(self.sv, self.ss, offset=offset_pct / 100.0)
+        result = compute_yield_stress(sv, ss, offset=offset_pct / 100.0)
         self._derived_results["yield_stress"] = result
-        self._draw_derived(result, self._ys_cmap_cb.currentText(), f"降伏応力 (offset={offset_pct}%)")
+        vmin, vmax = self._parse_derived_minmax(result, self._ys_vmin_edit, self._ys_vmax_edit)
+        self._draw_derived(result, self._ys_cmap_cb.currentText(), f"Yield Stress (offset={offset_pct}%)", vmin, vmax)
         self._derived_status_lbl.setText(f"降伏応力を計算しました (offset={offset_pct}%)")
-        self._derived_status_lbl.setStyleSheet("color: blue;")
+        self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _compute_strain_energy(self):
-        if not self._check_ss_ready():
+        sv, ss, stages = self._build_derived_ss(self._se_x_cb, self._se_y_cb)
+        if sv is None:
             return
-        result = compute_strain_energy(self.sv, self.ss)
+        result = compute_strain_energy(sv, ss)
         self._derived_results["strain_energy"] = result
-        self._draw_derived(result, self._se_cmap_cb.currentText(), "ひずみエネルギー")
+        vmin, vmax = self._parse_derived_minmax(result, self._se_vmin_edit, self._se_vmax_edit)
+        self._draw_derived(result, self._se_cmap_cb.currentText(), "Strain Energy", vmin, vmax)
         self._derived_status_lbl.setText("ひずみエネルギーを計算しました")
-        self._derived_status_lbl.setStyleSheet("color: blue;")
+        self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _export_derived(self, key):
         if key not in self._derived_results:
