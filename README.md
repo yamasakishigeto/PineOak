@@ -39,7 +39,7 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 **Google Drive で公開中:** [Demo_input_data をダウンロード](https://drive.google.com/drive/folders/1pKHcwHPwMw2f66rzmWhUP6fhfWnmFe73?usp=sharing)
 
-各 Step の入力データがフォルダごとにまとめられています。
+各 Step の入力データがフォルダごとにまとめられています。このデータを使って一連の解析の流れを試すことができます。
 
 | フォルダ | 対応Step | 内容 |
 |---|---|---|
@@ -54,7 +54,7 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ### 出力データ（`Demo_output_data/`）
 
-各 Step の実行結果サンプルです。
+各 Step の実行結果サンプルです。Demo_input_dataでの試行がうまくいっていれば同様の結果になるはずです。
 **Google Drive で公開中:** [Demo_output_data をダウンロード](https://drive.google.com/drive/folders/1s9MS0SGDzwkB5C_UjhfM0k93Gigm19y9?usp=sharing)
 
 
