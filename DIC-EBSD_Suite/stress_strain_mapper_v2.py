@@ -19,6 +19,7 @@ os.environ.setdefault("QT_API", "PyQt6")
 import matplotlib
 matplotlib.use("QtAgg")
 import matplotlib.colors as mcolors
+import matplotlib.ticker
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasQtAgg, NavigationToolbar2QT
 from matplotlib.collections import LineCollection
@@ -222,14 +223,20 @@ class CurveCanvas(FigureCanvasQtAgg):
         super().__init__(self._fig)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def plot_curve(self, x, y, label, title):
+    def plot_curve(self, x, y, label, title,
+                   xlim=None, ylim=None, xlabel="Strain", ylabel="Stress"):
         ax = self.ax
         ax.clear()
         ax.plot(x, y, marker="o", label=label)
-        ax.set_xlabel("Strain")
-        ax.set_ylabel("Stress")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.legend()
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%.1f"))
         self.draw()
 
 
@@ -253,6 +260,8 @@ class StressStrainMapperApp(QMainWindow):
         self.sv = None
         self.ss = None
         self.ss_stages = []
+        self._ss_x_base = ""
+        self._ss_y_base = ""
 
         # 派生マップ結果
         self._derived_results = {}
@@ -648,6 +657,21 @@ class StressStrainMapperApp(QMainWindow):
         self._ss_mode_bg.idClicked.connect(self._reconnect_grain_events)
         layout.addLayout(row5)
 
+        row_axis = QHBoxLayout()
+        row_axis.addWidget(QLabel("X min:"))
+        self._ss_xmin_edit = QLineEdit(); self._ss_xmin_edit.setPlaceholderText("auto")
+        row_axis.addWidget(self._ss_xmin_edit)
+        row_axis.addWidget(QLabel("X max:"))
+        self._ss_xmax_edit = QLineEdit(); self._ss_xmax_edit.setPlaceholderText("auto")
+        row_axis.addWidget(self._ss_xmax_edit)
+        row_axis.addWidget(QLabel("Y min:"))
+        self._ss_ymin_edit = QLineEdit(); self._ss_ymin_edit.setPlaceholderText("auto")
+        row_axis.addWidget(self._ss_ymin_edit)
+        row_axis.addWidget(QLabel("Y max:"))
+        self._ss_ymax_edit = QLineEdit(); self._ss_ymax_edit.setPlaceholderText("auto")
+        row_axis.addWidget(self._ss_ymax_edit)
+        layout.addLayout(row_axis)
+
         layout.addStretch()
         self._reconnect_grain_events(0)
 
@@ -688,6 +712,8 @@ class StressStrainMapperApp(QMainWindow):
             return
         try:
             self.sv, self.ss, self.ss_stages = build_ss(self.per_stage, x_base, y_base)
+            self._ss_x_base = x_base
+            self._ss_y_base = y_base
             self._ss_status_lbl.setText(
                 f"OK: {len(self.ss_stages)} ステージ, {self.sv.shape[0]} サブセット")
             self._ss_status_lbl.setStyleSheet("color: green;")
@@ -725,6 +751,21 @@ class StressStrainMapperApp(QMainWindow):
             return
         self._update_ss_curve(self._nearest_idx(event.xdata, event.ydata))
 
+    def _ss_axis_limits(self):
+        """SS カーブのX/Y軸範囲を入力欄から読む。空欄はNone（auto）。"""
+        def _parse(edit):
+            try:
+                return float(edit.text())
+            except ValueError:
+                return None
+        xmin = _parse(self._ss_xmin_edit)
+        xmax = _parse(self._ss_xmax_edit)
+        ymin = _parse(self._ss_ymin_edit)
+        ymax = _parse(self._ss_ymax_edit)
+        xlim = (xmin, xmax) if xmin is not None or xmax is not None else None
+        ylim = (ymin, ymax) if ymin is not None or ymax is not None else None
+        return xlim, ylim
+
     def _ss_stage_slice(self):
         """選択されたステージ範囲のインデックスを返す（from_idx, to_idx+1）。"""
         from_idx = self._ss_stage_from_cb.currentIndex()
@@ -747,19 +788,27 @@ class StressStrainMapperApp(QMainWindow):
         s0, s1 = self._ss_stage_slice()
         sv = self.sv[:, s0:s1]
         ss = self.ss[:, s0:s1]
+        xlim, ylim = self._ss_axis_limits()
+
+        xu = self._var_unit(self._ss_x_base)
+        yu = self._var_unit(self._ss_y_base)
+        xlabel = f"{self._ss_x_base} [{xu}]" if xu else self._ss_x_base
+        ylabel = f"{self._ss_y_base} [{yu}]" if yu else self._ss_y_base
 
         if group_id == 0:  # Subset
             if idx < sv.shape[0]:
                 self.canvas_curve.plot_curve(
                     sv[idx, :], ss[idx, :],
-                    f"Subset {sid}", f"SS Curve — Subset {sid} (Grain {gid})")
+                    f"Subset {sid}", f"SS Curve — Subset {sid} (Grain {gid})",
+                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
         elif group_id == 1:  # Grain avg
             mask = self.grain_id == gid
             if mask.sum() > 0:
                 self.canvas_curve.plot_curve(
                     np.nanmean(sv[mask, :], axis=0),
                     np.nanmean(ss[mask, :], axis=0),
-                    f"Grain {gid} avg", f"SS Curve — Grain {gid} average")
+                    f"Grain {gid} avg", f"SS Curve — Grain {gid} average",
+                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
         elif group_id == 2:  # Phase avg
             first_stage = self.ss_stages[0] if self.ss_stages else None
             if first_stage and "phase_index" in self.per_stage:
@@ -772,7 +821,8 @@ class StressStrainMapperApp(QMainWindow):
                     self.canvas_curve.plot_curve(
                         np.nanmean(sv[mask, :], axis=0),
                         np.nanmean(ss[mask, :], axis=0),
-                        f"Phase: {ph_name}", f"SS Curve — Phase {ph_name} average")
+                        f"Phase: {ph_name}", f"SS Curve — Phase {ph_name} average",
+                        xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
 
     # ----------------------------------------------------------
     # タブ3: Derived Maps
