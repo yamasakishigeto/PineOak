@@ -3,18 +3,6 @@
 SEM-DIC と HR-EBSD の実験・解析で使うための Python ツール集です。
 SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、Heaviside DICによるすべり帯などの検出、DICサブセットごとの応力–ひずみ曲線の可視化などをサポートします。
 
----
-
-## フォルダ構成
-
-```
-PineOak/
-├── DIC-EBSD_Suite/       ← メインの統合プログラム（PineOak DIC/EBSD Suite）
-├── Demo_input_data/      ← デモ用入力データ
-└── Demo_output_data/     ← デモ用出力データ（各Stepの実行結果サンプル）
-```
-
----
 
 ## PineOak DIC/EBSD Suite（メイン）
 
@@ -48,6 +36,8 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 ## デモ用データ
 
 ### 入力データ（`Demo_input_data/`）
+
+**Google Drive で公開中:** [Demo_input_data をダウンロード](https://drive.google.com/drive/folders/1pKHcwHPwMw2f66rzmWhUP6fhfWnmFe73?usp=sharing)
 
 各 Step の入力データがフォルダごとにまとめられています。
 
