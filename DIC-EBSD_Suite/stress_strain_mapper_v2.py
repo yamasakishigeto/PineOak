@@ -306,6 +306,9 @@ class StressStrainMapperApp(QMainWindow):
         main_split.addWidget(right_split)
         main_split.setSizes([800, 800])
 
+        # マウスホイールでステージを切り替え
+        self.canvas_map.mpl_connect("scroll_event", self._on_map_scroll)
+
     def _wrap_canvas(self, canvas, title: str) -> QWidget:
         """キャンバス + ナビゲーションツールバーをまとめた QWidget を返す。"""
         w = QWidget()
@@ -493,6 +496,21 @@ class StressStrainMapperApp(QMainWindow):
         title = f"{base}  [{stage}]" if stage else base
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim)
 
+    def _on_map_scroll(self, event):
+        """マウスホイールでステージスライダーを1段階ずつ切り替える。"""
+        if not self._map_stage_slider.isEnabled():
+            return
+        current = self._map_stage_slider.value()
+        if event.button == "up":
+            new_val = max(0, current - 1)
+        elif event.button == "down":
+            new_val = min(self._map_stage_slider.maximum(), current + 1)
+        else:
+            return
+        if new_val != current:
+            self._map_stage_slider.setValue(new_val)
+            self._draw_map_current()
+
     def _export_map_current(self):
         base = self._map_var_cb.currentText()
         idx = self._map_stage_slider.value()
@@ -567,6 +585,17 @@ class StressStrainMapperApp(QMainWindow):
         row3.addWidget(self._ss_status_lbl, stretch=1)
         layout.addLayout(row3)
 
+        row_stage_range = QHBoxLayout()
+        row_stage_range.addWidget(QLabel("表示ステージ:"))
+        self._ss_stage_from_cb = QComboBox()
+        self._ss_stage_from_cb.setEnabled(False)
+        self._ss_stage_to_cb = QComboBox()
+        self._ss_stage_to_cb.setEnabled(False)
+        row_stage_range.addWidget(self._ss_stage_from_cb, stretch=1)
+        row_stage_range.addWidget(QLabel("〜"))
+        row_stage_range.addWidget(self._ss_stage_to_cb, stretch=1)
+        layout.addLayout(row_stage_range)
+
         row4 = QHBoxLayout()
         row4.addWidget(QLabel("グループ:"))
         self._ss_group_bg = QButtonGroup(parent)
@@ -639,6 +668,14 @@ class StressStrainMapperApp(QMainWindow):
             self._ss_status_lbl.setText(
                 f"OK: {len(self.ss_stages)} ステージ, {self.sv.shape[0]} サブセット")
             self._ss_status_lbl.setStyleSheet("color: green;")
+            for cb in (self._ss_stage_from_cb, self._ss_stage_to_cb):
+                cb.blockSignals(True)
+                cb.clear()
+                cb.addItems(self.ss_stages)
+                cb.setEnabled(True)
+                cb.blockSignals(False)
+            self._ss_stage_from_cb.setCurrentIndex(0)
+            self._ss_stage_to_cb.setCurrentIndex(len(self.ss_stages) - 1)
         except Exception as e:
             self._ss_status_lbl.setText(f"エラー: {e}")
             self._ss_status_lbl.setStyleSheet("color: red;")
@@ -665,6 +702,18 @@ class StressStrainMapperApp(QMainWindow):
             return
         self._update_ss_curve(self._nearest_idx(event.xdata, event.ydata))
 
+    def _ss_stage_slice(self):
+        """選択されたステージ範囲のインデックスを返す（from_idx, to_idx+1）。"""
+        from_idx = self._ss_stage_from_cb.currentIndex()
+        to_idx = self._ss_stage_to_cb.currentIndex()
+        if from_idx < 0:
+            from_idx = 0
+        if to_idx < 0:
+            to_idx = len(self.ss_stages) - 1
+        if from_idx > to_idx:
+            from_idx, to_idx = to_idx, from_idx
+        return from_idx, to_idx + 1
+
     def _update_ss_curve(self, idx):
         if self.sv is None or self.ss is None:
             return
@@ -672,17 +721,21 @@ class StressStrainMapperApp(QMainWindow):
         sid = self.subset_id[idx] if idx < len(self.subset_id) else idx
         group_id = self._ss_group_bg.checkedId()
 
+        s0, s1 = self._ss_stage_slice()
+        sv = self.sv[:, s0:s1]
+        ss = self.ss[:, s0:s1]
+
         if group_id == 0:  # Subset
-            if idx < self.sv.shape[0]:
+            if idx < sv.shape[0]:
                 self.canvas_curve.plot_curve(
-                    self.sv[idx, :], self.ss[idx, :],
+                    sv[idx, :], ss[idx, :],
                     f"Subset {sid}", f"SS Curve — Subset {sid} (Grain {gid})")
         elif group_id == 1:  # Grain avg
             mask = self.grain_id == gid
             if mask.sum() > 0:
                 self.canvas_curve.plot_curve(
-                    np.nanmean(self.sv[mask, :], axis=0),
-                    np.nanmean(self.ss[mask, :], axis=0),
+                    np.nanmean(sv[mask, :], axis=0),
+                    np.nanmean(ss[mask, :], axis=0),
                     f"Grain {gid} avg", f"SS Curve — Grain {gid} average")
         elif group_id == 2:  # Phase avg
             first_stage = self.ss_stages[0] if self.ss_stages else None
@@ -694,8 +747,8 @@ class StressStrainMapperApp(QMainWindow):
                     mask = pi_arr.astype(int) == ph
                     ph_name = self._phase_entries.get(ph, QLineEdit(str(ph))).text()
                     self.canvas_curve.plot_curve(
-                        np.nanmean(self.sv[mask, :], axis=0),
-                        np.nanmean(self.ss[mask, :], axis=0),
+                        np.nanmean(sv[mask, :], axis=0),
+                        np.nanmean(ss[mask, :], axis=0),
                         f"Phase: {ph_name}", f"SS Curve — Phase {ph_name} average")
 
     # ----------------------------------------------------------
