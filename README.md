@@ -35,7 +35,7 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ## デモ用データ (Inconel X-750 の実験データと解析結果)
 
-### 入力データ（`Demo_input_data/`）
+### 入力データ（`Demo_input_data`）
 
 **Google Drive で公開中:** [Demo_input_data をダウンロード](https://drive.google.com/drive/folders/1pKHcwHPwMw2f66rzmWhUP6fhfWnmFe73?usp=sharing)
 
@@ -52,11 +52,11 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 | `7_Heaviside_DIC_X750/` | Step 7 | SEM 画像フォルダ、DIC 設定（.txt）、DIC 結果（.xlsx）、位置合わせ JSON |
 | `osc_files/` | — | 各負荷ステージの EBSD .osc ファイル |
 
-### 出力データ（`Demo_output_data/`）
+### 出力データ（`Demo_output_data`）
 
-各 Step の実行結果サンプルです。Demo_input_dataでの試行がうまくいっていれば同様の結果になるはずです。
 **Google Drive で公開中:** [Demo_output_data をダウンロード](https://drive.google.com/drive/folders/1s9MS0SGDzwkB5C_UjhfM0k93Gigm19y9?usp=sharing)
 
+各 Step の実行結果サンプルです。Demo_input_dataでの試行がうまくいっていれば同様の結果になるはずです。
 
 | フォルダ | 対応Step | 内容 |
 |---|---|---|
