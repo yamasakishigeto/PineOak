@@ -33,7 +33,7 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ---
 
-## デモ用データ
+## デモ用データ (Inconel X-750 の実験データと解析結果)
 
 ### 入力データ（`Demo_input_data/`）
 
