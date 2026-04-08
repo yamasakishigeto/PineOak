@@ -1671,8 +1671,8 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
 
     # Stage2：Stage1結果を初期値にして精密探索
     print(f"\n--- Stage 2 (step={STEP_FINE}px, search={SEARCH_FINE}px) ---")
-    _iu = lambda cx, cy: float(init_u_func([[cy, cx]]))
-    _iv = lambda cx, cy: float(init_v_func([[cy, cx]]))
+    _iu = lambda cx, cy: float(init_u_func([[cy, cx]])[0])
+    _iv = lambda cx, cy: float(init_v_func([[cy, cx]])[0])
 
     cx2, cy2, u2, v2, ncc2 = run_dic_stage(
         ref, deformed,
