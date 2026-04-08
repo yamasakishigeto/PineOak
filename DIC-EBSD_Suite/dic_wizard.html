@@ -513,7 +513,7 @@
       <div class="param-row">
         <label class="param-label">ワーカー数</label>
         <input class="param-input" type="number" id="n-workers" value="6" min="-1" max="32">
-        <span class="param-hint">← -1で全コア、推奨6</span>
+        <span class="param-hint">← 起動時にコア数から自動設定（最大6）、-1で全コア</span>
       </div>
     </div>
 
@@ -590,6 +590,9 @@ const SCALE_LABELS = ['u [px]','v [px]','εxx','εyy','εxy','e1','γmax','ωxy'
 window.addEventListener('load', () => {
   buildScaleGrid();
   updateS1Mode();
+  // ワーカー数の初期値をPCのコア数に合わせて自動設定（最大6）
+  const autoWorkers = Math.min(6, navigator.hardwareConcurrency || 1);
+  document.getElementById('n-workers').value = autoWorkers;
   // ランチャーから作業フォルダを引き継ぐ
   eel.get_work_dir()().then(path => {
     if (path) {
