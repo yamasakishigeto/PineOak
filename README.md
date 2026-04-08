@@ -100,6 +100,54 @@ python main.py
 
 ---
 
+## プログラムのアップデート方法
+
+バグ修正や機能追加があったとき、以下の方法でプログラムを最新版に更新できます。
+
+### 方法A：git を使う方法（推奨・手軽）
+
+**初回だけ：git のインストール**
+
+1. [https://git-scm.com/download/win](https://git-scm.com/download/win) を開く
+2. 「Click here to download」をクリックしてインストーラーをダウンロード
+3. インストーラーを起動し、すべて「Next」でインストール（設定変更不要）
+4. インストール後、コマンドプロンプトを**一度閉じて開き直す**
+
+**初回だけ：ZIPからgit管理に切り替える**
+
+`C:\tools\PineOak\` にすでにプログラムが入っている場合、以下を実行：
+
+```
+cd C:\tools\PineOak
+git init
+git remote add origin https://github.com/yamasakishigeto/PineOak.git
+git fetch
+git reset --hard origin/main
+```
+
+> ※ 自分で変更していたファイルは上書きされます。設定ファイル（`dic_config.txt` など）は事前にバックアップしてください。
+
+**2回目以降のアップデート（普段使い）**
+
+コマンドプロンプトで以下を実行するだけです：
+
+```
+cd C:\tools\PineOak
+git pull
+```
+
+「Already up to date.」と表示されれば最新版です。更新があった場合はファイル名が表示されます。
+
+---
+
+### 方法B：ZIP を再ダウンロードする方法
+
+1. GitHubページの「**Code**」→「**Download ZIP**」で最新版をダウンロード
+2. ZIP を展開し、中の `PineOak-main\DIC-EBSD_Suite\` フォルダの中身を `C:\tools\PineOak\DIC-EBSD_Suite\` に**上書きコピー**
+3. データファイルや自分で保存した設定ファイルは上書きしないよう注意
+
+---
+
 ## 共通の必要環境
 
 - Python 3.13 以上

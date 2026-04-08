@@ -15,6 +15,7 @@ GUIウィザード（tkinter）から全パラメータを設定して実行す�
   - dic_config.txtへの設定出力・読み込み
 """
 
+import os
 import sys
 import json
 import math
@@ -98,7 +99,7 @@ NCC_THRESHOLD = 0.2     # NCCマスク閾値（これ以下をNaN化）
 PRESCAN_GRID = 3        # 事前スキャンのグリッド数（PRESCAN_GRID × PRESCAN_GRID）
 PRESCAN_SEARCH = 50     # 事前スキャンの探索範囲 [px]
 SEARCH_MARGIN = 3       # 推奨search範囲のマージン [px]
-N_WORKERS = 6           # 並列ワーカー数（-1で全コア）
+N_WORKERS = min(6, os.cpu_count() or 1)  # 並列ワーカー数（PCのコア数を超えないよう自動調整）
 
 # 二段階探索のパラメータ
 STEP_COARSE    = 60   # Stage 1：粗い探索のサブセット間隔 [px]

@@ -86,7 +86,7 @@ def launch_sem_align():
     """SEM位置合わせ: Eelウィンドウで開く"""
     try:
         eel.on_tool_started("sem_align")()
-        eel.start("sem_align_tool_v3.html", size=(1400, 900), block=False)
+        eel.start("sem_align_tool_v3.html", size=(1280, 860), block=False)
         eel.on_tool_finished("sem_align", 0)()
     except Exception as e:
         eel.on_tool_error("sem_align", str(e))()
@@ -95,7 +95,7 @@ def launch_sem_align():
 @eel.expose
 def launch_dic():
     """DICウィザードHTMLを別ウィンドウで開く"""
-    eel.start("dic_wizard.html", size=(1200, 1130), block=False)
+    eel.start("dic_wizard.html", size=(1200, 900), block=False)
 
 
 @eel.expose
@@ -548,7 +548,7 @@ def launch_stress_strain_mapper():
 @eel.expose
 def launch_defebsd():
     """Def EBSD Georef ウィザードHTMLを別ウィンドウで開く"""
-    eel.start("defebsd_wizard.html", size=(820, 870), block=False)
+    eel.start("defebsd_wizard.html", size=(820, 800), block=False)
 
 
 @eel.expose
