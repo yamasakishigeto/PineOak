@@ -99,7 +99,7 @@ NCC_THRESHOLD = 0.2     # NCCマスク閾値（これ以下をNaN化）
 PRESCAN_GRID = 3        # 事前スキャンのグリッド数（PRESCAN_GRID × PRESCAN_GRID）
 PRESCAN_SEARCH = 50     # 事前スキャンの探索範囲 [px]
 SEARCH_MARGIN = 3       # 推奨search範囲のマージン [px]
-N_WORKERS = min(6, os.cpu_count() or 1)  # 並列ワーカー数（PCのコア数を超えないよう自動調整）
+N_WORKERS = max(1, (os.cpu_count() or 2) - 1)  # 並列ワーカー数（論理スレッド数-1、1スレッドをOS用に残す）
 
 # 二段階探索のパラメータ
 STEP_COARSE    = 60   # Stage 1：粗い探索のサブセット間隔 [px]
@@ -409,7 +409,7 @@ def interactive_wizard(initial_dir=None):
     ttk.Label(frm_param, text='  ワーカー数', font=fnt).grid(row=19, column=0, sticky='w', pady=2)
     ttk.Spinbox(frm_param, textvariable=n_workers_var, from_=-1, to=32,
                 width=6, font=fnt).grid(row=19, column=1, padx=8, sticky='w')
-    ttk.Label(frm_param, text='← -1で全コア、推奨6（他作業との共存）',
+    ttk.Label(frm_param, text='← 起動時に自動設定（論理スレッド数-1）、-1で全スレッド',
               font=fnt_sm, foreground='gray').grid(row=19, column=2, sticky='w')
 
     # ===== セクション4: 事前スキャン =====

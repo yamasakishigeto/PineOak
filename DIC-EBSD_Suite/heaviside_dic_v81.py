@@ -412,6 +412,7 @@ v2からの修正点（v3で実装、v4でGUIファイル選択に対応、v5で
   on_line: |cc*(-sin(θ)) + rr*cos(θ) - offset_n| < 1.5
 """
 
+import os
 import numpy as np
 import cv2
 import matplotlib
@@ -966,7 +967,7 @@ def load_grain_assignment(georef_xlsx_path):
 
 def run_heaviside_dic(xlsx_path, ref_path, def_path, label,
                       grain_theta_map, coord_to_grain,
-                      out_path='heaviside_results.xlsx', n_jobs=-1,
+                      out_path='heaviside_results.xlsx', n_jobs=max(1, (os.cpu_count() or 2) - 1),
                       alignment_json_path=None,
                       disc_threshold=0.02,
                       offset_max=None, min_side_px=None,
@@ -2657,7 +2658,7 @@ if __name__ == '__main__':
         grain_theta_map      = grain_theta_map,
         coord_to_grain       = coord_to_grain,
         out_path             = out_path,
-        n_jobs               = -1,
+        n_jobs               = max(1, (os.cpu_count() or 2) - 1),
         alignment_json_path  = alignment_json,
         disc_threshold       = gui.disc_thr,
         offset_max           = OFFSET_MAX,
