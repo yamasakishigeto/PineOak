@@ -115,7 +115,7 @@ python main.py
 
 **初回だけ：ZIPからgit管理に切り替える**
 
-`C:\tools\PineOak\` にすでにプログラムが入っている場合、以下を実行：
+`C:\tools\PineOak\` にすでにプログラムが入っている場合、以下を**1行ずつ**実行：
 
 ```
 cd C:\tools\PineOak
@@ -123,6 +123,7 @@ git init
 git remote add origin https://github.com/yamasakishigeto/PineOak.git
 git fetch
 git reset --hard origin/main
+git branch --set-upstream-to=origin/main main
 ```
 
 > ※ 自分で変更していたファイルは上書きされます。設定ファイル（`dic_config.txt` など）は事前にバックアップしてください。
