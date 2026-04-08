@@ -19,18 +19,6 @@ GUI（ブラウザベース）から以下の解析を実行できます。
 | 6 | Stress-Strain Mapper | サブセット・粒・相ごとの応力–ひずみ曲線の可視化 |
 | 7 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
 
-### 起動方法
-```bash
-cd DIC-EBSD_Suite
-python main.py
-```
-→ ブラウザが開き、GUI から各モジュールを選んで実行できます。
-
-### 必要なライブラリ
-```bash
-pip install -r DIC-EBSD_Suite/requirements.txt
-```
-
 ---
 
 ## デモ用データ (Inconel X-750 の実験データと解析結果)
@@ -67,6 +55,47 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 | `5_Def_EBSD_Georef_X750/` | Step 5 | 各ステージの制御点 JSON・統合ジオリファレンスデータ（integrated_georef.mat） |
 | `6_Stress-Strain_curve_mapper_X750/` | Step 6 | 応力–ひずみ曲線マッパーのスクリーンショット・派生マップ PNG |
 | `7_Heaviside_DIC_X750_1100MPa/` | Step 7 | Heaviside DIC 結果（xlsx・可視化 PNG） |
+
+---
+
+## セットアップと起動方法
+
+### ステップ1: Python のインストール（初回のみ）
+
+1. [https://www.python.org/downloads/](https://www.python.org/downloads/) を開く
+2. 「Download Python 3.13.x」をクリックしてダウンロード
+3. インストーラーを起動し、**「Add Python to PATH」に必ずチェックを入れてから** Install Now をクリック
+
+### ステップ2: プログラムのダウンロードと配置（初回のみ）
+
+**推奨インストール先: `C:\tools\PineOak\`**
+
+パスに日本語やスペースが含まれると誤動作することがあるため、シンプルなパスに置くことをおすすめします。
+OneDrive と同期しているフォルダも避けてください。
+
+1. GitHubのページ上部にある緑色の「**Code**」ボタンをクリック → 「**Download ZIP**」
+2. ダウンロードした ZIP を右クリック → 「すべて展開」
+3. 展開したフォルダを `C:\tools\PineOak\` に移動（`C:\tools\` フォルダが無ければ先に作成）
+
+### ステップ3: 必要なライブラリのインストール（初回のみ）
+
+1. スタートメニューで「**コマンドプロンプト**」を検索して開く
+2. 以下をそのままコピーして貼り付け、Enter：
+
+```
+pip install -r C:\tools\PineOak\DIC-EBSD_Suite\requirements.txt
+```
+
+### ステップ4: プログラムの起動（毎回）
+
+コマンドプロンプトで以下を入力して Enter：
+
+```
+cd C:\tools\PineOak\DIC-EBSD_Suite
+python main.py
+```
+
+→ ブラウザが自動で開き、GUI から各モジュールを選んで実行できます。
 
 ---
 
