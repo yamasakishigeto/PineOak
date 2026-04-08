@@ -77,6 +77,13 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ---
 
+## ライセンス
+
+- **プログラム（コード）**: [MIT License](LICENSE)
+- **デモデータ**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — 使用時は作者（Shigeto Yamasaki）のクレジットを表記してください。
+
+---
+
 ## 作者
 
 Shigeto Yamasaki ([@yamasakishigeto](https://github.com/yamasakishigeto))
