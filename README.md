@@ -77,10 +77,10 @@ pip install -r DIC-EBSD_Suite/requirements.txt
 
 ---
 
-## ライセンス
+## ライセンス / License
 
-- **プログラム（コード）**: [MIT License](LICENSE)
-- **デモデータ**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — 使用時は作者（Shigeto Yamasaki）のクレジットを表記してください。
+- **プログラム（コード） / Code**: [MIT License](LICENSE)
+- **デモデータ / Demo data**: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — 使用時は作者（Shigeto Yamasaki）のクレジットを表記してください。/ Please credit the author (Shigeto Yamasaki) when using this data.
 
 ---
 
