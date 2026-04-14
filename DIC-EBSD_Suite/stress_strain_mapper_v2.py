@@ -133,16 +133,21 @@ def compute_yield_stress(sv, ss, offset=0.002):
         if xs[1] - xs[0] == 0:
             continue
         E = (ys[1] - ys[0]) / (xs[1] - xs[0])
+        if E <= 0:
+            continue
+        # 弾性域ではSSカーブ > オフセット線（y = E*(x - offset)）
+        # 降伏後はSSカーブの傾きが落ちてオフセット線に追い抜かれる
+        # → SSカーブがオフセット線を初めて下回る点が降伏点
         for j in range(1, len(xs)):
             x_line = E * (xs[j] - offset)
-            if ys[j] >= x_line:
+            if ys[j] < x_line:  # SSカーブがオフセット線を下回った
                 x_prev = E * (xs[j - 1] - offset)
                 denom = ys[j] - ys[j - 1] - (x_line - x_prev)
                 if denom != 0:
                     t = (x_prev - ys[j - 1]) / denom
                     result[i] = ys[j - 1] + t * (ys[j] - ys[j - 1])
                 else:
-                    result[i] = ys[j]
+                    result[i] = ys[j - 1]
                 break
     return result
 
