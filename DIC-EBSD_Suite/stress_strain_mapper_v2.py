@@ -14,6 +14,7 @@ import re
 import sys
 from pathlib import Path
 
+import pandas as pd
 import os
 os.environ.setdefault("QT_API", "PyQt6")
 import matplotlib
@@ -117,8 +118,12 @@ def compute_strain_energy(sv, ss):
     return result
 
 
-def compute_yield_stress(sv, ss, offset=0.002):
-    """0.2% オフセット法で各サブセットの降伏応力を近似計算する。"""
+def compute_yield_stress(sv, ss, offset=0.002, E_per_subset=None):
+    """0.2% オフセット法で各サブセットの降伏応力を近似計算する。
+
+    E_per_subset が指定されていればサブセットごとの有効ヤング率を使い、
+    なければ最初の 2 点から推定する。
+    """
     N = sv.shape[0]
     result = np.full(N, np.nan)
     for i in range(N):
@@ -130,9 +135,13 @@ def compute_yield_stress(sv, ss, offset=0.002):
         xs, ys = x[valid], y[valid]
         order = np.argsort(xs)
         xs, ys = xs[order], ys[order]
-        if xs[1] - xs[0] == 0:
-            continue
-        E = (ys[1] - ys[0]) / (xs[1] - xs[0])
+        # ヤング率の決定
+        if E_per_subset is not None and i < len(E_per_subset) and np.isfinite(E_per_subset[i]):
+            E = float(E_per_subset[i])
+        else:
+            if xs[1] - xs[0] == 0:
+                continue
+            E = (ys[1] - ys[0]) / (xs[1] - xs[0])
         if E <= 0:
             continue
         # 弾性域ではSSカーブ > オフセット線（y = E*(x - offset)）
@@ -150,6 +159,82 @@ def compute_yield_stress(sv, ss, offset=0.002):
                     result[i] = ys[j - 1]
                 break
     return result
+
+
+def read_stiffness_from_patrep_excel(excel_path):
+    """PatRep の pre-processed Excel から弾性剛性テンソル（Voigt 6×6）を読む。
+
+    "Project Details" シートの A 列に "Elastic Constants [GPa]" を含む行を探し、
+    同行の B 列: 相名, C 列: 結晶系, D 列以降: 6×6 行列 (36 値・行優先) を返す。
+    複数相が存在する場合は最初に見つかった相のものを返す。
+
+    Returns
+    -------
+    C_voigt : ndarray, shape (6, 6), 単位 GPa
+    """
+    df = pd.read_excel(excel_path, sheet_name="Project Details", header=None)
+    for idx, cell in df.iloc[:, 0].astype(str).items():
+        if "elastic constants" in cell.lower():
+            vals = df.iloc[idx, 3:3+36].dropna().astype(float).to_numpy()
+            if len(vals) < 36:
+                raise ValueError(f"剛性テンソルの値が不足しています（{len(vals)}/36）")
+            return vals.reshape(6, 6)
+    raise KeyError("'Elastic Constants [GPa]' 行が Project Details シートに見つかりません")
+
+
+def _euler_to_matrix_rad(phi1, PHI, phi2):
+    """Bunge オイラー角（ラジアン）→ 回転行列 g（結晶座標系 → 試料座標系）。"""
+    c1, c, c2 = np.cos(phi1), np.cos(PHI), np.cos(phi2)
+    s1, s, s2 = np.sin(phi1), np.sin(PHI), np.sin(phi2)
+    return np.array([
+        [ c1*c2 - s1*s2*c,  s1*c2 + c1*s2*c,  s2*s],
+        [-c1*s2 - s1*c2*c, -s1*s2 + c1*c2*c,  c2*s],
+        [ s1*s,            -c1*s,               c   ],
+    ])
+
+
+def compute_E_per_subset(phi1_deg, PHI_deg, phi2_deg, C_voigt_GPa, stress_dir):
+    """各サブセットの結晶方位を考慮した有効ヤング率 [GPa] を返す。
+
+    Parameters
+    ----------
+    phi1_deg, PHI_deg, phi2_deg : array-like, shape (N,), 単位 degrees
+    C_voigt_GPa : ndarray, shape (6, 6), 単位 GPa
+    stress_dir  : array-like, shape (3,) 試料座標系での外力方向（単位ベクトル）
+
+    Returns
+    -------
+    E : ndarray, shape (N,), 単位 GPa（NaN = 計算不可）
+    """
+    S_voigt = np.linalg.inv(C_voigt_GPa)            # コンプライアンス [1/GPa]
+    n_sample = np.asarray(stress_dir, dtype=float)
+    n_sample = n_sample / np.linalg.norm(n_sample)
+
+    # Voigt 6×6 → 全テンソル S_ijkl（3×3×3×3）
+    # コンプライアンスの Voigt→全テンソル変換（工学せん断ひずみ規約）
+    vm = [(0,0),(1,1),(2,2),(1,2),(0,2),(0,1)]
+    S_full = np.zeros((3,3,3,3))
+    for I in range(6):
+        for J in range(6):
+            fi = 0.5 if I >= 3 else 1.0
+            fj = 0.5 if J >= 3 else 1.0
+            val = S_voigt[I, J] * fi * fj
+            i, j = vm[I]; k, l = vm[J]
+            for ii,jj,kk,ll in [(i,j,k,l),(j,i,k,l),(i,j,l,k),(j,i,l,k)]:
+                S_full[ii,jj,kk,ll] = val
+
+    N = len(phi1_deg)
+    E = np.full(N, np.nan)
+    for idx in range(N):
+        p1 = np.radians(float(phi1_deg[idx]))
+        pP = np.radians(float(PHI_deg[idx]))
+        p2 = np.radians(float(phi2_deg[idx]))
+        g = _euler_to_matrix_rad(p1, pP, p2)        # 結晶→試料
+        n_crys = g.T @ n_sample                      # 外力方向を結晶座標系へ
+        inv_E = np.einsum('ijkl,i,j,k,l', S_full, n_crys, n_crys, n_crys, n_crys)
+        if inv_E > 0:
+            E[idx] = 1.0 / inv_E
+    return E
 
 
 def compute_boundary_segments(x, y, grain_id):
@@ -287,6 +372,10 @@ class StressStrainMapperApp(QMainWindow):
         self.cy = s.get("cy", np.array([])).astype(float)
         self.grain_id = s.get("grain_id", np.zeros(len(self.cx), dtype=int)).astype(int)
         self.subset_id = s.get("subset_id", np.arange(len(self.cx))).astype(int)
+        N = len(self.cx)
+        self.phi1_deg = s.get("phi1_ref", np.full(N, np.nan)).astype(float).ravel()
+        self.PHI_deg  = s.get("PHI_ref",  np.full(N, np.nan)).astype(float).ravel()
+        self.phi2_deg = s.get("phi2_ref", np.full(N, np.nan)).astype(float).ravel()
         self._grain_unique = np.unique(self.grain_id)
         self._grain_code = np.searchsorted(self._grain_unique, self.grain_id)
         # 全サブセットの軸範囲（両マップで共有）
@@ -894,6 +983,24 @@ class StressStrainMapperApp(QMainWindow):
         self._ys_cmap_cb = QComboBox(); self._ys_cmap_cb.addItems(CMAPS)
         r3.addWidget(self._ys_cmap_cb)
         g2.addLayout(r3)
+        # 方位依存ヤング率（PatRep Excel + 荷重方向）
+        re2 = QHBoxLayout()
+        self._ys_excel_lbl = QLabel("PatRep Excel: (未選択)")
+        self._ys_excel_lbl.setStyleSheet("color: gray; font-size: 10px;")
+        re2.addWidget(self._ys_excel_lbl, stretch=1)
+        btn_excel = QPushButton("参照…"); btn_excel.setFixedWidth(60)
+        btn_excel.clicked.connect(self._select_ys_excel)
+        re2.addWidget(btn_excel)
+        g2.addLayout(re2)
+        rd2 = QHBoxLayout()
+        rd2.addWidget(QLabel("荷重方向 (試料系) nx ny nz:"))
+        self._ys_nx_edit = QLineEdit("1"); self._ys_nx_edit.setFixedWidth(40)
+        self._ys_ny_edit = QLineEdit("0"); self._ys_ny_edit.setFixedWidth(40)
+        self._ys_nz_edit = QLineEdit("0"); self._ys_nz_edit.setFixedWidth(40)
+        rd2.addWidget(self._ys_nx_edit); rd2.addWidget(self._ys_ny_edit); rd2.addWidget(self._ys_nz_edit)
+        rd2.addStretch()
+        g2.addLayout(rd2)
+        self._ys_excel_path = None   # 選択済みパスを保持
         rmm2 = QHBoxLayout()
         rmm2.addWidget(QLabel("Min:"))
         self._ys_vmin_edit = QLineEdit(); self._ys_vmin_edit.setPlaceholderText("auto")
@@ -1000,6 +1107,13 @@ class StressStrainMapperApp(QMainWindow):
         self._derived_status_lbl.setText(f"加工硬化率を計算しました (n={n}, m={m})")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
+    def _select_ys_excel(self):
+        path, _ = QFileDialog.getOpenFileName(self, "PatRep Excel を選択", "", "Excel Files (*.xlsx *.xls)")
+        if path:
+            self._ys_excel_path = path
+            self._ys_excel_lbl.setText(f"PatRep Excel: {Path(path).name}")
+            self._ys_excel_lbl.setStyleSheet("color: #90ee90; font-size: 10px;")
+
     def _compute_yield_stress(self):
         sv, ss, stages = self._build_derived_ss(self._ys_x_cb, self._ys_y_cb)
         if sv is None:
@@ -1010,13 +1124,35 @@ class StressStrainMapperApp(QMainWindow):
             self._derived_status_lbl.setText("エラー: オフセットには数値を入力してください。")
             self._derived_status_lbl.setStyleSheet("color: red;")
             return
-        result = compute_yield_stress(sv, ss, offset=offset_pct / 100.0)
+
+        # 方位依存ヤング率の計算（PatRep Excel が選択されている場合）
+        E_per_subset = None
+        e_mode_label = "E: 2点推定"
+        if self._ys_excel_path and np.any(np.isfinite(self.phi1_deg)):
+            try:
+                nx = float(self._ys_nx_edit.text())
+                ny = float(self._ys_ny_edit.text())
+                nz = float(self._ys_nz_edit.text())
+                stress_dir = np.array([nx, ny, nz], dtype=float)
+                if np.linalg.norm(stress_dir) == 0:
+                    raise ValueError("荷重方向ベクトルがゼロです")
+                C_voigt = read_stiffness_from_patrep_excel(self._ys_excel_path)
+                E_per_subset = compute_E_per_subset(
+                    self.phi1_deg, self.PHI_deg, self.phi2_deg, C_voigt, stress_dir
+                )
+                e_mode_label = f"E: 方位依存 n=[{nx:.2g},{ny:.2g},{nz:.2g}]"
+            except Exception as ex:
+                self._derived_status_lbl.setText(f"警告: 方位依存E計算失敗 ({ex})、2点推定にフォールバック")
+                self._derived_status_lbl.setStyleSheet("color: orange;")
+
+        result = compute_yield_stress(sv, ss, offset=offset_pct / 100.0, E_per_subset=E_per_subset)
         self._derived_results["yield_stress"] = result
         vmin, vmax = self._parse_derived_minmax(result, self._ys_vmin_edit, self._ys_vmax_edit)
         y_unit = self._var_unit(self._ys_y_cb.currentText())
         cbar_label = f"Yield Stress [{y_unit}]" if y_unit else "Yield Stress"
-        self._draw_derived(result, self._ys_cmap_cb.currentText(), f"Yield Stress (offset={offset_pct}%)", vmin, vmax, cbar_label=cbar_label)
-        self._derived_status_lbl.setText(f"降伏応力を計算しました (offset={offset_pct}%)")
+        title = f"Yield Stress (offset={offset_pct}%, {e_mode_label})"
+        self._draw_derived(result, self._ys_cmap_cb.currentText(), title, vmin, vmax, cbar_label=cbar_label)
+        self._derived_status_lbl.setText(f"降伏応力を計算しました (offset={offset_pct}%, {e_mode_label})")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _compute_strain_energy(self):
