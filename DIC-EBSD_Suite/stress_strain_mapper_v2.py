@@ -1016,7 +1016,7 @@ class StressStrainMapperApp(QMainWindow):
         y_choices = self._ss_y_choices()
 
         # 加工硬化率
-        grp1 = QGroupBox("加工硬化率 (Hardening Rate)")
+        grp1 = QGroupBox("加工硬化率 (Work Hardening Rate)")
         g1 = QVBoxLayout(grp1)
         ra1 = QHBoxLayout()
         ra1.addWidget(QLabel("X軸 (ひずみ):"))
@@ -1207,8 +1207,8 @@ class StressStrainMapperApp(QMainWindow):
         self._derived_results["hardening_rate"] = result
         vmin, vmax = self._parse_derived_minmax(result, self._hr_vmin_edit, self._hr_vmax_edit)
         y_unit = self._var_unit(self._hr_y_cb.currentText())
-        cbar_label = f"Hardening Rate [{y_unit}]" if y_unit else "Hardening Rate"
-        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"Hardening Rate (n={n}, m={m})", vmin, vmax, cbar_label=cbar_label)
+        cbar_label = f"Work Hardening Rate [{y_unit}]" if y_unit else "Work Hardening Rate"
+        self._draw_derived(result, self._hr_cmap_cb.currentText(), f"Work Hardening Rate (n={n}, m={m})", vmin, vmax, cbar_label=cbar_label)
         self._derived_status_lbl.setText(f"加工硬化率を計算しました (n={n}, m={m})")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
