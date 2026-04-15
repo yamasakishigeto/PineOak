@@ -10,6 +10,8 @@ CLAUDE.md
 
 # Demo/experimental data (too large for GitHub)
 解析実行に必要なデータ (デモ用)/
+Demo_input_data/
+Demo_output_data/
 
 # Other folders to exclude
 Narazaki H-DIC ver0.0.6/
