@@ -175,10 +175,22 @@ def read_stiffness_from_patrep_excel(excel_path):
     df = pd.read_excel(excel_path, sheet_name="Project Details", header=None)
     for idx, cell in df.iloc[:, 0].astype(str).items():
         if "elastic constants" in cell.lower():
+            # 形式1: D列以降に数値が並ぶ場合
             vals = df.iloc[idx, 3:3+36].dropna().astype(float).to_numpy()
-            if len(vals) < 36:
-                raise ValueError(f"剛性テンソルの値が不足しています（{len(vals)}/36）")
-            return vals.reshape(6, 6)
+            if len(vals) >= 36:
+                return vals[:36].reshape(6, 6)
+            # 形式2: B列の1セルにタブ区切りで "相名\t結晶系\t値1\t値2\t..." が入る場合
+            cell_b = str(df.iloc[idx, 1])
+            parts = cell_b.replace('\t', ' ').split()
+            nums = []
+            for p in parts:
+                try:
+                    nums.append(float(p))
+                except ValueError:
+                    pass
+            if len(nums) >= 36:
+                return np.array(nums[:36]).reshape(6, 6)
+            raise ValueError(f"剛性テンソルの値が不足しています（{len(nums)}/36）")
     raise KeyError("'Elastic Constants [GPa]' 行が Project Details シートに見つかりません")
 
 
@@ -373,9 +385,23 @@ class StressStrainMapperApp(QMainWindow):
         self.grain_id = s.get("grain_id", np.zeros(len(self.cx), dtype=int)).astype(int)
         self.subset_id = s.get("subset_id", np.arange(len(self.cx))).astype(int)
         N = len(self.cx)
-        self.phi1_deg = s.get("phi1_ref", np.full(N, np.nan)).astype(float).ravel()
-        self.PHI_deg  = s.get("PHI_ref",  np.full(N, np.nan)).astype(float).ravel()
-        self.phi2_deg = s.get("phi2_ref", np.full(N, np.nan)).astype(float).ravel()
+        def _load_euler(key_new, key_old):
+            # static から探す
+            v = s.get(key_new, np.full(N, np.nan)).astype(float).ravel()
+            if not np.any(np.isfinite(v)):
+                v = s.get(key_old, np.full(N, np.nan)).astype(float).ravel()
+            # static になければ per_stage の最初のステージから探す
+            if not np.any(np.isfinite(v)):
+                for k in (key_new, key_old):
+                    stages_for_k = self.per_stage.get(k, {})
+                    if stages_for_k:
+                        first_stage = next(iter(stages_for_k))
+                        v = stages_for_k[first_stage].astype(float).ravel()
+                        break
+            return v
+        self.phi1_deg = _load_euler("phi1_ref", "euler_phi1")
+        self.PHI_deg  = _load_euler("PHI_ref",  "euler_phi")
+        self.phi2_deg = _load_euler("phi2_ref", "euler_phi2")
         self._grain_unique = np.unique(self.grain_id)
         self._grain_code = np.searchsorted(self._grain_unique, self.grain_id)
         # 全サブセットの軸範囲（両マップで共有）
@@ -1127,7 +1153,7 @@ class StressStrainMapperApp(QMainWindow):
 
         # 方位依存ヤング率の計算（PatRep Excel が選択されている場合）
         E_per_subset = None
-        e_mode_label = "E: 2点推定"
+        e_mode_label = "E: 2-point est."
         if self._ys_excel_path and np.any(np.isfinite(self.phi1_deg)):
             try:
                 nx = float(self._ys_nx_edit.text())
@@ -1140,7 +1166,7 @@ class StressStrainMapperApp(QMainWindow):
                 E_per_subset = compute_E_per_subset(
                     self.phi1_deg, self.PHI_deg, self.phi2_deg, C_voigt, stress_dir
                 )
-                e_mode_label = f"E: 方位依存 n=[{nx:.2g},{ny:.2g},{nz:.2g}]"
+                e_mode_label = f"E: orientation-dep. n=[{nx:.2g},{ny:.2g},{nz:.2g}]"
             except Exception as ex:
                 self._derived_status_lbl.setText(f"警告: 方位依存E計算失敗 ({ex})、2点推定にフォールバック")
                 self._derived_status_lbl.setStyleSheet("color: orange;")
