@@ -1160,6 +1160,13 @@ class StressStrainMapperApp(QMainWindow):
 
     def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):
         self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
+        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id)
+            if segs:
+                self.canvas_map.ax.add_collection(
+                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
+                )
+                self.canvas_map.draw()
 
     def _compute_hardening_rate(self):
         sv, ss, stages = self._build_derived_ss(self._hr_x_cb, self._hr_y_cb)
