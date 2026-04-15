@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QSlider, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
-    QMessageBox, QSizePolicy,
+    QMessageBox, QSizePolicy, QCheckBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -463,7 +463,7 @@ class StressStrainMapperApp(QMainWindow):
         tab_ss = QWidget()
         tab_derived = QWidget()
         tabs.addTab(tab_map, "Map")
-        tabs.addTab(tab_ss, "SS Curve")
+        tabs.addTab(tab_ss, "Stress-Strain Curve")
         tabs.addTab(tab_derived, "Derived Maps")
 
         self._build_tab_map(tab_map)
@@ -534,6 +534,14 @@ class StressStrainMapperApp(QMainWindow):
         btn_auto.clicked.connect(self._map_auto_minmax)
         row5.addWidget(btn_auto)
         layout.addLayout(row5)
+
+        # 結晶粒界オーバーレイ
+        row_gb = QHBoxLayout()
+        self._map_show_gb_cb = QCheckBox("Grain boundaries")
+        self._map_show_gb_cb.setChecked(False)
+        row_gb.addWidget(self._map_show_gb_cb)
+        row_gb.addStretch()
+        layout.addLayout(row_gb)
 
         # ボタン
         row6 = QHBoxLayout()
@@ -643,6 +651,13 @@ class StressStrainMapperApp(QMainWindow):
         unit = self._var_unit(base)
         cbar_label = f"{base} [{unit}]" if unit else base
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
+        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+            segs = compute_boundary_segments(x, y, self.grain_id)
+            if segs:
+                self.canvas_map.ax.add_collection(
+                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
+                )
+                self.canvas_map.draw()
 
     def _on_map_scroll(self, event):
         """マウスホイールでステージスライダーを1段階ずつ切り替える。"""
@@ -725,6 +740,7 @@ class StressStrainMapperApp(QMainWindow):
         row2.addWidget(QLabel("Y軸 (応力):"))
         self._ss_y_cb = QComboBox()
         self._ss_y_cb.addItems(self._ss_y_choices())
+        self._set_default_cb(self._ss_y_cb, "rmap_s11")
         row2.addWidget(self._ss_y_cb, stretch=1)
         layout.addLayout(row2)
 
@@ -797,6 +813,12 @@ class StressStrainMapperApp(QMainWindow):
 
     def _ss_y_choices(self):
         return [b for b in sorted(self.per_stage.keys()) if b not in EXCLUDE_Y_BASES]
+
+    def _set_default_cb(self, cb: QComboBox, preferred: str):
+        """コンボボックスの選択肢に preferred があれば選択する。"""
+        idx = cb.findText(preferred)
+        if idx >= 0:
+            cb.setCurrentIndex(idx)
 
     def _build_phase_entries(self):
         for i in reversed(range(self._phase_group_layout.count())):
@@ -962,6 +984,7 @@ class StressStrainMapperApp(QMainWindow):
         ra1.addWidget(self._hr_x_cb, stretch=1)
         ra1.addWidget(QLabel("Y軸 (応力):"))
         self._hr_y_cb = QComboBox(); self._hr_y_cb.addItems(y_choices)
+        self._set_default_cb(self._hr_y_cb, "rmap_s11")
         ra1.addWidget(self._hr_y_cb, stretch=1)
         g1.addLayout(ra1)
         r1 = QHBoxLayout()
@@ -999,6 +1022,7 @@ class StressStrainMapperApp(QMainWindow):
         ra2.addWidget(self._ys_x_cb, stretch=1)
         ra2.addWidget(QLabel("Y軸 (応力):"))
         self._ys_y_cb = QComboBox(); self._ys_y_cb.addItems(y_choices)
+        self._set_default_cb(self._ys_y_cb, "rmap_s11")
         ra2.addWidget(self._ys_y_cb, stretch=1)
         g2.addLayout(ra2)
         r3 = QHBoxLayout()
@@ -1051,6 +1075,7 @@ class StressStrainMapperApp(QMainWindow):
         ra3.addWidget(self._se_x_cb, stretch=1)
         ra3.addWidget(QLabel("Y軸 (応力):"))
         self._se_y_cb = QComboBox(); self._se_y_cb.addItems(y_choices)
+        self._set_default_cb(self._se_y_cb, "rmap_s11")
         ra3.addWidget(self._se_y_cb, stretch=1)
         g3.addLayout(ra3)
         r5 = QHBoxLayout()
