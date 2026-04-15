@@ -354,10 +354,14 @@ class CurveCanvas(FigureCanvasQtAgg):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def plot_curve(self, x, y, label, title,
-                   xlim=None, ylim=None, xlabel="Strain", ylabel="Stress"):
+                   xlim=None, ylim=None, xlabel="Strain", ylabel="Stress",
+                   color=None):
         ax = self.ax
         ax.clear()
-        ax.plot(x, y, marker="o", label=label)
+        kwargs = dict(marker="o", label=label)
+        if color is not None:
+            kwargs["color"] = color
+        ax.plot(x, y, **kwargs)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
@@ -839,6 +843,12 @@ class StressStrainMapperApp(QMainWindow):
         layout.addStretch()
         self._reconnect_grain_events(0)
 
+    def _grain_color(self, gid):
+        """Grain IDマップと同じturboカラーマップでグレインの色を返す。"""
+        K = len(self._grain_unique)
+        code = int(np.searchsorted(self._grain_unique, gid))
+        return matplotlib.cm.turbo(code / max(1, K - 1))
+
     def _ss_y_choices(self):
         return [b for b in sorted(self.per_stage.keys()) if b not in EXCLUDE_Y_BASES]
 
@@ -969,16 +979,18 @@ class StressStrainMapperApp(QMainWindow):
             if idx < sv.shape[0]:
                 self.canvas_curve.plot_curve(
                     sv[idx, :], ss[idx, :],
-                    f"Subset {sid}", f"SS Curve — Subset {sid} (Grain {gid})",
-                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
+                    f"Subset {sid}", f"Stress-Strain Curve — Subset {sid} (Grain {gid})",
+                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel,
+                    color=self._grain_color(gid))
         elif group_id == 1:  # Grain avg
             mask = self.grain_id == gid
             if mask.sum() > 0:
                 self.canvas_curve.plot_curve(
                     np.nanmean(sv[mask, :], axis=0),
                     np.nanmean(ss[mask, :], axis=0),
-                    f"Grain {gid} avg", f"SS Curve — Grain {gid} average",
-                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
+                    f"Grain {gid} avg", f"Stress-Strain Curve — Grain {gid} average",
+                    xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel,
+                    color=self._grain_color(gid))
         elif group_id == 2:  # Phase avg
             first_stage = self.ss_stages[0] if self.ss_stages else None
             if first_stage and "phase_index" in self.per_stage:
@@ -991,7 +1003,7 @@ class StressStrainMapperApp(QMainWindow):
                     self.canvas_curve.plot_curve(
                         np.nanmean(sv[mask, :], axis=0),
                         np.nanmean(ss[mask, :], axis=0),
-                        f"Phase: {ph_name}", f"SS Curve — Phase {ph_name} average",
+                        f"Phase: {ph_name}", f"Stress-Strain Curve — Phase {ph_name} average",
                         xlim=xlim, ylim=ylim, xlabel=xlabel, ylabel=ylabel)
 
     # ----------------------------------------------------------
