@@ -1126,6 +1126,13 @@ class StressStrainMapperApp(QMainWindow):
         g3.addLayout(r6)
         layout.addWidget(grp3)
 
+        row_gb_d = QHBoxLayout()
+        self._derived_show_gb_cb = QCheckBox("Grain boundaries")
+        self._derived_show_gb_cb.setChecked(False)
+        row_gb_d.addWidget(self._derived_show_gb_cb)
+        row_gb_d.addStretch()
+        layout.addLayout(row_gb_d)
+
         self._derived_status_lbl = QLabel("")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
         layout.addWidget(self._derived_status_lbl)
@@ -1160,7 +1167,7 @@ class StressStrainMapperApp(QMainWindow):
 
     def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):
         self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
-        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+        if self._derived_show_gb_cb.isChecked() and len(self.cx) > 0:
             segs = compute_boundary_segments(self.cx, self.cy, self.grain_id)
             if segs:
                 self.canvas_map.ax.add_collection(
