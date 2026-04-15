@@ -250,15 +250,43 @@ def compute_E_per_subset(phi1_deg, PHI_deg, phi2_deg, C_voigt_GPa, stress_dir):
 
 
 def compute_boundary_segments(x, y, grain_id):
-    """隣接サブセット間で grain_id が異なる箇所の境界線分を返す。"""
-    coord_to_idx = {(int(xi), int(yi)): i for i, (xi, yi) in enumerate(zip(x, y))}
+    """隣接サブセット間で grain_id が異なる箇所の境界線分を返す。
+
+    サブセット間隔を自動検出し、グリッド座標に正規化して隣接判定する。
+    境界線は隣接サブセットの中点に垂直線分として描く。
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    grain_id = np.asarray(grain_id)
+
+    cx_unique = np.unique(x)
+    cy_unique = np.unique(y)
+    if len(cx_unique) < 2 or len(cy_unique) < 2:
+        return []
+
+    dx = float(np.median(np.diff(cx_unique)))
+    dy = float(np.median(np.diff(cy_unique)))
+    if dx == 0 or dy == 0:
+        return []
+
+    # グリッドインデックスで辞書を作成
+    coord_to_idx = {}
+    for i, (xi, yi) in enumerate(zip(x, y)):
+        coord_to_idx[(round(xi / dx), round(yi / dy))] = i
+
     segments = []
     for i, (xi, yi, gi) in enumerate(zip(x, y, grain_id)):
-        xi_i, yi_i = int(xi), int(yi)
-        for dx, dy in ((1, 0), (0, 1)):
-            nb = coord_to_idx.get((xi_i + dx, yi_i + dy))
-            if nb is not None and grain_id[nb] != gi:
-                segments.append([(xi, yi), (x[nb], y[nb])])
+        gx, gy = round(xi / dx), round(yi / dy)
+        # 右隣 → 垂直境界線
+        nb = coord_to_idx.get((gx + 1, gy))
+        if nb is not None and grain_id[nb] != gi:
+            mx = (xi + x[nb]) / 2
+            segments.append([(mx, yi - dy / 2), (mx, yi + dy / 2)])
+        # 下隣 → 水平境界線
+        nb = coord_to_idx.get((gx, gy + 1))
+        if nb is not None and grain_id[nb] != gi:
+            my = (yi + y[nb]) / 2
+            segments.append([(xi - dx / 2, my), (xi + dx / 2, my)])
     return segments
 
 
