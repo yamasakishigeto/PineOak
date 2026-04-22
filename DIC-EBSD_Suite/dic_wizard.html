@@ -526,6 +526,21 @@
         <span class="param-hint">← Step_fine の整数倍（1=隣接差分）</span>
       </div>
 
+      <div class="param-row" style="align-items:center;">
+        <label class="param-label">ひずみ種類</label>
+        <span style="display:flex; gap:16px; align-items:center;">
+          <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+            <input type="radio" name="strain-type" id="strain-infinitesimal" value="infinitesimal" checked>
+            <span style="font-size:11px;">微小ひずみ（小変形）</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+            <input type="radio" name="strain-type" id="strain-green-lagrange" value="green_lagrange">
+            <span style="font-size:11px;">グリーン-ラグランジェ（大変形）</span>
+          </label>
+        </span>
+        <span class="param-hint">← 通常は微小ひずみ。ひずみ5%超の大変形域ではG-L</span>
+      </div>
+
       <hr class="sep">
 
       <div class="param-group-title">並列処理</div>
@@ -594,7 +609,8 @@
 <footer>
   <button class="btn-run" id="btn-run" onclick="onRun()">実行</button>
   <button class="btn-cancel" onclick="onCancel()">キャンセル</button>
-  <button class="btn-sm accent" id="btn-redraw"   onclick="onRedraw()"   disabled style="margin-left:16px;">再描画</button>
+  <button class="btn-sm accent" id="btn-redraw"    onclick="onRedraw()"   disabled style="margin-left:16px;">再描画</button>
+  <button class="btn-sm accent" id="btn-recalc"    onclick="onRecalc()"   disabled style="margin-left:4px;">再計算・再描画</button>
   <button class="btn-sm green"  id="btn-save-maps" onclick="onSaveMaps()" disabled>マップ保存</button>
   <div class="footer-status" id="footer-status"></div>
 </footer>
@@ -874,6 +890,7 @@ async function onRun() {
     ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
     n_workers:   parseInt(document.getElementById('n-workers').value),
     gauge_length: parseInt(document.getElementById('gauge-length').value),
+    strain_type:  document.querySelector('input[name="strain-type"]:checked').value,
     use_prev_stage1: document.getElementById('use-prev-s1').checked,
     scale: Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
     trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
@@ -896,6 +913,7 @@ let _analysisOutputDir = null;
 function dic_on_analysis_done(output_dir) {
   _analysisOutputDir = output_dir;
   document.getElementById('btn-redraw').disabled    = false;
+  document.getElementById('btn-recalc').disabled    = false;
   document.getElementById('btn-save-maps').disabled = false;
   document.getElementById('btn-run').disabled       = false;
 }
@@ -913,6 +931,30 @@ function _mapParams() {
 async function onRedraw() {
   if (!_analysisOutputDir) { alert('先に解析を実行してください'); return; }
   await eel.dic_preview_maps(_mapParams())();
+}
+
+async function onRecalc() {
+  if (!_analysisOutputDir) { alert('先に解析を実行してください'); return; }
+  const gauge    = parseInt(document.getElementById('gauge-length').value);
+  const stype    = document.querySelector('input[name="strain-type"]:checked').value;
+  const stypeLabel = stype === 'green_lagrange' ? 'グリーン-ラグランジェ' : '微小ひずみ';
+  setStatus(`再計算中... ゲージ長さ=${gauge}倍 / ${stypeLabel}`, true);
+  document.getElementById('btn-recalc').disabled = true;
+  const params = {
+    output_dir:    _analysisOutputDir,
+    gauge_length:  gauge,
+    strain_type:   stype,
+    scale:         Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
+    cmap:          Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
+    ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
+  };
+  const result = await eel.dic_recalc_strain(params)();
+  document.getElementById('btn-recalc').disabled = false;
+  if (result && result.error) {
+    setStatus('再計算エラー: ' + result.error, false);
+  } else {
+    setStatus('再計算完了・再描画しました', true);
+  }
 }
 
 async function onSaveMaps() {

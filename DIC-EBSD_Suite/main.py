@@ -648,6 +648,95 @@ def dic_preview_maps(params: dict):
 
 
 @eel.expose
+def dic_recalc_strain(params: dict):
+    """pickleの変位データからひずみのみ再計算してpickleを更新し、プレビューを表示する"""
+    import subprocess, sys, json
+
+    _recalc_script = r"""
+import sys, json, pickle
+from pathlib import Path
+import importlib.util
+import numpy as np
+
+p            = json.loads(sys.argv[1])
+output_dir   = Path(p['output_dir'])
+gauge_length = int(p.get('gauge_length', 1))
+strain_type  = p.get('strain_type', 'infinitesimal')
+dic_module   = p['dic_module']
+
+spec = importlib.util.spec_from_file_location('dic', dic_module)
+mod  = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+with open(output_dir / 'dic_results.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+results_list  = data['results_list']
+step_fine     = data['step_fine']
+
+stype_label = 'グリーン-ラグランジェ' if strain_type == 'green_lagrange' else '微小ひずみ'
+print(f"ひずみ再計算: ゲージ長さ={gauge_length}倍 / {stype_label}")
+
+for i, res in enumerate(results_list):
+    res['strain'] = mod.calc_strain_field(
+        res['cx'], res['cy'], res['u'], res['v'],
+        step_fine, gauge_length=gauge_length, strain_type=strain_type)
+    print(f"  [{i+1}/{len(results_list)}] {res['label']} 完了")
+
+SCALE_KEYS_SYM  = ['exx', 'eyy', 'exy', 'omega_xy']
+SCALE_KEYS_ASYM = ['e1', 'gamma_max']
+unified_scale = dict(data['unified_scale'])
+for k in SCALE_KEYS_SYM + SCALE_KEYS_ASYM:
+    vals = np.concatenate([
+        np.array(res['strain'][k], dtype=float).flatten()
+        for res in results_list if k in res.get('strain', {})
+    ])
+    vals = vals[~np.isnan(vals)]
+    if len(vals) == 0:
+        continue
+    if k in SCALE_KEYS_SYM:
+        vabs = max(float(np.percentile(np.abs(vals), 98)), 1e-6)
+        unified_scale[k] = (-vabs, vabs)
+    else:
+        unified_scale[k] = (float(np.percentile(vals, 2)),
+                            float(np.percentile(vals, 98)))
+
+data['unified_scale'] = unified_scale
+data['gauge_length']  = gauge_length
+data['strain_type']   = strain_type
+
+with open(output_dir / 'dic_results.pkl', 'wb') as f:
+    pickle.dump(data, f)
+print("pickle更新完了")
+"""
+
+    params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
+    env = os.environ.copy()
+    env['PYTHONIOENCODING'] = 'utf-8'
+    try:
+        subprocess.run(
+            [sys.executable, '-c', _recalc_script, json.dumps(params)],
+            env=env, timeout=60
+        )
+        # 再計算完了後にプレビューを起動
+        preview_params = {
+            'output_dir':    params['output_dir'],
+            'def_index':     -1,
+            'scale':         params.get('scale', {}),
+            'cmap':          params.get('cmap', {}),
+            'ncc_threshold': params.get('ncc_threshold', 0.2),
+            'dic_module':    params['dic_module'],
+        }
+        subprocess.Popen(
+            [sys.executable, '-c', _PREVIEW_SCRIPT, json.dumps(preview_params)],
+            env=env
+        )
+        return {'ok': True}
+    except Exception as e:
+        return {'error': str(e)}
+
+
+@eel.expose
 def dic_save_maps(params: dict):
     """計算済みpickleを読み込んでPNG・Excelを保存する（別プロセス）"""
     import subprocess, sys, json
