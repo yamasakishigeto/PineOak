@@ -291,7 +291,7 @@ def dic_load_config(folder: str):
             lines = f.readlines()
 
         result = {}
-        in_s1 = in_s2 = in_scale = False
+        in_s1 = in_s2 = in_scale = in_cmap = False
 
         for line in lines:
             line = line.strip()
