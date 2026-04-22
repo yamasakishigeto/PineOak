@@ -113,6 +113,7 @@ STEP_FINE      = 15   # Stage 2：細かい探索のサブセット間隔 [px]
 SEARCH_FINE    = 5    # Stage 2：探索範囲 [px]
 
 GAUGE_LENGTH   = 1    # ひずみゲージ長さ（サブセット間隔の整数倍）
+STRAIN_TYPE    = 'infinitesimal'  # ひずみ種類: 'infinitesimal'=微小ひずみ, 'green_lagrange'=グリーン-ラグランジェ
 USE_PREV_STAGE1 = True  # True=2枚目以降のStage1初期値に前段Stage1結果を使用（高速化）
                          # False=毎回グローバルシフトを初期値（独立処理）
                       # 1=隣接サブセット間差分（最高分解能）、2以上=nステップ離れた点の中心差分
@@ -177,6 +178,7 @@ def interactive_wizard(initial_dir=None):
     prescan_srch_var = tk.IntVar(value=PRESCAN_SEARCH)   # 事前スキャン専用search範囲
     prescan_result_var = tk.StringVar(value='（未実行）')
     gauge_length_var = tk.IntVar(value=GAUGE_LENGTH)      # ひずみゲージ長さ（整数倍）
+    strain_type_var = tk.StringVar(value=STRAIN_TYPE)     # ひずみ種類
     use_prev_stage1_var = tk.BooleanVar(value=USE_PREV_STAGE1)  # 前段Stage1結果を初期値に使用
 
     # トリミング設定
@@ -504,16 +506,26 @@ def interactive_wizard(initial_dir=None):
     ttk.Label(frm_param, text='← Step_fine の整数倍（1=隣接差分、2以上=nステップ中心差分）',
               font=fnt_sm, foreground='gray').grid(row=16, column=2, sticky='w')
 
+    ttk.Label(frm_param, text='  ひずみ種類', font=fnt).grid(row=17, column=0, sticky='w', pady=(6,2))
+    _strain_rb_frame = ttk.Frame(frm_param)
+    _strain_rb_frame.grid(row=17, column=1, columnspan=2, sticky='w', padx=8, pady=(6,2))
+    ttk.Radiobutton(_strain_rb_frame, text='微小ひずみ（小変形・線形）',
+                    variable=strain_type_var, value='infinitesimal').pack(side='left', padx=(0,16))
+    ttk.Radiobutton(_strain_rb_frame, text='グリーン-ラグランジェ（大変形対応）',
+                    variable=strain_type_var, value='green_lagrange').pack(side='left')
+    ttk.Label(frm_param, text='← 通常は微小ひずみ。ひずみが5%を超える大変形域ではG-Lを選択',
+              font=fnt_sm, foreground='gray').grid(row=18, column=1, columnspan=2, sticky='w', padx=8)
+
     ttk.Separator(frm_param, orient='horizontal').grid(
-        row=17, column=0, columnspan=3, sticky='ew', pady=6)
+        row=19, column=0, columnspan=3, sticky='ew', pady=6)
 
     ttk.Label(frm_param, text='並列処理', font=fnt_bold).grid(
-        row=18, column=0, columnspan=3, sticky='w', pady=(0,4))
-    ttk.Label(frm_param, text='  ワーカー数', font=fnt).grid(row=19, column=0, sticky='w', pady=2)
+        row=20, column=0, columnspan=3, sticky='w', pady=(0,4))
+    ttk.Label(frm_param, text='  ワーカー数', font=fnt).grid(row=21, column=0, sticky='w', pady=2)
     ttk.Spinbox(frm_param, textvariable=n_workers_var, from_=-1, to=32,
-                width=6, font=fnt).grid(row=19, column=1, padx=8, sticky='w')
+                width=6, font=fnt).grid(row=21, column=1, padx=8, sticky='w')
     ttk.Label(frm_param, text='← 起動時に自動設定（論理スレッド数-1）、-1で全スレッド',
-              font=fnt_sm, foreground='gray').grid(row=19, column=2, sticky='w')
+              font=fnt_sm, foreground='gray').grid(row=21, column=2, sticky='w')
 
     # ===== セクション4: 事前スキャン =====
     frm_prescan = ttk.LabelFrame(frm_right, text=' ④ 事前スキャン（search範囲の確認） ', padding=8)
@@ -790,6 +802,7 @@ def interactive_wizard(initial_dir=None):
         result['ncc_threshold'] = ncc_thr_var.get()
         result['n_workers']     = n_workers_var.get()
         result['gauge_length']  = gauge_length_var.get()
+        result['strain_type']   = strain_type_var.get()
         result['use_prev_stage1'] = use_prev_stage1_var.get()
         result['trim'] = (trim_top_var.get(), trim_bottom_var.get(),
                           trim_left_var.get(), trim_right_var.get())
@@ -821,6 +834,7 @@ def interactive_wizard(initial_dir=None):
             f"        前段Stage1参照: {'あり（高速化）' if result['use_prev_stage1'] else 'なし（独立処理）'}\n"
             f"Stage2  step={result['s2_step']}px  search={result['s2_search']}px\n"
             f"ゲージ長さ: {result['gauge_length']}px（0=自動）\n"
+            f"ひずみ種類: {'グリーン-ラグランジェ（大変形）' if result['strain_type'] == 'green_lagrange' else '微小ひずみ（線形）'}\n"
             f"NCCマスク閾値: {result['ncc_threshold']:.2f}\n"
             f"ワーカー数: {result['n_workers']}（-1=全コア）\n\n"
             "この設定で実行しますか？"
@@ -850,7 +864,8 @@ def interactive_wizard(initial_dir=None):
             result['s1_margin'], result['s1_fixed'],
             result['s2_step'],  result['s2_search'],  result['subset_size'],
             result['ncc_threshold'], result['n_workers'], result['scale'],
-            result['gauge_length'], result['use_prev_stage1'], result['trim'])
+            result['gauge_length'], result['strain_type'],
+            result['use_prev_stage1'], result['trim'])
 
 
 # =============================================================================
@@ -1354,7 +1369,8 @@ def make_grid_map(cx_list, cy_list, values, subset_step):
 # ひずみ場の計算
 # =============================================================================
 
-def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step, gauge_length=1):
+def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step,
+                      gauge_length=1, strain_type='infinitesimal'):
     """
     変位場からひずみテンソルを計算する。
 
@@ -1365,6 +1381,8 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step, gauge_lengt
                         n = nステップ離れた点の中心差分（ゲージ長さ = n × subset_step）。
                         大きいほどノイズに鈍感になる代わりに空間分解能が落ちる。
                         端点はnステップ前方/後方差分で補完。
+    strain_type : str  'infinitesimal' = 微小ひずみ（線形、デフォルト）
+                       'green_lagrange' = グリーン-ラグランジェひずみ（大変形対応）
     """
     u_grid, extent, xs_unique, ys_unique = make_grid_map(
         cx_list, cy_list, u_list, subset_step)
@@ -1410,9 +1428,16 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step, gauge_lengt
     dv_dx = _diff(v_grid, n, axis=1, h=dx)
     dv_dy = _diff(v_grid, n, axis=0, h=dy)
 
-    exx = du_dx
-    eyy = dv_dy
-    exy = 0.5 * (du_dy + dv_dx)
+    if strain_type == 'green_lagrange':
+        print("  ひずみ種類: グリーン-ラグランジェひずみ（大変形対応）")
+        exx = du_dx + 0.5 * (du_dx**2 + dv_dx**2)
+        eyy = dv_dy + 0.5 * (du_dy**2 + dv_dy**2)
+        exy = 0.5 * (du_dy + dv_dx) + 0.5 * (du_dx*du_dy + dv_dx*dv_dy)
+    else:
+        print("  ひずみ種類: 微小ひずみ（線形）")
+        exx = du_dx
+        eyy = dv_dy
+        exy = 0.5 * (du_dy + dv_dx)
 
     e_mean    = (exx + eyy) / 2.0
     e_diff    = np.sqrt(((exx - eyy) / 2.0)**2 + exy**2)
@@ -1805,7 +1830,8 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
 
     print("\nひずみ場を計算しています...")
     strain = calc_strain_field(cx2, cy2, u_corr, v_corr, STEP_FINE,
-                               gauge_length=GAUGE_LENGTH)
+                               gauge_length=GAUGE_LENGTH,
+                               strain_type=STRAIN_TYPE)
 
     if save_png:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1840,8 +1866,8 @@ if __name__ == "__main__":
     REF_PATH, DEF_PATHS, ALIGNMENT_JSON, BASE_FOLDER, \
         STEP_COARSE, STAGE1_AUTO, STAGE1_MARGIN, SEARCH_COARSE, \
         STEP_FINE, SEARCH_FINE, SUBSET_SIZE, \
-        NCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, USE_PREV_STAGE1, \
-        TRIM = interactive_wizard(_initial_dir)
+        NCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, STRAIN_TYPE, \
+        USE_PREV_STAGE1, TRIM = interactive_wizard(_initial_dir)
     # TRIM = (top, bottom, left, right)
     TRIM_TOP, TRIM_BOTTOM, TRIM_LEFT, TRIM_RIGHT = TRIM
 
@@ -1924,7 +1950,8 @@ if __name__ == "__main__":
     ref_stem = REF_PATH.stem
     print(f"  REFグリッド: {len(_cx)}点")
     _ref_strain = calc_strain_field(_cx, _cy, _zeros, _zeros, STEP_FINE,
-                                    gauge_length=GAUGE_LENGTH)
+                                    gauge_length=GAUGE_LENGTH,
+                                    strain_type=STRAIN_TYPE)
     del _ref_img, _ref_al, _ref_cr
 
     # results_listにREFを先頭として追加
@@ -2098,3 +2125,132 @@ if __name__ == "__main__":
         ax.set_title(png.name, fontsize=10)
         plt.tight_layout()
     plt.show()
+
+    # ── 再計算ウィンドウ ─────────────────────────────────────────────
+    def show_recalc_window():
+        """ひずみ再計算ウィンドウ。ゲージ長さ・ひずみ種類を変えて再計算・再描画できる。"""
+        import tkinter as tk
+        from tkinter import ttk, messagebox
+
+        rw = tk.Tk()
+        rw.title("ひずみ再計算")
+        rw.resizable(False, False)
+        rw.attributes('-topmost', True)
+
+        fnt      = ('Meiryo UI', 10)
+        fnt_bold = ('Meiryo UI', 10, 'bold')
+        fnt_sm   = ('Meiryo UI', 9)
+
+        rw_gauge_var  = tk.IntVar(value=GAUGE_LENGTH)
+        rw_strain_var = tk.StringVar(value=STRAIN_TYPE)
+
+        ttk.Label(rw, text='ひずみ再計算', font=fnt_bold).grid(
+            row=0, column=0, columnspan=3, padx=12, pady=(12,6), sticky='w')
+        ttk.Label(rw, text='DIC相関はスキップし、ひずみ計算のみ再実行します。',
+                  font=fnt_sm, foreground='#555').grid(
+            row=1, column=0, columnspan=3, padx=12, pady=(0,8), sticky='w')
+
+        ttk.Label(rw, text='ゲージ長さ [倍]', font=fnt).grid(
+            row=2, column=0, padx=12, pady=4, sticky='w')
+        ttk.Spinbox(rw, textvariable=rw_gauge_var, from_=1, to=20,
+                    width=6, font=fnt).grid(row=2, column=1, padx=8, sticky='w')
+        ttk.Label(rw, text='← Step_fine の整数倍',
+                  font=fnt_sm, foreground='gray').grid(row=2, column=2, padx=4, sticky='w')
+
+        ttk.Label(rw, text='ひずみ種類', font=fnt).grid(
+            row=3, column=0, padx=12, pady=(8,4), sticky='w')
+        _rb_frame = ttk.Frame(rw)
+        _rb_frame.grid(row=3, column=1, columnspan=2, padx=8, pady=(8,4), sticky='w')
+        ttk.Radiobutton(_rb_frame, text='微小ひずみ（線形）',
+                        variable=rw_strain_var, value='infinitesimal').pack(side='left', padx=(0,12))
+        ttk.Radiobutton(_rb_frame, text='グリーン-ラグランジェ（大変形）',
+                        variable=rw_strain_var, value='green_lagrange').pack(side='left')
+
+        status_var = tk.StringVar(value='')
+        ttk.Label(rw, textvariable=status_var,
+                  font=fnt_sm, foreground='#2471a3').grid(
+            row=4, column=0, columnspan=3, padx=12, pady=4, sticky='w')
+
+        def on_recalc():
+            new_gauge  = rw_gauge_var.get()
+            new_stype  = rw_strain_var.get()
+            stype_label = 'グリーン-ラグランジェ' if new_stype == 'green_lagrange' else '微小ひずみ'
+            status_var.set(f'再計算中... ゲージ長さ={new_gauge}倍 / {stype_label}')
+            rw.update()
+
+            try:
+                # REFひずみを再計算
+                new_ref_strain = calc_strain_field(
+                    results_list[0]['cx'], results_list[0]['cy'],
+                    results_list[0]['u'],  results_list[0]['v'],
+                    STEP_FINE, gauge_length=new_gauge, strain_type=new_stype)
+                results_list[0]['strain'] = new_ref_strain
+
+                # 各DEFひずみを再計算
+                for res in results_list[1:]:
+                    res['strain'] = calc_strain_field(
+                        res['cx'], res['cy'], res['u'], res['v'],
+                        STEP_FINE, gauge_length=new_gauge, strain_type=new_stype)
+
+                # カラースケールを再統一
+                SCALE_KEYS_SYM  = ['exx', 'eyy', 'exy', 'omega_xy']
+                SCALE_KEYS_ASYM = ['e1', 'gamma_max']
+                new_scale = dict(unified_scale)
+                for k in SCALE_KEYS_SYM + SCALE_KEYS_ASYM:
+                    gui_lo, gui_hi = SCALE_CONFIG.get(k, (None, None))
+                    if gui_lo is not None and gui_hi is not None:
+                        continue
+                    vals = np.concatenate([
+                        np.array(res['strain'][k], dtype=float).flatten()
+                        for res in results_list if k in res['strain']
+                    ])
+                    vals = vals[~np.isnan(vals)]
+                    if len(vals) == 0:
+                        continue
+                    if k in SCALE_KEYS_SYM:
+                        vabs = max(float(np.percentile(np.abs(vals), 98)), 1e-6)
+                        new_scale[k] = (-vabs, vabs)
+                    else:
+                        new_scale[k] = (float(np.percentile(vals, 2)),
+                                        float(np.percentile(vals, 98)))
+
+                # PNG再保存
+                plt.close('all')
+                visualize_strain(results_list[0]['strain'], STEP_FINE,
+                                 REF_PATH.name, REF_PATH.name,
+                                 def_stem=REF_PATH.stem, scale_config=new_scale)
+                for def_path, res in zip(DEF_PATHS, results_list[1:]):
+                    visualize_strain(res['strain'], STEP_FINE,
+                                     REF_PATH.name, def_path.name,
+                                     def_stem=def_path.stem, scale_config=new_scale)
+
+                # Excel再出力
+                export_xlsx(results_list, new_scale, OUTPUT_DIR / 'dic_results.xlsx', roi=roi)
+
+                status_var.set(f'✓ 完了！ PNG・Excelを更新しました')
+                rw.update()
+
+                # 再描画
+                new_pngs = sorted(OUTPUT_DIR.glob("strain_map*.png"))
+                for png in new_pngs:
+                    img = plt.imread(str(png))
+                    fig2, ax2 = plt.subplots(figsize=(min(img.shape[1]/100, 18),
+                                                      min(img.shape[0]/100, 10)))
+                    ax2.imshow(img)
+                    ax2.axis('off')
+                    ax2.set_title(png.name, fontsize=10)
+                    plt.tight_layout()
+                plt.show()
+
+            except Exception as e:
+                status_var.set(f'エラー: {e}')
+                messagebox.showerror('エラー', str(e))
+
+        btn_frame = ttk.Frame(rw)
+        btn_frame.grid(row=5, column=0, columnspan=3, pady=12)
+        ttk.Button(btn_frame, text='  再計算・再描画  ', command=on_recalc).pack(side='left', padx=8)
+        ttk.Button(btn_frame, text='閉じる', command=rw.destroy).pack(side='left')
+
+        rw.mainloop()
+
+    show_recalc_window()
