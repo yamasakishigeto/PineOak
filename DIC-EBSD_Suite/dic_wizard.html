@@ -574,41 +574,17 @@
       <div style="display:grid; grid-template-columns:80px 6px 1fr 20px 80px 6px 1fr; gap:4px; align-items:center; margin-bottom:6px;">
         <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">変数</span>
         <span></span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max / cmap</span>
         <span></span>
         <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">変数</span>
         <span></span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">min / max / cmap</span>
       </div>
 
       <div class="scale-grid" id="scale-grid">
         <!-- JS で生成 -->
       </div>
 
-      <!-- カラーマップ選択 -->
-      <div style="margin-top:12px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">カラーマップ</span>
-        <div style="display:flex; align-items:center; gap:6px;">
-          <label style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">対称系（u,v,εxx,εyy,εxy,ωxy）</label>
-          <select id="cmap-sym" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">
-            <option value="RdBu_r">RdBu_r（デフォルト）</option>
-            <option value="coolwarm">coolwarm</option>
-            <option value="bwr">bwr</option>
-            <option value="seismic">seismic</option>
-            <option value="PiYG">PiYG</option>
-          </select>
-        </div>
-        <div style="display:flex; align-items:center; gap:6px;">
-          <label style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">非対称系（e1,γmax）</label>
-          <select id="cmap-asym" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">
-            <option value="hot_r">hot_r（デフォルト）</option>
-            <option value="viridis">viridis</option>
-            <option value="plasma">plasma</option>
-            <option value="inferno">inferno</option>
-            <option value="magma">magma</option>
-          </select>
-        </div>
-      </div>
     </div>
 
   </div>
@@ -630,8 +606,10 @@ let refIdx = -1;
 let defChecked = [];   // boolean[]
 let prescanRec = 0;
 
-const SCALE_KEYS   = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy'];
-const SCALE_LABELS = ['u [px]','v [px]','εxx','εyy','εxy','e1','γmax','ωxy'];
+const SCALE_KEYS    = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy'];
+const SCALE_LABELS  = ['u [px]','v [px]','εxx','εyy','εxy','e1','γmax','ωxy'];
+const CMAP_OPTIONS  = ['RdBu_r','seismic','hot_r','viridis','plasma','inferno','magma'];
+const CMAP_DEFAULTS = {u:'RdBu_r',v:'RdBu_r',exx:'RdBu_r',eyy:'RdBu_r',exy:'RdBu_r',e1:'hot_r',gamma_max:'hot_r',omega_xy:'RdBu_r'};
 
 // ---- 初期化 ----
 window.addEventListener('load', () => {
@@ -655,13 +633,18 @@ function buildScaleGrid() {
   const grid = document.getElementById('scale-grid');
   grid.innerHTML = '';
   SCALE_KEYS.forEach((k, i) => {
+    const def  = CMAP_DEFAULTS[k] || 'RdBu_r';
+    const opts = CMAP_OPTIONS.map(v =>
+      `<option value="${v}"${v === def ? ' selected' : ''}>${v}</option>`
+    ).join('');
     const div = document.createElement('div');
     div.className = 'scale-row';
     div.innerHTML = `
       <span class="scale-label">${SCALE_LABELS[i]}</span>
-      <input class="scale-input" type="text" id="smin-${k}" placeholder="自動" style="width:62px;">
+      <input class="scale-input" type="text" id="smin-${k}" placeholder="自動" style="width:56px;">
       <span class="scale-sep">〜</span>
-      <input class="scale-input" type="text" id="smax-${k}" placeholder="自動" style="width:62px;">
+      <input class="scale-input" type="text" id="smax-${k}" placeholder="自動" style="width:56px;">
+      <select id="cmap-${k}" title="カラーマップ" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px;font-family:var(--mono);font-size:10px;margin-left:2px;">${opts}</select>
     `;
     grid.appendChild(div);
   });
@@ -914,8 +897,7 @@ function _mapParams() {
   return {
     output_dir:    _analysisOutputDir,
     scale:         Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
-    cmap_sym:      document.getElementById('cmap-sym').value,
-    cmap_asym:     document.getElementById('cmap-asym').value,
+    cmap:          Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
     ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
   };
 }

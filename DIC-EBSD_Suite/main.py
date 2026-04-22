@@ -505,8 +505,7 @@ def _run_dic_analysis(params: dict):
             'output_dir': output_dir,
             'def_index': -1,
             'scale': {},
-            'cmap_sym': 'RdBu_r',
-            'cmap_asym': 'hot_r',
+            'cmap': {},
             'ncc_threshold': params.get('ncc_threshold', 0.2),
             'dic_module': os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py'),
         }
@@ -545,11 +544,14 @@ import matplotlib.pyplot as plt
 p            = json.loads(sys.argv[1])
 output_dir   = Path(p['output_dir'])
 def_index    = int(p.get('def_index', -1))
-cmap_sym     = p.get('cmap_sym',  'RdBu_r')
-cmap_asym    = p.get('cmap_asym', 'hot_r')
+cmap_map     = p.get('cmap', {})
 scale_config = {k: tuple(v) for k, v in p.get('scale', {}).items()}
 dic_module   = p['dic_module']
 ncc_thr      = float(p.get('ncc_threshold', 0.2))
+
+_CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+def _cm(key): return cmap_map.get(key) or _CMAP_DEF.get(key, 'RdBu_r')
 
 spec = importlib.util.spec_from_file_location('dic', dic_module)
 mod  = importlib.util.module_from_spec(spec)
@@ -606,8 +608,8 @@ def plot_one(ax, data, title, key, cmap, symmetric=True):
     ax.set_xlabel('X [px]', fontsize=7); ax.set_ylabel('Y [px]', fontsize=7)
     ax.tick_params(labelsize=6)
 
-plot_one(axes[0,0], u_grid,              'u変位 [px]',               'u',         cmap_sym)
-plot_one(axes[0,1], v_grid,              'v変位 [px]',               'v',         cmap_sym)
+plot_one(axes[0,0], u_grid,              'u変位 [px]',               'u',         _cm('u'))
+plot_one(axes[0,1], v_grid,              'v変位 [px]',               'v',         _cm('v'))
 ncc_vmin = max(ncc_thr, 0.0)
 im = axes[0,2].imshow(ncc_grid, cmap='plasma', extent=extent, vmin=ncc_vmin, vmax=1.0, aspect='equal')
 plt.colorbar(im, ax=axes[0,2], fraction=0.046, pad=0.04)
@@ -615,12 +617,12 @@ axes[0,2].set_title(f'NCC peak (下限={ncc_vmin:.2f})', fontsize=9, pad=3)
 axes[0,2].set_xlabel('X [px]', fontsize=7); axes[0,2].set_ylabel('Y [px]', fontsize=7)
 axes[0,2].tick_params(labelsize=6)
 
-plot_one(axes[1,0], strain['exx'],       'εxx（x方向正ひずみ）',      'exx',       cmap_sym)
-plot_one(axes[1,1], strain['eyy'],       'εyy（y方向正ひずみ）',      'eyy',       cmap_sym)
-plot_one(axes[1,2], strain['exy'],       'εxy（せん断ひずみ）',       'exy',       cmap_sym)
-plot_one(axes[2,0], strain['e1'],        'e1（最大主ひずみ）',        'e1',        cmap_asym, symmetric=False)
-plot_one(axes[2,1], strain['gamma_max'], 'γmax（最大せん断ひずみ）',  'gamma_max', cmap_asym, symmetric=False)
-plot_one(axes[2,2], strain['omega_xy'],  'ωxy（回転）',              'omega_xy',  cmap_sym)
+plot_one(axes[1,0], strain['exx'],       'εxx（x方向正ひずみ）',      'exx',       _cm('exx'))
+plot_one(axes[1,1], strain['eyy'],       'εyy（y方向正ひずみ）',      'eyy',       _cm('eyy'))
+plot_one(axes[1,2], strain['exy'],       'εxy（せん断ひずみ）',       'exy',       _cm('exy'))
+plot_one(axes[2,0], strain['e1'],        'e1（最大主ひずみ）',        'e1',        _cm('e1'),        symmetric=False)
+plot_one(axes[2,1], strain['gamma_max'], 'γmax（最大せん断ひずみ）',  'gamma_max', _cm('gamma_max'), symmetric=False)
+plot_one(axes[2,2], strain['omega_xy'],  'ωxy（回転）',              'omega_xy',  _cm('omega_xy'))
 
 fig.suptitle(f'変位・ひずみマップ  {Path(ref_path).name} → {Path(def_name).name}',
              fontsize=11, y=1.002)
@@ -648,14 +650,21 @@ def dic_save_maps(params: dict):
 import sys, json, pickle
 from pathlib import Path
 import importlib.util
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 p            = json.loads(sys.argv[1])
 output_dir   = Path(p['output_dir'])
-cmap_sym     = p.get('cmap_sym',  'RdBu_r')
-cmap_asym    = p.get('cmap_asym', 'hot_r')
+cmap_map     = p.get('cmap', {})
 scale_config = {k: tuple(v) for k, v in p.get('scale', {}).items()}
 dic_module   = p['dic_module']
 ncc_thr      = float(p.get('ncc_threshold', 0.2))
+
+_CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+def _cm(key): return cmap_map.get(key) or _CMAP_DEF.get(key, 'RdBu_r')
 
 spec = importlib.util.spec_from_file_location('dic', dic_module)
 mod  = importlib.util.module_from_spec(spec)
@@ -677,19 +686,64 @@ for k, (lo, hi) in scale_config.items():
     unified_scale[k] = (lo if lo is not None else lo_old,
                         hi if hi is not None else hi_old)
 
+sc = unified_scale
+
+def plot_one(ax, data, title, key, cmap, ext, symmetric=True):
+    lo, hi = sc.get(key, (None, None))
+    if lo is not None and hi is not None:
+        vmin, vmax = lo, hi
+    elif symmetric:
+        valid = data[~np.isnan(data)] if np.any(~np.isnan(data)) else np.array([1e-6])
+        vabs = max(float(np.nanpercentile(np.abs(valid), 98)), 1e-6)
+        vmin, vmax = -vabs, vabs
+    else:
+        valid = data[~np.isnan(data)]
+        vmin = float(np.percentile(valid, 2))  if len(valid) else 0
+        vmax = float(np.percentile(valid, 98)) if len(valid) else 1
+    im = ax.imshow(data, cmap=cmap, extent=ext, vmin=vmin, vmax=vmax, aspect='equal')
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    ax.set_title(title, fontsize=9, pad=3)
+    ax.set_xlabel('X [px]', fontsize=7); ax.set_ylabel('Y [px]', fontsize=7)
+    ax.tick_params(labelsize=6)
+
 print(f"マップ保存開始: {output_dir}")
 for i, res in enumerate(results_list):
     def_name = def_paths[i-1] if i > 0 else ref_path
     print(f"  [{i+1}/{len(results_list)}] {res['label']}")
-    mod.visualize_displacement(
-        res['cx'], res['cy'], res['u'], res['v'], res['ncc'],
-        0, 0, step_fine, ncc_threshold=ncc_thr, def_stem=res['label'],
-        scale_config=unified_scale, cmap_sym=cmap_sym, preview=False)
-    mod.visualize_strain(
-        res['strain'], step_fine,
-        Path(ref_path).name, Path(def_name).name,
-        def_stem=res['label'], scale_config=unified_scale,
-        cmap_sym=cmap_sym, cmap_asym=cmap_asym, preview=False)
+
+    u_grid   = mod.make_grid_map(res['cx'], res['cy'], res['u'],   step_fine)[0]
+    v_grid   = mod.make_grid_map(res['cx'], res['cy'], res['v'],   step_fine)[0]
+    ncc_grid = mod.make_grid_map(res['cx'], res['cy'], res['ncc'], step_fine)[0]
+    _, ext, _, _ = mod.make_grid_map(res['cx'], res['cy'], res['u'], step_fine)
+    strain = res['strain']
+
+    img_h = ext[2] - ext[3]
+    img_w = ext[1] - ext[0]
+    aspect = img_h / img_w
+    fig, axes = plt.subplots(3, 3, figsize=(18, 18 * aspect + 2))
+
+    plot_one(axes[0,0], u_grid,              'u変位 [px]',               'u',         _cm('u'),         ext)
+    plot_one(axes[0,1], v_grid,              'v変位 [px]',               'v',         _cm('v'),         ext)
+    ncc_vmin = max(ncc_thr, 0.0)
+    im = axes[0,2].imshow(ncc_grid, cmap='plasma', extent=ext, vmin=ncc_vmin, vmax=1.0, aspect='equal')
+    plt.colorbar(im, ax=axes[0,2], fraction=0.046, pad=0.04)
+    axes[0,2].set_title(f'NCC peak (下限={ncc_vmin:.2f})', fontsize=9, pad=3)
+    axes[0,2].set_xlabel('X [px]', fontsize=7); axes[0,2].set_ylabel('Y [px]', fontsize=7)
+    axes[0,2].tick_params(labelsize=6)
+
+    plot_one(axes[1,0], strain['exx'],       'εxx（x方向正ひずみ）',      'exx',       _cm('exx'),       ext)
+    plot_one(axes[1,1], strain['eyy'],       'εyy（y方向正ひずみ）',      'eyy',       _cm('eyy'),       ext)
+    plot_one(axes[1,2], strain['exy'],       'εxy（せん断ひずみ）',       'exy',       _cm('exy'),       ext)
+    plot_one(axes[2,0], strain['e1'],        'e1（最大主ひずみ）',        'e1',        _cm('e1'),        ext, symmetric=False)
+    plot_one(axes[2,1], strain['gamma_max'], 'γmax（最大せん断ひずみ）',  'gamma_max', _cm('gamma_max'), ext, symmetric=False)
+    plot_one(axes[2,2], strain['omega_xy'],  'ωxy（回転）',              'omega_xy',  _cm('omega_xy'),  ext)
+
+    fig.suptitle(f'変位・ひずみマップ  {Path(ref_path).name} → {Path(def_name).name}',
+                 fontsize=11, y=1.002)
+    plt.tight_layout()
+    suffix = f"_{res['label']}" if res['label'] else ''
+    plt.savefig(output_dir / f"map{suffix}.png", dpi=150, bbox_inches='tight')
+    plt.close()
 
 xlsx_path = output_dir / 'dic_results.xlsx'
 print("Excelファイルを出力しています...")
