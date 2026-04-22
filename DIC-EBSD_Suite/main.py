@@ -295,16 +295,17 @@ def dic_load_config(folder: str):
 
         for line in lines:
             line = line.strip()
-            if line == '[Stage 1]':   in_s1, in_s2, in_scale = True,  False, False; continue
-            if line == '[Stage 2]':   in_s1, in_s2, in_scale = False, True,  False; continue
-            if line == '[カラースケール]': in_s1, in_s2, in_scale = False, False, True;  continue
-            if line.startswith('['):  in_s1, in_s2, in_scale = False, False, False; continue
+            if line == '[Stage 1]':    in_s1, in_s2, in_scale, in_cmap = True,  False, False, False; continue
+            if line == '[Stage 2]':    in_s1, in_s2, in_scale, in_cmap = False, True,  False, False; continue
+            if line == '[カラースケール]': in_s1, in_s2, in_scale, in_cmap = False, False, True,  False; continue
+            if line == '[カラーマップ]':  in_s1, in_s2, in_scale, in_cmap = False, False, False, True;  continue
+            if line.startswith('['):   in_s1, in_s2, in_scale, in_cmap = False, False, False, False; continue
             if ':' not in line: continue
 
             k, _, v = line.partition(':')
             k, v = k.strip(), v.strip()
 
-            if not in_s1 and not in_s2 and not in_scale:
+            if not in_s1 and not in_s2 and not in_scale and not in_cmap:
                 if k == 'subset':   result['subset']   = int(v.split()[0])
                 if k == 'gauge':    result['gauge']    = int(v.split()[0])
                 if k == 'workers':  result['workers']  = int(v.split()[0])
@@ -335,6 +336,11 @@ def dic_load_config(folder: str):
                     lo = float(m_min.group(1)) if m_min and m_min.group(1) != '自動' else None
                     hi = float(m_max.group(1)) if m_max and m_max.group(1) != '自動' else None
                     result.setdefault('scale', {})[k] = [lo, hi]
+
+            if in_cmap:
+                cmap_keys = {'u','v','exx','eyy','exy','e1','gamma_max','omega_xy'}
+                if k in cmap_keys:
+                    result.setdefault('cmap', {})[k] = v
 
         return result
     except Exception as e:
@@ -748,6 +754,25 @@ for i, res in enumerate(results_list):
 xlsx_path = output_dir / 'dic_results.xlsx'
 print("Excelファイルを出力しています...")
 mod.export_xlsx(results_list, unified_scale, xlsx_path, roi=roi)
+
+config_path = output_dir / 'dic_config.txt'
+if config_path.exists():
+    lines = config_path.read_text(encoding='utf-8').splitlines()
+    cut = next((i for i, l in enumerate(lines) if l.strip() == '[カラースケール]'), len(lines))
+    base = '\n'.join(lines[:cut])
+    var_keys = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']
+    scale_sec = ['[カラースケール]']
+    for k in var_keys:
+        lo, hi = sc.get(k, (None, None))
+        scale_sec.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
+    cmap_sec = ['[カラーマップ]']
+    for k in var_keys:
+        cmap_sec.append(f'  {k:<12}: {_cm(k)}')
+    config_path.write_text(
+        base + '\n' + '\n'.join(scale_sec) + '\n' + '\n'.join(cmap_sec) + '\n',
+        encoding='utf-8')
+    print('dic_config.txt を更新しました')
+
 print(f"保存完了: {output_dir}")
 """
     params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
