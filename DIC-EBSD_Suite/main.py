@@ -708,6 +708,40 @@ data['strain_type']   = strain_type
 with open(output_dir / 'dic_results.pkl', 'wb') as f:
     pickle.dump(data, f)
 print("pickle更新完了")
+
+# dic_config.txt の [共通] セクションのgauge・strain_typeを更新
+config_path = output_dir / 'dic_config.txt'
+if config_path.exists():
+    lines = config_path.read_text(encoding='utf-8').splitlines()
+    new_lines = []
+    in_common = False
+    strain_written = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == '[共通]':
+            in_common = True
+            new_lines.append(line)
+            continue
+        if stripped.startswith('[') and stripped != '[共通]':
+            # 共通セクションを抜けるとき、strain_typeがまだなら追加
+            if in_common and not strain_written:
+                new_lines.append(f'  strain_type : {strain_type}')
+                strain_written = True
+            in_common = False
+        if in_common:
+            if stripped.startswith('gauge'):
+                new_lines.append(f'  gauge      : {gauge_length} 倍')
+                continue
+            if stripped.startswith('strain_type'):
+                new_lines.append(f'  strain_type : {strain_type}')
+                strain_written = True
+                continue
+        new_lines.append(line)
+    # ファイル末尾が[共通]で終わる場合
+    if in_common and not strain_written:
+        new_lines.append(f'  strain_type : {strain_type}')
+    config_path.write_text('\n'.join(new_lines) + '\n', encoding='utf-8')
+    print("dic_config.txt 更新完了")
 """
 
     params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
