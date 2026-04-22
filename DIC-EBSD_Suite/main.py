@@ -495,8 +495,24 @@ def _run_dic_analysis(params: dict):
     _procs.pop("dic", None)
 
     if proc.returncode == 0:
+        import json as _json
+        output_dir = str(Path(params['folder']) / f"dic_{Path(params['ref_path']).stem}")
         eel.on_tool_finished("dic", 0)()
         eel.dic_on_status("解析完了", "ok")()
+        eel.dic_on_analysis_done(output_dir)()
+        # 解析完了後、最後のDEFをデフォルト設定で自動プレビュー
+        auto_params = {
+            'output_dir': output_dir,
+            'def_index': -1,
+            'scale': {},
+            'cmap_sym': 'RdBu_r',
+            'cmap_asym': 'hot_r',
+            'ncc_threshold': params.get('ncc_threshold', 0.2),
+            'dic_module': os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py'),
+        }
+        _env2 = os.environ.copy()
+        _env2['PYTHONIOENCODING'] = 'utf-8'
+        subprocess.Popen([PYTHON, '-c', _PREVIEW_SCRIPT, _json.dumps(auto_params)], env=_env2)
     else:
         eel.on_tool_finished("dic", proc.returncode)()
         eel.dic_on_status(f"エラー（終了コード {proc.returncode}）", "err")()
@@ -515,6 +531,175 @@ def dic_cancel():
     proc = _procs.get("dic")
     if proc:
         proc.terminate()
+
+
+_PREVIEW_SCRIPT = r"""
+import sys, json, pickle
+from pathlib import Path
+import importlib.util
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+
+p            = json.loads(sys.argv[1])
+output_dir   = Path(p['output_dir'])
+def_index    = int(p.get('def_index', -1))
+cmap_sym     = p.get('cmap_sym',  'RdBu_r')
+cmap_asym    = p.get('cmap_asym', 'hot_r')
+scale_config = {k: tuple(v) for k, v in p.get('scale', {}).items()}
+dic_module   = p['dic_module']
+ncc_thr      = float(p.get('ncc_threshold', 0.2))
+
+spec = importlib.util.spec_from_file_location('dic', dic_module)
+mod  = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+with open(output_dir / 'dic_results.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+results_list  = data['results_list']
+unified_scale = dict(data['unified_scale'])
+step_fine     = data['step_fine']
+ref_path      = data['ref_path']
+def_paths     = data['def_paths']
+
+for k, (lo, hi) in scale_config.items():
+    lo_old, hi_old = unified_scale.get(k, (None, None))
+    unified_scale[k] = (lo if lo is not None else lo_old,
+                        hi if hi is not None else hi_old)
+
+# 対象DEFを選択（デフォルトは最後のDEF）
+idx = def_index if def_index >= 0 else len(results_list) - 1
+res      = results_list[idx]
+def_name = def_paths[idx - 1] if idx > 0 else ref_path
+sc       = unified_scale
+
+def make_grid(arr):
+    return mod.make_grid_map(res['cx'], res['cy'], arr, step_fine)[0]
+
+u_grid   = make_grid(res['u'])
+v_grid   = make_grid(res['v'])
+ncc_grid = make_grid(res['ncc'])
+_, extent, _, _ = mod.make_grid_map(res['cx'], res['cy'], res['u'], step_fine)
+strain   = res['strain']
+
+img_h = extent[2] - extent[3]
+img_w = extent[1] - extent[0]
+aspect = img_h / img_w
+fig, axes = plt.subplots(3, 3, figsize=(18, 18 * aspect + 2))
+
+def plot_one(ax, data, title, key, cmap, symmetric=True):
+    lo, hi = sc.get(key, (None, None))
+    if lo is not None and hi is not None:
+        vmin, vmax = lo, hi
+    elif symmetric:
+        vabs = max(float(np.nanpercentile(np.abs(data[~np.isnan(data)]), 98)) if np.any(~np.isnan(data)) else 1e-6, 1e-6)
+        vmin, vmax = -vabs, vabs
+    else:
+        valid = data[~np.isnan(data)]
+        vmin = float(np.percentile(valid, 2))  if len(valid) else 0
+        vmax = float(np.percentile(valid, 98)) if len(valid) else 1
+    im = ax.imshow(data, cmap=cmap, extent=extent, vmin=vmin, vmax=vmax, aspect='equal')
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    ax.set_title(title, fontsize=9, pad=3)
+    ax.set_xlabel('X [px]', fontsize=7); ax.set_ylabel('Y [px]', fontsize=7)
+    ax.tick_params(labelsize=6)
+
+plot_one(axes[0,0], u_grid,              'u変位 [px]',               'u',         cmap_sym)
+plot_one(axes[0,1], v_grid,              'v変位 [px]',               'v',         cmap_sym)
+ncc_vmin = max(ncc_thr, 0.0)
+im = axes[0,2].imshow(ncc_grid, cmap='plasma', extent=extent, vmin=ncc_vmin, vmax=1.0, aspect='equal')
+plt.colorbar(im, ax=axes[0,2], fraction=0.046, pad=0.04)
+axes[0,2].set_title(f'NCC peak (下限={ncc_vmin:.2f})', fontsize=9, pad=3)
+axes[0,2].set_xlabel('X [px]', fontsize=7); axes[0,2].set_ylabel('Y [px]', fontsize=7)
+axes[0,2].tick_params(labelsize=6)
+
+plot_one(axes[1,0], strain['exx'],       'εxx（x方向正ひずみ）',      'exx',       cmap_sym)
+plot_one(axes[1,1], strain['eyy'],       'εyy（y方向正ひずみ）',      'eyy',       cmap_sym)
+plot_one(axes[1,2], strain['exy'],       'εxy（せん断ひずみ）',       'exy',       cmap_sym)
+plot_one(axes[2,0], strain['e1'],        'e1（最大主ひずみ）',        'e1',        cmap_asym, symmetric=False)
+plot_one(axes[2,1], strain['gamma_max'], 'γmax（最大せん断ひずみ）',  'gamma_max', cmap_asym, symmetric=False)
+plot_one(axes[2,2], strain['omega_xy'],  'ωxy（回転）',              'omega_xy',  cmap_sym)
+
+fig.suptitle(f'変位・ひずみマップ  {Path(ref_path).name} → {Path(def_name).name}',
+             fontsize=11, y=1.002)
+plt.tight_layout()
+plt.show()
+"""
+
+
+@eel.expose
+def dic_preview_maps(params: dict):
+    """計算済みpickleを読み込んで1ウィンドウにマップをプレビュー表示する（別プロセス）"""
+    import subprocess, sys, json
+    params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
+    env = os.environ.copy()
+    env['PYTHONIOENCODING'] = 'utf-8'
+    subprocess.Popen([sys.executable, '-c', _PREVIEW_SCRIPT, json.dumps(params)], env=env)
+
+
+@eel.expose
+def dic_save_maps(params: dict):
+    """計算済みpickleを読み込んでPNG・Excelを保存する（別プロセス）"""
+    import subprocess, sys, json
+
+    _script = r"""
+import sys, json, pickle
+from pathlib import Path
+import importlib.util
+
+p            = json.loads(sys.argv[1])
+output_dir   = Path(p['output_dir'])
+cmap_sym     = p.get('cmap_sym',  'RdBu_r')
+cmap_asym    = p.get('cmap_asym', 'hot_r')
+scale_config = {k: tuple(v) for k, v in p.get('scale', {}).items()}
+dic_module   = p['dic_module']
+ncc_thr      = float(p.get('ncc_threshold', 0.2))
+
+spec = importlib.util.spec_from_file_location('dic', dic_module)
+mod  = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.OUTPUT_DIR = output_dir
+
+with open(output_dir / 'dic_results.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+results_list  = data['results_list']
+unified_scale = dict(data['unified_scale'])
+step_fine     = data['step_fine']
+ref_path      = data['ref_path']
+def_paths     = data['def_paths']
+roi           = data.get('roi')
+
+for k, (lo, hi) in scale_config.items():
+    lo_old, hi_old = unified_scale.get(k, (None, None))
+    unified_scale[k] = (lo if lo is not None else lo_old,
+                        hi if hi is not None else hi_old)
+
+print(f"マップ保存開始: {output_dir}")
+for i, res in enumerate(results_list):
+    def_name = def_paths[i-1] if i > 0 else ref_path
+    print(f"  [{i+1}/{len(results_list)}] {res['label']}")
+    mod.visualize_displacement(
+        res['cx'], res['cy'], res['u'], res['v'], res['ncc'],
+        0, 0, step_fine, ncc_threshold=ncc_thr, def_stem=res['label'],
+        scale_config=unified_scale, cmap_sym=cmap_sym, preview=False)
+    mod.visualize_strain(
+        res['strain'], step_fine,
+        Path(ref_path).name, Path(def_name).name,
+        def_stem=res['label'], scale_config=unified_scale,
+        cmap_sym=cmap_sym, cmap_asym=cmap_asym, preview=False)
+
+xlsx_path = output_dir / 'dic_results.xlsx'
+print("Excelファイルを出力しています...")
+mod.export_xlsx(results_list, unified_scale, xlsx_path, roi=roi)
+print(f"保存完了: {output_dir}")
+"""
+    params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
+    env = os.environ.copy()
+    env['PYTHONIOENCODING'] = 'utf-8'
+    subprocess.Popen([sys.executable, '-c', _script, json.dumps(params)], env=env)
 
 
 @eel.expose

@@ -1436,9 +1436,10 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step, gauge_lengt
 def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
                             ncc_peak_list, shift_x, shift_y, subset_step,
                             ncc_threshold=NCC_THRESHOLD, def_stem="",
-                            scale_config=None):
+                            scale_config=None, cmap_sym='RdBu_r', preview=False):
     sc = scale_config or {}
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    if not preview:
+        OUTPUT_DIR.mkdir(exist_ok=True)
 
     u_grid, extent, _, _ = make_grid_map(cx_list, cy_list, u_corr, subset_step)
     v_grid, _, _, _      = make_grid_map(cx_list, cy_list, v_corr, subset_step)
@@ -1454,7 +1455,7 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     u_lo, u_hi = sc.get('u', (None, None))
     u_vmin = u_lo if u_lo is not None else -u_abs
     u_vmax = u_hi if u_hi is not None else  u_abs
-    im0 = axes[0].imshow(u_grid, cmap='RdBu_r', extent=extent,
+    im0 = axes[0].imshow(u_grid, cmap=cmap_sym, extent=extent,
                           vmin=u_vmin, vmax=u_vmax, aspect='equal')
     plt.colorbar(im0, ax=axes[0], label="u [px]")
     axes[0].set_title(f"u変位マップ\nグローバルシフト: x={shift_x}px")
@@ -1464,13 +1465,13 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     v_lo, v_hi = sc.get('v', (None, None))
     v_vmin = v_lo if v_lo is not None else -v_abs
     v_vmax = v_hi if v_hi is not None else  v_abs
-    im1 = axes[1].imshow(v_grid, cmap='RdBu_r', extent=extent,
+    im1 = axes[1].imshow(v_grid, cmap=cmap_sym, extent=extent,
                           vmin=v_vmin, vmax=v_vmax, aspect='equal')
     plt.colorbar(im1, ax=axes[1], label="v [px]")
     axes[1].set_title(f"v変位マップ\nグローバルシフト: y={shift_y}px")
     axes[1].set_xlabel("X [px]"); axes[1].set_ylabel("Y [px]")
 
-    ncc_vmin = max(ncc_threshold, 0.0)  # しきい値をカラースケール下限に使用
+    ncc_vmin = max(ncc_threshold, 0.0)
     im2 = axes[2].imshow(ncc_grid, cmap='plasma', extent=extent,
                           vmin=ncc_vmin, vmax=1.0, aspect='equal')
     plt.colorbar(im2, ax=axes[2], label="NCC peak")
@@ -1478,13 +1479,17 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     axes[2].set_xlabel("X [px]"); axes[2].set_ylabel("Y [px]")
 
     plt.tight_layout()
-    suffix = f"_{def_stem}" if def_stem else ""
-    plt.savefig(OUTPUT_DIR / f"displacement_map{suffix}.png", dpi=150, bbox_inches='tight')
-    plt.close()
+    if preview:
+        plt.show()
+    else:
+        suffix = f"_{def_stem}" if def_stem else ""
+        plt.savefig(OUTPUT_DIR / f"displacement_map{suffix}.png", dpi=150, bbox_inches='tight')
+        plt.close()
 
 
 def visualize_strain(strain, subset_step, ref_name, def_name, def_stem="",
-                     scale_config=None):
+                     scale_config=None, cmap_sym='RdBu_r', cmap_asym='hot_r',
+                     preview=False):
     sc = scale_config or {}
     extent = strain['extent']
     img_h = extent[2] - extent[3]
@@ -1511,22 +1516,22 @@ def visualize_strain(strain, subset_step, ref_name, def_name, def_stem="",
         ax.set_ylabel("Y [px]", fontsize=8)
         ax.tick_params(labelsize=7)
 
-    plot_strain(axes[0,0], strain['exx'],       "εxx（x方向正ひずみ）",   'exx')
-    plot_strain(axes[0,1], strain['eyy'],       "εyy（y方向正ひずみ）",   'eyy')
-    plot_strain(axes[0,2], strain['exy'],       "εxy（せん断ひずみ）",    'exy')
-    plot_strain(axes[1,0], strain['e1'],        "e1（最大主ひずみ）",     'e1',
-                cmap='hot_r', symmetric=False)
-    plot_strain(axes[1,1], strain['gamma_max'], "γmax（最大せん断ひずみ）",'gamma_max',
-                cmap='hot_r', symmetric=False)
-    plot_strain(axes[1,2], strain['omega_xy'],  "ωxy（回転テンソル・参考）",'omega_xy',
-                cmap='PiYG')
+    plot_strain(axes[0,0], strain['exx'],       "εxx（x方向正ひずみ）",   'exx',  cmap=cmap_sym)
+    plot_strain(axes[0,1], strain['eyy'],       "εyy（y方向正ひずみ）",   'eyy',  cmap=cmap_sym)
+    plot_strain(axes[0,2], strain['exy'],       "εxy（せん断ひずみ）",    'exy',  cmap=cmap_sym)
+    plot_strain(axes[1,0], strain['e1'],        "e1（最大主ひずみ）",     'e1',   cmap=cmap_asym, symmetric=False)
+    plot_strain(axes[1,1], strain['gamma_max'], "γmax（最大せん断ひずみ）",'gamma_max', cmap=cmap_asym, symmetric=False)
+    plot_strain(axes[1,2], strain['omega_xy'],  "ωxy（回転テンソル・参考）",'omega_xy', cmap=cmap_sym)
 
     fig.suptitle(f"ひずみ場マップ（{ref_name} → {def_name}）",
                  fontsize=12, y=1.005)
     plt.tight_layout()
-    suffix = f"_{def_stem}" if def_stem else ""
-    plt.savefig(OUTPUT_DIR / f"strain_map{suffix}.png", dpi=150, bbox_inches='tight')
-    plt.close()
+    if preview:
+        plt.show()
+    else:
+        suffix = f"_{def_stem}" if def_stem else ""
+        plt.savefig(OUTPUT_DIR / f"strain_map{suffix}.png", dpi=150, bbox_inches='tight')
+        plt.close()
 
     print("\n========== ひずみ統計 ==========")
     for key in ['exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']:

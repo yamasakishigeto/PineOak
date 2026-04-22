@@ -44,9 +44,17 @@ mod.REF_PATH   = REF_PATH
 mod.DEF_PATHS  = DEF_PATHS
 mod.BASE_FOLDER = BASE_FOLDER
 
+# ---- トリミング設定 ----
+TRIM = (
+    int(p.get('trim_top',    0)),
+    int(p.get('trim_bottom', 0)),
+    int(p.get('trim_left',   0)),
+    int(p.get('trim_right',  0)),
+)
+mod.TRIM_TOP, mod.TRIM_BOTTOM, mod.TRIM_LEFT, mod.TRIM_RIGHT = TRIM
+
 # ---- アライメント読み込み ----
-shifts, mod.TRIM_BOTTOM = mod.load_alignment(json_path)
-TRIM_BOTTOM = mod.TRIM_BOTTOM
+shifts = mod.load_alignment(json_path)
 STEP_FINE   = mod.STEP_FINE
 STEP_COARSE = mod.STEP_COARSE
 SEARCH_FINE = mod.SEARCH_FINE
@@ -60,10 +68,9 @@ USE_PREV_STAGE1 = mod.USE_PREV_STAGE1
 
 # ---- ROI計算 ----
 if shifts:
-    _img = mod.imread_safe(REF_PATH)
-    _h, _w = _img.shape[:2]
-    if TRIM_BOTTOM > 0:
-        _h -= TRIM_BOTTOM
+    _ref_pre = mod.load_and_preprocess(REF_PATH, TRIM)
+    _h, _w = _ref_pre.shape[:2]
+    del _ref_pre
     roi = mod.calc_valid_roi(shifts, (_h, _w))
 else:
     roi = None
@@ -84,7 +91,7 @@ if _old_pngs:
     print(f"  前回の残留PNG {len(_old_pngs)}件を削除しました")
 
 # ---- REFグリッド準備 ----
-_ref_img = mod.load_and_preprocess(REF_PATH, TRIM_BOTTOM)
+_ref_img = mod.load_and_preprocess(REF_PATH, TRIM)
 _ref_al  = mod.apply_alignment(_ref_img, REF_PATH.name, shifts, _ref_img.shape)
 _ref_cr  = mod.crop_roi(_ref_al, roi) if roi is not None else _ref_al
 _h, _w   = _ref_cr.shape
@@ -116,7 +123,7 @@ config_lines = [
     f'REF          : {REF_PATH.name}',
     f'DEF          : {", ".join(p.name for p in DEF_PATHS)}',
     f'alignment file: {json_path.name if json_path else "なし"}',
-    f'trim_bottom  : {TRIM_BOTTOM} px', '',
+    f'trim         : 上{TRIM[0]} 下{TRIM[1]} 左{TRIM[2]} 右{TRIM[3]} px', '',
     '[Stage 1]',
     f'  step       : {STEP_COARSE} px',
     f'  search     : {"グローバルシフト + " + str(STAGE1_MARGIN) + " px（自動）" if STAGE1_AUTO else str(SEARCH_COARSE) + " px（固定）"}',
@@ -196,41 +203,25 @@ for k in SCALE_KEYS_DISP + SCALE_KEYS_SYM + SCALE_KEYS_ASYM:
                             gui_hi if gui_hi is not None else float(np.percentile(vals, 98)))
 unified_scale['ncc'] = SCALE_CONFIG.get('ncc', (None, None))
 
-# ---- パス2: PNG保存 ----
-print(f"\n  [パス2] 統一スケールでPNG保存")
-mod.visualize_displacement(_cx, _cy, _zeros, _zeros, _ones, 0, 0, STEP_FINE,
-                           ncc_threshold=NCC_THRESHOLD, def_stem=ref_stem,
-                           scale_config=unified_scale)
-mod.visualize_strain(_ref_strain, STEP_FINE, REF_PATH.name, REF_PATH.name,
-                     def_stem=ref_stem, scale_config=unified_scale)
-
-for i, (def_path, res) in enumerate(zip(DEF_PATHS, results_list[1:]), 1):
-    def_stem_i = def_path.stem
-    print(f"  [{i}/{total}] PNG保存: {def_path.name}")
-    mod.visualize_displacement(res['cx'], res['cy'], res['u'], res['v'],
-                               res['ncc'], 0, 0, STEP_FINE,
-                               ncc_threshold=NCC_THRESHOLD, def_stem=def_stem_i,
-                               scale_config=unified_scale)
-    mod.visualize_strain(res['strain'], STEP_FINE, REF_PATH.name, def_path.name,
-                         def_stem=def_stem_i, scale_config=unified_scale)
-
-# ---- Excel出力 ----
-xlsx_path = OUTPUT_DIR / 'dic_results.xlsx'
-print(f"\nExcelファイルを出力しています...")
-mod.export_xlsx(results_list, unified_scale, xlsx_path, roi=roi)
+# ---- 計算結果をpickleに保存（再描画・マップ保存ボタン用） ----
+import pickle
+pickle_path = OUTPUT_DIR / 'dic_results.pkl'
+pickle_data = {
+    'results_list':  results_list,
+    'unified_scale': unified_scale,
+    'step_fine':     STEP_FINE,
+    'ref_path':      str(REF_PATH),
+    'def_paths':     [str(p) for p in DEF_PATHS],
+    'output_dir':    str(OUTPUT_DIR),
+    'ncc_threshold': NCC_THRESHOLD,
+    'roi':           roi,
+}
+with open(pickle_path, 'wb') as f:
+    pickle.dump(pickle_data, f)
 
 print(f"\n{'=' * 60}")
-print(f"  全{total}ペアの処理が完了しました！")
+print(f"  全{total}ペアのDIC計算が完了しました！")
 print(f"  出力先: {OUTPUT_DIR}")
+print(f"  GUIの「再描画」ボタンでマップを確認し、")
+print(f"  「マップ保存」ボタンでPNG/Excelを保存してください。")
 print(f"{'=' * 60}")
-
-import matplotlib.pyplot as plt
-saved_pngs = sorted(OUTPUT_DIR.glob("*.png"))
-for png in saved_pngs:
-    img = plt.imread(str(png))
-    fig, ax = plt.subplots(figsize=(min(img.shape[1]/100, 18), min(img.shape[0]/100, 10)))
-    ax.imshow(img)
-    ax.axis('off')
-    ax.set_title(png.name, fontsize=10)
-    plt.tight_layout()
-plt.show()

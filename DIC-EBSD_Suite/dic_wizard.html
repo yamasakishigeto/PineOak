@@ -584,6 +584,31 @@
       <div class="scale-grid" id="scale-grid">
         <!-- JS で生成 -->
       </div>
+
+      <!-- カラーマップ選択 -->
+      <div style="margin-top:12px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">カラーマップ</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <label style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">対称系（u,v,εxx,εyy,εxy,ωxy）</label>
+          <select id="cmap-sym" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">
+            <option value="RdBu_r">RdBu_r（デフォルト）</option>
+            <option value="coolwarm">coolwarm</option>
+            <option value="bwr">bwr</option>
+            <option value="seismic">seismic</option>
+            <option value="PiYG">PiYG</option>
+          </select>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <label style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">非対称系（e1,γmax）</label>
+          <select id="cmap-asym" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">
+            <option value="hot_r">hot_r（デフォルト）</option>
+            <option value="viridis">viridis</option>
+            <option value="plasma">plasma</option>
+            <option value="inferno">inferno</option>
+            <option value="magma">magma</option>
+          </select>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -593,6 +618,8 @@
 <footer>
   <button class="btn-run" id="btn-run" onclick="onRun()">実行</button>
   <button class="btn-cancel" onclick="onCancel()">キャンセル</button>
+  <button class="btn-sm accent" id="btn-redraw"   onclick="onRedraw()"   disabled style="margin-left:16px;">再描画</button>
+  <button class="btn-sm green"  id="btn-save-maps" onclick="onSaveMaps()" disabled>マップ保存</button>
   <div class="footer-status" id="footer-status"></div>
 </footer>
 
@@ -871,6 +898,40 @@ async function onRun() {
 
 function onCancel() {
   eel.dic_cancel()();
+}
+
+// ---- 解析完了通知（Pythonから呼ばれる） ----
+let _analysisOutputDir = null;
+function dic_on_analysis_done(output_dir) {
+  _analysisOutputDir = output_dir;
+  document.getElementById('btn-redraw').disabled    = false;
+  document.getElementById('btn-save-maps').disabled = false;
+  document.getElementById('btn-run').disabled       = false;
+}
+eel.expose(dic_on_analysis_done);
+
+function _mapParams() {
+  return {
+    output_dir:    _analysisOutputDir,
+    scale:         Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
+    cmap_sym:      document.getElementById('cmap-sym').value,
+    cmap_asym:     document.getElementById('cmap-asym').value,
+    ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
+  };
+}
+
+async function onRedraw() {
+  if (!_analysisOutputDir) { alert('先に解析を実行してください'); return; }
+  await eel.dic_preview_maps(_mapParams())();
+}
+
+async function onSaveMaps() {
+  if (!_analysisOutputDir) { alert('先に解析を実行してください'); return; }
+  document.getElementById('btn-save-maps').disabled = true;
+  setStatus('マップ保存中...', true);
+  await eel.dic_save_maps(_mapParams())();
+  document.getElementById('btn-save-maps').disabled = false;
+  setStatus('マップ保存完了', true);
 }
 
 function setStatus(msg, ok) {
