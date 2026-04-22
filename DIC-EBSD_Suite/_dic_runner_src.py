@@ -144,6 +144,14 @@ config_lines = [
 for k, (lo, hi) in SCALE_CONFIG.items():
     config_lines.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
 
+_CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+_cmap_cfg = p.get('cmap', {})
+config_lines.append('')
+config_lines.append('[カラーマップ]')
+for k in ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']:
+    config_lines.append(f'  {k:<12}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
+
 config_path = OUTPUT_DIR / 'dic_config.txt'
 with open(config_path, 'w', encoding='utf-8') as f:
     f.write('\n'.join(config_lines) + '\n')

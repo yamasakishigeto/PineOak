@@ -893,6 +893,7 @@ async function onRun() {
     strain_type:  document.querySelector('input[name="strain-type"]:checked').value,
     use_prev_stage1: document.getElementById('use-prev-s1').checked,
     scale: Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
+    cmap:  Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
     trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
     trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
     trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
