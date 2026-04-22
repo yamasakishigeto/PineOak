@@ -537,6 +537,9 @@ top    = int(p.get('trim_top',    0))
 bottom = int(p.get('trim_bottom', 0))
 left   = int(p.get('trim_left',   0))
 right  = int(p.get('trim_right',  0))
+subset_size  = int(p.get('subset_size',  31))
+subset_step  = int(p.get('subset_step',  15))
+search_range = int(p.get('search_range',  5))
 
 buf = np.fromfile(path, dtype=np.uint8)
 img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
@@ -544,7 +547,7 @@ if img is None:
     sys.exit(1)
 h, w = img.shape
 
-fig, ax = plt.subplots(figsize=(7, 6))
+fig, ax = plt.subplots(figsize=(8, 6))
 ax.imshow(img, cmap='gray', vmin=0, vmax=255)
 ax.set_xlim(-0.5, w - 0.5)
 ax.set_ylim(h - 0.5, -0.5)
@@ -557,9 +560,27 @@ if bottom > 0: ax.axhline(y=h-bottom-0.5,     color='red',lw=1.5,ls='--'); shade
 if left   > 0: ax.axvline(x=left-0.5,         color='red',lw=1.5,ls='--'); shade(-0.5,-0.5,      left,   h)
 if right  > 0: ax.axvline(x=w-right-0.5,      color='red',lw=1.5,ls='--'); shade(w-right-0.5,-0.5,right, h)
 
-rw = max(0, w-left-right)
-rh = max(0, h-top-bottom)
-ax.set_title(f'{os.path.basename(path)}\nOriginal: {w}x{h}px  ->  Valid area: {rw}x{rh}px', fontsize=9)
+# サブセットグリッドを描画（トリミング後の有効領域内）
+rw = max(0, w - left - right)
+rh = max(0, h - top  - bottom)
+half   = subset_size // 2
+margin = half + search_range + 5
+xs_trim = np.arange(margin, rw - margin, subset_step)
+ys_trim = np.arange(margin, rh - margin, subset_step)
+if len(xs_trim) > 0 and len(ys_trim) > 0:
+    xs_full = xs_trim + left
+    ys_full = ys_trim + top
+    gx = np.tile(xs_full, len(ys_full))
+    gy = np.repeat(ys_full, len(xs_full))
+    ax.scatter(gx, gy, s=4, c='cyan', marker='.', linewidths=0, alpha=0.7,
+               label=f'subsets: {len(gx)} ({len(xs_full)}x{len(ys_full)})')
+    ax.legend(loc='lower right', fontsize=7, framealpha=0.6)
+
+ax.set_title(
+    f'{os.path.basename(path)}\n'
+    f'Original: {w}x{h}px  ->  Valid: {rw}x{rh}px  |  '
+    f'step={subset_step}px  subset={subset_size}px',
+    fontsize=8)
 ax.axis('off')
 fig.tight_layout()
 plt.show()

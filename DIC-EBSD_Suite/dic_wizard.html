@@ -809,11 +809,14 @@ async function loadConfig() {
 async function showTrimPreview() {
   if (refIdx < 0 || !images[refIdx]) { alert('REFを選択してください'); return; }
   const params = {
-    ref_path:    images[refIdx].path,
-    trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
-    trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
-    trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
-    trim_right:  parseInt(document.getElementById('trim-right').value)  || 0,
+    ref_path:     images[refIdx].path,
+    trim_top:     parseInt(document.getElementById('trim-top').value)    || 0,
+    trim_bottom:  parseInt(document.getElementById('trim-bottom').value) || 0,
+    trim_left:    parseInt(document.getElementById('trim-left').value)   || 0,
+    trim_right:   parseInt(document.getElementById('trim-right').value)  || 0,
+    subset_size:  parseInt(document.getElementById('subset-size').value) || 31,
+    subset_step:  parseInt(document.getElementById('s2-step').value)     || 15,
+    search_range: parseInt(document.getElementById('s2-search').value)   || 5,
   };
   await eel.dic_show_trim_preview(params)();
 }
