@@ -506,12 +506,12 @@ def _run_dic_analysis(params: dict):
         eel.on_tool_finished("dic", 0)()
         eel.dic_on_status("解析完了", "ok")()
         eel.dic_on_analysis_done(output_dir)()
-        # 解析完了後、最後のDEFをデフォルト設定で自動プレビュー
+        # 解析完了後、最後のDEFをGUI設定で自動プレビュー
         auto_params = {
             'output_dir': output_dir,
             'def_index': -1,
-            'scale': {},
-            'cmap': {},
+            'scale': params.get('scale', {}),
+            'cmap':  params.get('cmap',  {}),
             'ncc_threshold': params.get('ncc_threshold', 0.2),
             'dic_module': os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py'),
         }
