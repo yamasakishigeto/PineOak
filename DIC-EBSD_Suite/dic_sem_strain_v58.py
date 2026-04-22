@@ -93,7 +93,10 @@ except ImportError:
 DEFAULT_ALIGNMENT_JSON = Path("./sem_alignment.json")  # None にすると補正なし
 DEFAULT_OUTPUT_DIR     = None   # None にすると REF_DEF の名前から自動生成
 
-TRIM_BOTTOM = 128       # SEM情報バーのトリミング [px]
+TRIM_TOP    = 0         # 上端トリミング [px]
+TRIM_BOTTOM = 0         # 下端トリミング [px]
+TRIM_LEFT   = 0         # 左端トリミング [px]
+TRIM_RIGHT  = 0         # 右端トリミング [px]
 SUBSET_SIZE = 31        # サブセットサイズ [px]
 NCC_THRESHOLD = 0.2     # NCCマスク閾値（これ以下をNaN化）
 PRESCAN_GRID = 3        # 事前スキャンのグリッド数（PRESCAN_GRID × PRESCAN_GRID）
@@ -176,6 +179,13 @@ def interactive_wizard(initial_dir=None):
     gauge_length_var = tk.IntVar(value=GAUGE_LENGTH)      # ひずみゲージ長さ（整数倍）
     use_prev_stage1_var = tk.BooleanVar(value=USE_PREV_STAGE1)  # 前段Stage1結果を初期値に使用
 
+    # トリミング設定
+    trim_top_var    = tk.IntVar(value=TRIM_TOP)
+    trim_bottom_var = tk.IntVar(value=TRIM_BOTTOM)
+    trim_left_var   = tk.IntVar(value=TRIM_LEFT)
+    trim_right_var  = tk.IntVar(value=TRIM_RIGHT)
+    _ref_img_cache  = [None]   # プレビュー用キャッシュ [numpy array or None]
+
     # ⑤ カラースケール vmin/vmax（空文字=自動）
     SCALE_KEYS = ['u', 'v', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
     SCALE_LABELS = ['u [px]', 'v [px]', 'εxx', 'εyy', 'εxy', 'e1', 'γmax', 'ωxy']
@@ -246,6 +256,77 @@ def interactive_wizard(initial_dir=None):
     ttk.Entry(frm_top, textvariable=json_var, width=45, font=fnt_sm).grid(row=1, column=1, padx=4, pady=(6,0))
     ttk.Button(frm_top, text='選択…', command=browse_json).grid(row=1, column=2, pady=(6,0))
 
+    # ===== プレビュー用 別ウィンドウ =====
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    import matplotlib.figure as _mfig
+    _preview_refs = {'win': None, 'fig': None, 'ax': None, 'canvas': None}
+
+    def _ensure_preview_window():
+        """プレビューウィンドウが存在しなければ作成して返す。"""
+        if _preview_refs['win'] is None or not _preview_refs['win'].winfo_exists():
+            win = tk.Toplevel(root)
+            win.title('REF 画像プレビュー（赤 = トリミング領域）')
+            win.geometry('560x480')
+            win.resizable(True, True)
+            fig = _mfig.Figure(figsize=(5.6, 4.6), dpi=90, facecolor='#f0f0f0')
+            ax  = fig.add_subplot(111)
+            ax.axis('off')
+            fig.tight_layout(pad=0.5)
+            cv  = FigureCanvasTkAgg(fig, master=win)
+            cv.get_tk_widget().pack(fill='both', expand=True)
+            _preview_refs.update(win=win, fig=fig, ax=ax, canvas=cv)
+        return _preview_refs
+
+    def update_ref_preview(*_):
+        """REF画像にトリミング境界線を赤く表示してプレビューを更新する。"""
+        img = _ref_img_cache[0]
+        if img is None:
+            return
+        pr  = _ensure_preview_window()
+        ax, fig, cv = pr['ax'], pr['fig'], pr['canvas']
+        h, w = img.shape[:2]
+        top    = trim_top_var.get()
+        bottom = trim_bottom_var.get()
+        left   = trim_left_var.get()
+        right  = trim_right_var.get()
+
+        ax.clear()
+        ax.imshow(img, cmap='gray', aspect='equal', vmin=0, vmax=255,
+                  interpolation='nearest')
+        ax.set_xlim(-0.5, w - 0.5)
+        ax.set_ylim(h - 0.5, -0.5)
+
+        def _shade(x0, y0, x1, y1):
+            from matplotlib.patches import Rectangle
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
+                         linewidth=0, facecolor='red', alpha=0.35))
+
+        if top > 0:
+            ax.axhline(y=top - 0.5, color='red', linewidth=1.5, linestyle='--')
+            _shade(-0.5, -0.5, w - 0.5, top - 0.5)
+        if bottom > 0:
+            ax.axhline(y=h - bottom - 0.5, color='red', linewidth=1.5, linestyle='--')
+            _shade(-0.5, h - bottom - 0.5, w - 0.5, h - 0.5)
+        if left > 0:
+            ax.axvline(x=left - 0.5, color='red', linewidth=1.5, linestyle='--')
+            _shade(-0.5, -0.5, left - 0.5, h - 0.5)
+        if right > 0:
+            ax.axvline(x=w - right - 0.5, color='red', linewidth=1.5, linestyle='--')
+            _shade(w - right - 0.5, -0.5, w - 0.5, h - 0.5)
+
+        ref_name = images[ref_var.get()].name if ref_var.get() >= 0 and images else ''
+        rw = max(0, w - left - right)
+        rh = max(0, h - top - bottom)
+        ax.set_title(f'{ref_name}\n元サイズ: {w}×{h}px  →  有効: {rw}×{rh}px',
+                     fontsize=8, pad=4)
+        ax.axis('off')
+        fig.tight_layout(pad=0.5)
+        cv.draw()
+
+    # トリミング値変更時にプレビューを更新
+    for _v in (trim_top_var, trim_bottom_var, trim_left_var, trim_right_var):
+        _v.trace_add('write', update_ref_preview)
+
     # ===== セクション2: REF・DEF選択 =====
     frm_img = ttk.LabelFrame(frm_left, text=' ② REF / DEF 選択 ', padding=8)
     frm_img.grid(row=1, column=0, sticky='nsew', **pad)
@@ -304,14 +385,36 @@ def interactive_wizard(initial_dir=None):
         on_ref_select(0)
 
     def on_ref_select(idx):
-        """REF選択時: DEFのチェックを自動調整（REFは外す）"""
+        """REF選択時: DEFのチェックを自動調整 + REF画像をキャッシュしてプレビュー更新"""
         for i, dv in enumerate(def_vars):
             if i == idx:
                 dv.set(False)
+        try:
+            _ref_img_cache[0] = imread_safe(images[idx])
+        except Exception:
+            _ref_img_cache[0] = None
+        update_ref_preview()
+
+    # ===== トリミング設定 =====
+    frm_trim = ttk.LabelFrame(frm_right, text=' トリミング設定 ', padding=8)
+    frm_trim.grid(row=0, column=0, sticky='ew', **pad)
+
+    ttk.Label(frm_trim,
+              text='画像の端を除外するピクセル数を設定します。REF選択時にプレビューが別ウィンドウで開きます。',
+              font=fnt_sm, foreground='#555').grid(row=0, column=0, columnspan=9, sticky='w', pady=(0,6))
+
+    _trim_defs = [('上 [px]', trim_top_var), ('下 [px]', trim_bottom_var),
+                  ('左 [px]', trim_left_var), ('右 [px]', trim_right_var)]
+    for _tc, (_tlbl, _tvar) in enumerate(_trim_defs):
+        ttk.Label(frm_trim, text=_tlbl, font=fnt).grid(row=1, column=_tc*2, sticky='e', padx=(12 if _tc else 0, 4))
+        ttk.Spinbox(frm_trim, textvariable=_tvar, from_=0, to=4096,
+                    width=7, font=fnt).grid(row=1, column=_tc*2+1, padx=(0, 4))
+    ttk.Button(frm_trim, text='プレビュー表示',
+               command=update_ref_preview).grid(row=1, column=8, padx=(12, 0))
 
     # ===== セクション3: DICパラメータ =====
     frm_param = ttk.LabelFrame(frm_right, text=' ③ DICパラメータ ', padding=8)
-    frm_param.grid(row=0, column=0, sticky='ew', **pad)
+    frm_param.grid(row=1, column=0, sticky='ew', **pad)
 
     def param_row(parent, row, label, var, tooltip=''):
         ttk.Label(parent, text=label, font=fnt).grid(row=row, column=0, sticky='w', pady=2)
@@ -414,7 +517,7 @@ def interactive_wizard(initial_dir=None):
 
     # ===== セクション4: 事前スキャン =====
     frm_prescan = ttk.LabelFrame(frm_right, text=' ④ 事前スキャン（search範囲の確認） ', padding=8)
-    frm_prescan.grid(row=1, column=0, sticky='ew', **pad)
+    frm_prescan.grid(row=2, column=0, sticky='ew', **pad)
 
     ttk.Label(frm_prescan,
               text='最初のDEF（リスト先頭＝最小変形）に対して3×3点だけ粗い探索を行い、\n推奨Stage1 search範囲を表示します。本番実行前に確認してください。',
@@ -461,17 +564,16 @@ def interactive_wizard(initial_dir=None):
         root.update()
 
         try:
-            shifts_ps, trim_ps = load_alignment(json_path)
+            trim_ps = (trim_top_var.get(), trim_bottom_var.get(),
+                       trim_left_var.get(), trim_right_var.get())
+            shifts_ps = load_alignment(json_path)
             ref_raw  = load_and_preprocess(ref_path,      trim_ps)
             def_raw  = load_and_preprocess(last_def_path, trim_ps)
             ref_al   = apply_alignment(ref_raw,  ref_path.name,      shifts_ps, ref_raw.shape)
             def_al   = apply_alignment(def_raw,  last_def_path.name, shifts_ps, def_raw.shape)
 
             if shifts_ps:
-                _img = imread_safe(ref_path)
-                _h, _w = _img.shape[:2]
-                if trim_ps > 0:
-                    _h -= trim_ps
+                _h, _w = ref_raw.shape[:2]
                 roi_ps = calc_valid_roi(shifts_ps, (_h, _w))
                 ref_cr = crop_roi(ref_al, roi_ps)
                 def_cr = crop_roi(def_al, roi_ps)
@@ -531,7 +633,7 @@ def interactive_wizard(initial_dir=None):
 
     # ===== ⑤ カラースケール設定 =====
     frm_scale = ttk.LabelFrame(frm_right, text='⑤ カラースケール（空欄=自動）', padding=10)
-    frm_scale.grid(row=2, column=0, sticky='ew', **pad)
+    frm_scale.grid(row=3, column=0, sticky='ew', **pad)
 
     ttk.Label(frm_scale, text='事前スキャン後に参考値を確認して入力してください。空欄の場合は各マップの値から自動設定されます。',
               font=fnt_sm, foreground='#555').grid(row=0, column=0, columnspan=7, sticky='w', pady=(0,4))
@@ -689,6 +791,8 @@ def interactive_wizard(initial_dir=None):
         result['n_workers']     = n_workers_var.get()
         result['gauge_length']  = gauge_length_var.get()
         result['use_prev_stage1'] = use_prev_stage1_var.get()
+        result['trim'] = (trim_top_var.get(), trim_bottom_var.get(),
+                          trim_left_var.get(), trim_right_var.get())
 
         # カラースケール（空欄はNoneとして扱う）
         def _parse_scale(v):
@@ -705,10 +809,13 @@ def interactive_wizard(initial_dir=None):
             f"グローバルシフト（1枚目のみ）＋{result['s1_margin']}px（自動）"
             if result['s1_auto'] else f"固定 {result['s1_fixed']}px"
         )
+        _t = result['trim']
+        _trim_str = f"上{_t[0]} 下{_t[1]} 左{_t[2]} 右{_t[3]} px"
         msg = (
             f"REF : {result['ref_path'].name}\n"
             f"DEF : {len(result['def_paths'])}枚\n"
-            f"JSON: {json_path.name if json_path else 'なし'}\n\n"
+            f"JSON: {json_path.name if json_path else 'なし'}\n"
+            f"トリミング: {_trim_str}\n\n"
             f"サブセットサイズ: {result['subset_size']}px\n"
             f"Stage1  step={result['s1_step']}px  search={s1_search_desc}\n"
             f"        前段Stage1参照: {'あり（高速化）' if result['use_prev_stage1'] else 'なし（独立処理）'}\n"
@@ -743,7 +850,7 @@ def interactive_wizard(initial_dir=None):
             result['s1_margin'], result['s1_fixed'],
             result['s2_step'],  result['s2_search'],  result['subset_size'],
             result['ncc_threshold'], result['n_workers'], result['scale'],
-            result['gauge_length'], result['use_prev_stage1'])
+            result['gauge_length'], result['use_prev_stage1'], result['trim'])
 
 
 # =============================================================================
@@ -756,13 +863,12 @@ def load_alignment(json_path):
 
     Returns
     -------
-    shifts     : dict  {filename: (dx, dy)}
-    trim_bottom: int   情報バートリミング量 [px]
+    shifts : dict  {filename: (dx, dy)}
     """
     if json_path is None or not Path(json_path).exists():
         if json_path is not None:
             print(f"  警告: {json_path} が見つかりません。補正なしで続行します。")
-        return {}, TRIM_BOTTOM
+        return {}
 
     with open(json_path, 'r') as f:
         data = json.load(f)
@@ -770,13 +876,11 @@ def load_alignment(json_path):
     shifts = {name: (val['dx'], val['dy'])
               for name, val in data.get('shifts', {}).items()}
 
-    trim_bottom = data.get('trim_bottom', TRIM_BOTTOM)
-
-    print(f"  アライメントJSON読み込み完了: {len(shifts)}件  trim_bottom={trim_bottom}px")
+    print(f"  アライメントJSON読み込み完了: {len(shifts)}件")
     for name, (dx, dy) in shifts.items():
         print(f"    {name}: dx={dx}, dy={dy}")
 
-    return shifts, trim_bottom
+    return shifts
 
 
 def apply_alignment(image, filename, shifts, image_shape_hw):
@@ -869,13 +973,19 @@ def imread_safe(path):
     return img
 
 
-def load_and_preprocess(path, trim_bottom):
+def load_and_preprocess(path, trim):
+    """trim = (top, bottom, left, right) [px]"""
     img = imread_safe(path)
     if img is None:
         raise FileNotFoundError(f"画像が見つかりません: {path}")
-    if trim_bottom > 0:
-        img = img[:-trim_bottom, :]
-    return img.astype(np.float32)  # float64→float32で高速化
+    top, bottom, left, right = trim
+    h, w = img.shape[:2]
+    y0 = top
+    y1 = h - bottom if bottom > 0 else h
+    x0 = left
+    x1 = w - right if right > 0 else w
+    img = img[y0:y1, x0:x1]
+    return img.astype(np.float32)
 
 
 def estimate_global_shift(ref, deformed):
@@ -1606,8 +1716,8 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
 
     # 画像読み込み + トリミング
     print("\n画像を読み込んでいます...")
-    ref_raw      = load_and_preprocess(ref_path, TRIM_BOTTOM)
-    deformed_raw = load_and_preprocess(def_path, TRIM_BOTTOM)
+    ref_raw      = load_and_preprocess(ref_path, (TRIM_TOP, TRIM_BOTTOM, TRIM_LEFT, TRIM_RIGHT))
+    deformed_raw = load_and_preprocess(def_path, (TRIM_TOP, TRIM_BOTTOM, TRIM_LEFT, TRIM_RIGHT))
     print(f"  トリミング後サイズ: {ref_raw.shape[1]} x {ref_raw.shape[0]} px")
 
     # シフト補正
@@ -1725,21 +1835,21 @@ if __name__ == "__main__":
     REF_PATH, DEF_PATHS, ALIGNMENT_JSON, BASE_FOLDER, \
         STEP_COARSE, STAGE1_AUTO, STAGE1_MARGIN, SEARCH_COARSE, \
         STEP_FINE, SEARCH_FINE, SUBSET_SIZE, \
-        NCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, USE_PREV_STAGE1 = interactive_wizard(_initial_dir)
+        NCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, USE_PREV_STAGE1, \
+        TRIM = interactive_wizard(_initial_dir)
+    # TRIM = (top, bottom, left, right)
+    TRIM_TOP, TRIM_BOTTOM, TRIM_LEFT, TRIM_RIGHT = TRIM
 
-    # アライメント情報の読み込み（trim_bottomもJSONから取得）
+    # アライメント情報の読み込み
     print("\nアライメント情報を読み込んでいます...")
-    shifts, TRIM_BOTTOM = load_alignment(ALIGNMENT_JSON)
+    shifts = load_alignment(ALIGNMENT_JSON)
 
     # 有効ROIの計算（全DEFを通じて共通）
     if shifts:
-        # ROI計算用にREFの画像サイズを取得
-        _img = imread_safe(REF_PATH)
-        if _img is None:
-            raise FileNotFoundError(f"画像が見つかりません: {REF_PATH}")
-        _h, _w = _img.shape[:2]
-        if TRIM_BOTTOM > 0:
-            _h -= TRIM_BOTTOM
+        # ROI計算用にトリミング後のREFサイズを取得
+        _ref_pre = load_and_preprocess(REF_PATH, TRIM)
+        _h, _w = _ref_pre.shape[:2]
+        del _ref_pre
         roi = calc_valid_roi(shifts, (_h, _w))
     else:
         roi = None
@@ -1768,8 +1878,8 @@ if __name__ == "__main__":
     prescan_def_path = DEF_PATHS[-1]
     print(f"\n  事前スキャン対象: {prescan_def_path.name}（リスト最後 = 最大変形）")
 
-    _ref_pre      = load_and_preprocess(REF_PATH,           TRIM_BOTTOM)
-    _def_pre      = load_and_preprocess(prescan_def_path,   TRIM_BOTTOM)
+    _ref_pre      = load_and_preprocess(REF_PATH,           TRIM)
+    _def_pre      = load_and_preprocess(prescan_def_path,   TRIM)
     _ref_pre_al   = apply_alignment(_ref_pre,     REF_PATH.name,          shifts, _ref_pre.shape)
     _def_pre_al   = apply_alignment(_def_pre,     prescan_def_path.name,  shifts, _def_pre.shape)
     if roi is not None:
@@ -1794,7 +1904,7 @@ if __name__ == "__main__":
     del _ref_pre, _def_pre, _ref_pre_al, _def_pre_al, _ref_pre_cr, _def_pre_cr
 
     # ── REF基準マップの座標・ゼロデータを準備（PNG保存は後で統一スケールで行う） ──
-    _ref_img = load_and_preprocess(REF_PATH, TRIM_BOTTOM)
+    _ref_img = load_and_preprocess(REF_PATH, TRIM)
     _ref_al  = apply_alignment(_ref_img, REF_PATH.name, shifts, _ref_img.shape)
     _ref_cr  = crop_roi(_ref_al, roi) if roi is not None else _ref_al
     _h, _w   = _ref_cr.shape
@@ -1828,7 +1938,7 @@ if __name__ == "__main__":
         f'REF          : {REF_PATH.name}',
         f'DEF          : {", ".join(p.name for p in DEF_PATHS)}',
         f'alignment file: {ALIGNMENT_JSON.name if ALIGNMENT_JSON else "なし"}',
-        f'trim_bottom  : {TRIM_BOTTOM} px',
+        f'trim         : 上{TRIM_TOP} 下{TRIM_BOTTOM} 左{TRIM_LEFT} 右{TRIM_RIGHT} px',
         '',
         '[Stage 1]',
         f'  step       : {STEP_COARSE} px',

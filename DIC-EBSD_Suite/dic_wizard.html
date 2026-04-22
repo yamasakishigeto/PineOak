@@ -422,8 +422,28 @@
 
   </div>
 
-  <!-- ===== 右パネル: ③④⑤ ===== -->
+  <!-- ===== 右パネル: トリミング＋③④⑤ ===== -->
   <div class="right-panel">
+
+    <!-- トリミング設定 -->
+    <div class="section">
+      <div class="section-title">トリミング設定</div>
+      <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.6;">
+        画像の端をトリミングするピクセル数を設定します（例：SEM情報バーは下を128など）。<br>
+        REF選択後に「プレビュー表示」で切り取り位置を確認できます。
+      </div>
+      <div class="param-row" style="flex-wrap:wrap; gap:12px;">
+        <label class="param-label" style="width:auto;">上 [px]</label>
+        <input class="param-input" type="number" id="trim-top"    value="0" min="0" max="4096" style="width:72px;">
+        <label class="param-label" style="width:auto;">下 [px]</label>
+        <input class="param-input" type="number" id="trim-bottom" value="0" min="0" max="4096" style="width:72px;">
+        <label class="param-label" style="width:auto;">左 [px]</label>
+        <input class="param-input" type="number" id="trim-left"   value="0" min="0" max="4096" style="width:72px;">
+        <label class="param-label" style="width:auto;">右 [px]</label>
+        <input class="param-input" type="number" id="trim-right"  value="0" min="0" max="4096" style="width:72px;">
+        <button class="btn-sm" onclick="showTrimPreview()" style="margin-left:8px;">プレビュー表示</button>
+      </div>
+    </div>
 
     <!-- ③ DICパラメータ -->
     <div class="section">
@@ -713,6 +733,10 @@ async function runPrescan() {
     subset_size:   parseInt(document.getElementById('subset-size').value),
     prescan_search: parseInt(document.getElementById('prescan-search').value),
     s1_margin:     parseInt(document.getElementById('s1-margin').value),
+    trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
+    trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
+    trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
+    trim_right:  parseInt(document.getElementById('trim-right').value)  || 0,
   };
 
   const result = await eel.dic_run_prescan(params)();
@@ -781,6 +805,19 @@ async function loadConfig() {
   }
 }
 
+// ---- トリミングプレビュー ----
+async function showTrimPreview() {
+  if (refIdx < 0 || !images[refIdx]) { alert('REFを選択してください'); return; }
+  const params = {
+    ref_path:    images[refIdx].path,
+    trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
+    trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
+    trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
+    trim_right:  parseInt(document.getElementById('trim-right').value)  || 0,
+  };
+  await eel.dic_show_trim_preview(params)();
+}
+
 // ---- ユーティリティ ----
 function getJsonPath() {
   const el = document.getElementById('json-path');
@@ -818,6 +855,10 @@ async function onRun() {
     gauge_length: parseInt(document.getElementById('gauge-length').value),
     use_prev_stage1: document.getElementById('use-prev-s1').checked,
     scale: Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
+    trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
+    trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
+    trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
+    trim_right:  parseInt(document.getElementById('trim-right').value)  || 0,
   };
 
   document.getElementById('btn-run').disabled = true;

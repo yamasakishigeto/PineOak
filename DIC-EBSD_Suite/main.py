@@ -517,6 +517,62 @@ def dic_cancel():
         proc.terminate()
 
 
+@eel.expose
+def dic_show_trim_preview(params: dict):
+    """REF画像にトリミング範囲を重ねて別プロセスのウィンドウで表示する"""
+    import subprocess, sys, json
+
+    _script = r"""
+import sys, json, os
+import numpy as np
+import cv2
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+p      = json.loads(sys.argv[1])
+path   = p['ref_path']
+top    = int(p.get('trim_top',    0))
+bottom = int(p.get('trim_bottom', 0))
+left   = int(p.get('trim_left',   0))
+right  = int(p.get('trim_right',  0))
+
+buf = np.fromfile(path, dtype=np.uint8)
+img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+if img is None:
+    sys.exit(1)
+h, w = img.shape
+
+fig, ax = plt.subplots(figsize=(7, 6))
+ax.imshow(img, cmap='gray', vmin=0, vmax=255)
+ax.set_xlim(-0.5, w - 0.5)
+ax.set_ylim(h - 0.5, -0.5)
+
+def shade(x0, y0, bw, bh):
+    ax.add_patch(Rectangle((x0, y0), bw, bh, linewidth=0, facecolor='red', alpha=0.35))
+
+if top    > 0: ax.axhline(y=top-0.5,          color='red',lw=1.5,ls='--'); shade(-0.5,-0.5,      w,       top)
+if bottom > 0: ax.axhline(y=h-bottom-0.5,     color='red',lw=1.5,ls='--'); shade(-0.5,h-bottom-0.5, w,  bottom)
+if left   > 0: ax.axvline(x=left-0.5,         color='red',lw=1.5,ls='--'); shade(-0.5,-0.5,      left,   h)
+if right  > 0: ax.axvline(x=w-right-0.5,      color='red',lw=1.5,ls='--'); shade(w-right-0.5,-0.5,right, h)
+
+rw = max(0, w-left-right)
+rh = max(0, h-top-bottom)
+ax.set_title(f'{os.path.basename(path)}\nOriginal: {w}x{h}px  ->  Valid area: {rw}x{rh}px', fontsize=9)
+ax.axis('off')
+fig.tight_layout()
+plt.show()
+"""
+
+    env = os.environ.copy()
+    env['PYTHONIOENCODING'] = 'utf-8'
+    subprocess.Popen(
+        [sys.executable, '-c', _script, json.dumps(params)],
+        env=env,
+    )
+
+
 # ================================================================
 # Def EBSD Georef ウィザード用
 # ================================================================
