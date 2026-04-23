@@ -412,8 +412,10 @@ spec = importlib.util.spec_from_file_location("dic", dic_module)
 mod  = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-ref_raw  = mod.load_and_preprocess(Path(p["ref_path"]), 0)
-def_raw  = mod.load_and_preprocess(Path(p["def_path"]),  0)
+_trim = (int(p.get('trim_top',0)), int(p.get('trim_bottom',0)),
+         int(p.get('trim_left',0)), int(p.get('trim_right',0)))
+ref_raw  = mod.load_and_preprocess(Path(p["ref_path"]), _trim)
+def_raw  = mod.load_and_preprocess(Path(p["def_path"]),  _trim)
 
 json_path = Path(p["json_path"]) if p.get("json_path") else None
 shifts = mod.load_alignment(json_path)
