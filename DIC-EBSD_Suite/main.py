@@ -416,7 +416,7 @@ ref_raw  = mod.load_and_preprocess(Path(p["ref_path"]), 0)
 def_raw  = mod.load_and_preprocess(Path(p["def_path"]),  0)
 
 json_path = Path(p["json_path"]) if p.get("json_path") else None
-shifts, trim = mod.load_alignment(json_path)
+shifts = mod.load_alignment(json_path)
 
 ref_al = mod.apply_alignment(ref_raw, Path(p["ref_path"]).name, shifts, ref_raw.shape)
 def_al = mod.apply_alignment(def_raw, Path(p["def_path"]).name, shifts, def_raw.shape)
@@ -424,7 +424,6 @@ def_al = mod.apply_alignment(def_raw, Path(p["def_path"]).name, shifts, def_raw.
 if shifts:
     import cv2, numpy as np
     h, w = ref_al.shape[:2]
-    if trim > 0: h -= trim
     roi = mod.calc_valid_roi(shifts, (h, w))
     ref_cr = mod.crop_roi(ref_al, roi)
     def_cr = mod.crop_roi(def_al, roi)
