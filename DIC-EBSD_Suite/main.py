@@ -1152,7 +1152,7 @@ def patrep_browse_dir(title: str, initialdir: str):
 
 @eel.expose
 def patrep_get_info(parent_folder: str):
-    """親フォルダを検査して nth 名一覧・Phase 情報・tif フォルダ一覧を返す"""
+    """親フォルダを検査して mat 名一覧・Phase 情報・tif フォルダ一覧を返す"""
     try:
         import numpy as _np
         from pathlib import Path as _Path
@@ -1161,23 +1161,20 @@ def patrep_get_info(parent_folder: str):
 
         parent = _Path(parent_folder)
 
-        # pre-processed {name}.mat が存在するものを nth として列挙
+        # pre-processed {name}.mat と .xlsx が両方あるものを全列挙
         mats = sorted(parent.glob("pre-processed *.mat"))
-        nth_names = []
+        all_mat_names = []
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
-            if name.lower() == "ref":
-                continue
             xlsx = parent / f"pre-processed {name}.xlsx"
             if xlsx.exists():
-                nth_names.append(name)
+                all_mat_names.append(name)
 
-        # ref .mat から phase 情報を読む
-        mat0_cands = sorted(parent.glob("pre-processed ref*.mat"))
-        if not mat0_cands:
-            return {"error": "pre-processed ref*.mat が見つかりません"}
+        if not all_mat_names:
+            return {"error": "pre-processed *.mat/.xlsx が見つかりません"}
 
-        mat0 = smart_loadmat(str(mat0_cands[0]), variable_names=["phase_index", "phasetxt"])
+        # phase 情報は最初に見つかった mat から読む（全スキャン共通のはず）
+        mat0 = smart_loadmat(str(mats[0]), variable_names=["phase_index", "phasetxt"])
         phase_idx_map = mat0["phase_index"]
         phase_names_raw = [str(n) for n in mat0["phasetxt"][0]]
         idxs = sorted(set(
@@ -1196,7 +1193,7 @@ def patrep_get_info(parent_folder: str):
             if d.is_dir() and any(d.glob("*.tif"))
         )
 
-        return {"nth_names": nth_names, "phases": phases, "tif_folders": tif_folders}
+        return {"all_mat_names": all_mat_names, "phases": phases, "tif_folders": tif_folders}
 
     except Exception as e:
         return {"error": str(e)}

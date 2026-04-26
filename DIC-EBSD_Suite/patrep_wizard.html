@@ -216,9 +216,9 @@
         <div class="file-path" id="parent-path">（未選択）</div>
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
-      <div class="file-row" id="row-folder-0th" style="display:none">
-        <div class="file-label">0th パターンフォルダ<span class="required">*</span></div>
-        <select class="folder-select" id="sel-folder-0th" style="flex:1"></select>
+      <div class="file-row" id="row-folder-ref" style="display:none">
+        <div class="file-label">Ref パターンフォルダ<span class="required">*</span></div>
+        <select class="folder-select" id="sel-folder-ref" style="flex:1" onchange="onRefChange()"></select>
       </div>
     </div>
   </div>
@@ -279,7 +279,8 @@
   ];
 
   let _parentFolder = null;
-  let _nthNames     = [];      // 全検出 nth 名
+  let _allMatNames  = [];      // 全 mat 名（ref 含む）
+  let _nthNames     = [];      // ref を除いた処理対象
   let _nthChecked   = {};      // {name: bool}
   let _nthStatus    = {};      // {name: 'idle'|'running'|'done'|'error'}
   let _phases       = [];      // [{index, name}]
@@ -289,7 +290,7 @@
   // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
   async function browseParent() {
     const wd = window._workDir || '';
-    const path = await eel.patrep_browse_dir('親フォルダを選択（0th フォルダを含むフォルダ）', wd)();
+    const path = await eel.patrep_browse_dir('親フォルダを選択（pre-processed *.mat を含むフォルダ）', wd)();
     if (!path) return;
 
     _parentFolder = path;
@@ -302,15 +303,12 @@
       const info = await eel.patrep_get_info(path)();
       if (info.error) { setStatus(info.error, false); return; }
 
-      _nthNames   = info.nth_names;
-      _phases     = info.phases;
-      _tifFolders = info.tif_folders || [];
-      _nthChecked = {};
-      _nthStatus  = {};
-      _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
+      _allMatNames = info.all_mat_names || [];
+      _phases      = info.phases;
+      _tifFolders  = info.tif_folders || [];
 
-      buildFolder0thSelector();
-      buildNthList();
+      buildFolderRefSelector();   // ref セレクタを先に構築
+      onRefChange();              // ref を除いた nth_names を確定
       buildPhaseRows();
       setStatus(`${_nthNames.length} 段階・${_phases.length} Phase を検出しました`, true);
     } catch(e) {
@@ -319,10 +317,10 @@
     updateRunButton();
   }
 
-  // ── 0th フォルダセレクタ構築 ─────────────────────────────────────────────────
-  function buildFolder0thSelector() {
-    const row = document.getElementById('row-folder-0th');
-    const sel = document.getElementById('sel-folder-0th');
+  // ── Ref フォルダセレクタ構築 ─────────────────────────────────────────────────
+  function buildFolderRefSelector() {
+    const row = document.getElementById('row-folder-ref');
+    const sel = document.getElementById('sel-folder-ref');
     sel.innerHTML = '';
     if (_tifFolders.length === 0) { row.style.display = 'none'; return; }
     _tifFolders.forEach(name => {
@@ -330,10 +328,18 @@
       opt.value = opt.textContent = name;
       sel.appendChild(opt);
     });
-    // "0th" があればデフォルト選択、なければ先頭
-    const pref = _tifFolders.find(n => n.toLowerCase() === '0th') || _tifFolders[0];
-    sel.value = pref;
+    sel.value = _tifFolders[0];
     row.style.display = '';
+  }
+
+  // ── ref 変更時に nth_names を再構築 ──────────────────────────────────────────
+  function onRefChange() {
+    const refName = document.getElementById('sel-folder-ref').value;
+    _nthNames = _allMatNames.filter(n => n !== refName);
+    _nthChecked = {};
+    _nthStatus  = {};
+    _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
+    buildNthList();
     updateRunButton();
   }
 
@@ -474,7 +480,7 @@
       angle_threshold:  parseFloat(document.getElementById('angle-thr').value) || 5.0,
       scale_factor:     parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:        phaseSym,
-      folder_0th_name:  document.getElementById('sel-folder-0th').value,
+      ref_name:         document.getElementById('sel-folder-ref').value,
       nth_folder_names: nthFolderNames,
     };
 
