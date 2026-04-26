@@ -216,9 +216,9 @@
         <div class="file-path" id="parent-path">（未選択）</div>
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
-      <div class="file-row" id="row-folder-ref" style="display:none">
-        <div class="file-label">Ref パターンフォルダ<span class="required">*</span></div>
-        <select class="folder-select" id="sel-folder-ref" style="flex:1" onchange="onRefChange()"></select>
+      <div class="file-row">
+        <div class="file-label">Ref スキャン名<span class="required">*</span></div>
+        <input class="param-input" type="text" id="ref-name-input" placeholder="例: ref, before, 0th" oninput="onRefChange()" style="flex:1; width:auto;">
       </div>
     </div>
   </div>
@@ -307,7 +307,6 @@
       _phases      = info.phases;
       _tifFolders  = info.tif_folders || [];
 
-      buildFolderRefSelector();   // ref セレクタを先に構築
       onRefChange();              // ref を除いた nth_names を確定
       buildPhaseRows();
       setStatus(`${_nthNames.length} 段階・${_phases.length} Phase を検出しました`, true);
@@ -317,24 +316,9 @@
     updateRunButton();
   }
 
-  // ── Ref フォルダセレクタ構築 ─────────────────────────────────────────────────
-  function buildFolderRefSelector() {
-    const row = document.getElementById('row-folder-ref');
-    const sel = document.getElementById('sel-folder-ref');
-    sel.innerHTML = '';
-    if (_tifFolders.length === 0) { row.style.display = 'none'; return; }
-    _tifFolders.forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = opt.textContent = name;
-      sel.appendChild(opt);
-    });
-    sel.value = _tifFolders[0];
-    row.style.display = '';
-  }
-
   // ── ref 変更時に nth_names を再構築 ──────────────────────────────────────────
   function onRefChange() {
-    const refName = document.getElementById('sel-folder-ref').value;
+    const refName = document.getElementById('ref-name-input').value.trim();
     _nthNames = _allMatNames.filter(n => n !== refName);
     _nthChecked = {};
     _nthStatus  = {};
@@ -447,8 +431,9 @@
   // ── 実行ボタン ───────────────────────────────────────────────────────────────
   function updateRunButton() {
     const hasChecked = _nthNames.some(n => _nthChecked[n]);
+    const refName = document.getElementById('ref-name-input').value.trim();
     document.getElementById('btn-run').disabled =
-      !(_parentFolder && hasChecked && _phases.length > 0 && !_running);
+      !(_parentFolder && refName && hasChecked && _phases.length > 0 && !_running);
   }
 
   // ── 実行 ─────────────────────────────────────────────────────────────────────
@@ -480,7 +465,7 @@
       angle_threshold:  parseFloat(document.getElementById('angle-thr').value) || 5.0,
       scale_factor:     parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:        phaseSym,
-      ref_name:         document.getElementById('sel-folder-ref').value,
+      ref_name:         document.getElementById('ref-name-input').value.trim(),
       nth_folder_names: nthFolderNames,
     };
 
