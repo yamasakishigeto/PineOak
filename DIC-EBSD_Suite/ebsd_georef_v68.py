@@ -1800,7 +1800,7 @@ if __name__ == '__main__':
         mat_path = ''
 
         # ③ SEM 参照画像選択
-        print("Select SEM reference image (Ref_0th)...")
+        print("Select SEM reference image (Ref)...")
         sem_path, _ = QFileDialog.getOpenFileName(
             None, 'Select SEM reference image',
             _initial_dir or '',

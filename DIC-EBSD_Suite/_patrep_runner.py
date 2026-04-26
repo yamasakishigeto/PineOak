@@ -11,6 +11,7 @@ JSON 形式:
 {
     "patrep_dir":       "E:/.../EBSD PatRep",
     "parent_folder":    "E:/.../experiment_folder",
+    "ref_name":         "ref",
     "nth_names":        ["1st", "2nd", "900MPa"],
     "angle_threshold":  5.0,
     "scale_factor":     100.0,
@@ -45,7 +46,7 @@ nth_names        = params['nth_names']
 angle_thr        = float(params['angle_threshold'])
 scale_factor     = float(params['scale_factor'])
 phase_sym        = params['phase_sym']          # {"0": "cubic", ...}
-folder_0th_name  = params.get('folder_0th_name', '0th')
+ref_name         = params.get('ref_name', 'ref')
 nth_folder_names = params.get('nth_folder_names', {})  # {"8th": "1100MPa", ...}
 
 # EBSD PatRep モジュールをパスに追加
@@ -83,17 +84,17 @@ for idx_str, sym_name in phase_sym.items():
     phase_sym_map[int(idx_str)] = ops
     print(f"  Phase {idx_str}: {sym_name} → group '{group}'  ({len(ops)} ops)")
 
-# 0th のパスを確定
-mat_0th_candidates = sorted(parent_folder.glob("pre-processed 0th*.mat"))
-if not mat_0th_candidates:
-    print("ERROR: pre-processed 0th*.mat が見つかりません")
+# ref のパスを確定
+mat_ref_candidates = sorted(parent_folder.glob(f"pre-processed {ref_name}*.mat"))
+if not mat_ref_candidates:
+    print(f"ERROR: pre-processed {ref_name}*.mat が見つかりません")
     sys.exit(1)
-mat_0th    = mat_0th_candidates[0]
-folder_0th = parent_folder / folder_0th_name
-print(f"  0th パターンフォルダ: {folder_0th_name}")
+mat_ref    = mat_ref_candidates[0]
+folder_ref = parent_folder / ref_name
+print(f"  ref パターンフォルダ: {ref_name}")
 
 # phase 情報を読む
-_mat0 = loadmat(str(mat_0th), variable_names=['phasetxt', 'phase_index'])
+_mat0 = loadmat(str(mat_ref), variable_names=['phasetxt', 'phase_index'])
 phase_idx_map  = _mat0['phase_index']
 phase_names_raw = [str(n) for n in _mat0['phasetxt'][0]]
 phases = sorted(set(int(v) for v in phase_idx_map.flatten()
@@ -126,18 +127,18 @@ for nth_name in nth_names:
         folder_nth = parent_folder / nth_dir_name
         print(f"  {nth_name} パターンフォルダ: {nth_dir_name}")
 
-        missing = [p for p in [mat_0th, mat_nth, excel_nth] if not p.exists()]
+        missing = [p for p in [mat_ref, mat_nth, excel_nth] if not p.exists()]
         if missing:
             print(f"  ERROR: 次のファイルが見つかりません: {[p.name for p in missing]}")
             continue
 
-        replacing_dir = parent_folder / f"replacing_0th_{nth_name}"
-        renamed_dir   = parent_folder / f"renamed_0th_{nth_name}"
+        replacing_dir = parent_folder / f"replacing_ref_{nth_name}"
+        renamed_dir   = parent_folder / f"renamed_ref_{nth_name}"
         replaced_dir  = parent_folder / f"replaced_{nth_name}"
         for d in [replacing_dir, renamed_dir, replaced_dir]:
             d.mkdir(exist_ok=True)
 
-        csv_path = parent_folder / f"replaced pattern list 0th_{nth_name}.csv"
+        csv_path = parent_folder / f"replaced pattern list ref_{nth_name}.csv"
 
         # Phase 別 misorientation 計算
         dfs = []
@@ -153,14 +154,15 @@ for nth_name in nth_names:
             print(f"  Phase {idx} ({phase_name}): {count_ref} 参照点 — misorientation 計算中...")
 
             df_phase = ref_mod.run_misorientation_matching_all_vs_targets(
-                mat_0th_path=str(mat_0th),
+                mat_ref_path=str(mat_ref),
                 sym_ops=sym_ops,
                 excel_nth_path=str(excel_nth),
                 mat_nth_path=str(mat_nth),
                 output_csv=None,
-                tif_dir=str(folder_0th),
+                tif_dir=str(folder_ref),
                 angle_threshold=angle_thr,
                 target_phase=idx,
+                ref_name=ref_name,
             )
             df_phase['phase'] = phase_name
             dfs.append(df_phase)
@@ -191,7 +193,7 @@ for nth_name in nth_names:
 
         # .tif コピー・置換
         print(f"  パターンファイルをコピー・置換中...")
-        tif_files = list(folder_0th.glob("*.tif"))
+        tif_files = list(folder_ref.glob("*.tif"))
         coord_map = {}
         _pat = re.compile(r"x(\d+)y(\d+)")
         for tif in tif_files:
@@ -201,7 +203,7 @@ for nth_name in nth_names:
 
         n_copied = 0
         for _, row in df.iterrows():
-            matched_name  = row["Matched_0th_Filename"]
+            matched_name  = row["Matched_Ref_Filename"]
             deformed_name = row["Deformed_Filename"]
             m = _pat.search(matched_name)
             if not m:

@@ -1166,16 +1166,16 @@ def patrep_get_info(parent_folder: str):
         nth_names = []
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
-            if name.lower() == "0th":
+            if name.lower() == "ref":
                 continue
             xlsx = parent / f"pre-processed {name}.xlsx"
             if xlsx.exists():
                 nth_names.append(name)
 
-        # 0th .mat から phase 情報を読む
-        mat0_cands = sorted(parent.glob("pre-processed 0th*.mat"))
+        # ref .mat から phase 情報を読む
+        mat0_cands = sorted(parent.glob("pre-processed ref*.mat"))
         if not mat0_cands:
-            return {"error": "pre-processed 0th*.mat が見つかりません"}
+            return {"error": "pre-processed ref*.mat が見つかりません"}
 
         mat0 = smart_loadmat(str(mat0_cands[0]), variable_names=["phase_index", "phasetxt"])
         phase_idx_map = mat0["phase_index"]

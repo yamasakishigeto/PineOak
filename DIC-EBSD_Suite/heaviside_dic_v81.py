@@ -376,7 +376,7 @@ v9での修正点（根本的なファイル選択フローの再設計）:
   - __main__ を全面書き直し。任意のdic_results.xlsxに対応。
     ① dic_results.xlsx を選択
     ② Excelの列名を自動読み取り → チェックボックスで処理段階を複数選択
-    ③ 参照SEM画像 (Ref_0th) を選択
+    ③ 参照SEM画像 (Ref) を選択
     ④ 選択した各段階のSEM画像を順番に選択
     ⑤ 出力先フォルダを選択
     ⑥ 全段階を順番に処理 → heaviside_results_{label}.xlsx + _delta_s.png を出力
@@ -533,8 +533,8 @@ def load_dic_config(config_path):
 def load_sheet(ws):
     """
     u/v シートを読み込む。新旧2形式に自動対応。
-      新形式: subset_id | x [px] | y [px] | Ref_0th | Def_1st | ...
-      旧形式: x [px]    | y [px] | Ref_0th | Def_1st | ...
+      新形式: subset_id | x [px] | y [px] | Ref | Def_1st | ...
+      旧形式: x [px]    | y [px] | Ref | Def_1st | ...
     ヘッダ先頭列が 'subset_id' かどうかで判別する。
     """
     rows = list(ws.iter_rows(values_only=True))
@@ -2577,9 +2577,9 @@ if __name__ == '__main__':
     # ==========================================================================
     print(f"\n登録粒: {dict(sorted(grain_theta_map.items()))}")
 
-    print("参照SEM画像 (Ref_0th) を選択してください...")
+    print("参照SEM画像 (Ref) を選択してください...")
     ref_path = filedialog.askopenfilename(
-        title='参照SEM画像 (Ref_0th) を選択',
+        title='参照SEM画像 (Ref) を選択',
         filetypes=[('Image files', '*.bmp *.png *.tif *.tiff'), ('All files', '*.*')])
     if not ref_path:
         raise SystemExit('キャンセルされました')

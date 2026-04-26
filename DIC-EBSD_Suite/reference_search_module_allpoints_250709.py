@@ -122,9 +122,9 @@ def extract_target_points(excel_path, mat_path):
         data.append(entry)
     return pd.DataFrame(data)
 
-# すべての0th点とターゲット点間でmisorientationを計算し、最良一致をDataFrameで返す
+# すべてのref点とターゲット点間でmisorientationを計算し、最良一致をDataFrameで返す
 def run_misorientation_matching_all_vs_targets(
-    mat_0th_path,
+    mat_ref_path,
     excel_nth_path,
     mat_nth_path,
     output_csv,
@@ -132,11 +132,12 @@ def run_misorientation_matching_all_vs_targets(
     angle_threshold=5.0,
     iq_percentile=0.0,
     sym_ops=None,
-    target_phase=None):
+    target_phase=None,
+    ref_name='ref'):
     global cached_scale_factor
     print(f"Selected symmetry operations count: {len(sym_ops)}")
-    mat_0th = loadmat(mat_0th_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality', 'phase_index'])
-    all_points_df, ncols = flatten_all_points(mat_0th)
+    mat_ref = loadmat(mat_ref_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality', 'phase_index'])
+    all_points_df, ncols = flatten_all_points(mat_ref)
     target_df = extract_target_points(excel_nth_path, mat_nth_path)
     # Filter reference points by phase
     if target_phase is not None:
@@ -155,7 +156,7 @@ def run_misorientation_matching_all_vs_targets(
         root.destroy()
     scale_factor = cached_scale_factor
 
-    # --- 参照点（0th）の回転行列をループ前に一括計算 ---
+    # --- 参照点（ref）の回転行列をループ前に一括計算 ---
     ref_eulers = all_points_df[["phi1", "phi", "phi2"]].values          # (N, 3)
     ref_valid  = ~np.isnan(ref_eulers).any(axis=1)                      # (N,)
     g_refs_all = np.array([
@@ -203,13 +204,13 @@ def run_misorientation_matching_all_vs_targets(
         best_row = all_points_df.iloc[best_idx]
         col = int(round(best_row["col"] * x_step * scale_factor))
         row = int(round(best_row["row"] * y_step * scale_factor))
-        matched_filename = f"0th_x{col}y{row}.tif"
+        matched_filename = f"{ref_name}_x{col}y{row}.tif"
         results.append({
             "Deformed_Filename":   t_row["Deformed_Filename"],
-            "Matched_0th_Filename": matched_filename,
+            "Matched_Ref_Filename": matched_filename,
             "Deformed_Index":      t_row["Deformed_Index"],
-            "Matched_0th_Index":   best_row["Index"],
-            "Matched_0th_IQ":      best_row["IQ"],
+            "Matched_Ref_Index":   best_row["Index"],
+            "Matched_Ref_IQ":      best_row["IQ"],
             "Misorientation (deg)": round(best_angle, 1)
         })
     df = pd.DataFrame(results)
