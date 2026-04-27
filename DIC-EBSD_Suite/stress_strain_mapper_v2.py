@@ -26,15 +26,37 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvasQ
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from scipy.io import loadmat
+from scipy.spatial.transform import Rotation as _Rotation
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QSlider, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
-    QMessageBox, QSizePolicy, QCheckBox,
+    QMessageBox, QSizePolicy, QCheckBox, QScrollArea,
 )
 from PyQt6.QtCore import Qt
+
+# ============================================================
+# 結晶対称性
+# ============================================================
+
+# PatRepモジュールと同じ対称群マッピング
+SYM_GROUPS = {
+    "Cubic":        "O",   # 48 ops
+    "Hexagonal":    "D6",  # 24 ops
+    "Tetragonal":   "D4",  # 16 ops
+    "Trigonal":     "D3",  # 12 ops
+    "Orthorhombic": "D2",  # 8 ops
+    "Monoclinic":   "C2",  # 4 ops
+    "Triclinic":    "C1",  # 1 op
+}
+
+def _get_sym_ops(sym_name: str) -> np.ndarray:
+    """対称群名 → (S, 3, 3) 回転行列配列。"""
+    group = SYM_GROUPS.get(sym_name, "O")
+    return _Rotation.create_group(group).as_matrix()
+
 
 # ============================================================
 # スタンドアロン計算関数
@@ -290,6 +312,124 @@ def compute_boundary_segments(x, y, grain_id):
     return segments
 
 
+def _svd_mean_SO3(mats):
+    """回転行列リストの SO(3) 平均をSVD射影で計算する。det<0 補正付き。"""
+    M = np.mean(mats, axis=0)
+    U, _, Vt = np.linalg.svd(M)
+    R = U @ Vt
+    if np.linalg.det(R) < 0:
+        U[:, -1] *= -1
+        R = U @ Vt
+    return R
+
+
+def _misori_angles_batch(R_ref, mats_arr):
+    """R_ref と各行列 mats_arr[i] のミスオリエンテーション角度（degrees）を一括計算。"""
+    # R_ref.T @ mats_arr[i] を全 i について求める
+    products = np.einsum('ij,njk->nik', R_ref.T, mats_arr)   # (n,3,3)
+    traces = np.trace(products, axis1=1, axis2=2)             # (n,)
+    return np.degrees(np.arccos(np.clip((traces - 1.0) / 2.0, -1.0, 1.0)))
+
+
+def compute_grod(phi1_ref_deg, PHI_ref_deg, phi2_ref_deg,
+                 phi1_tgt_deg, PHI_tgt_deg, phi2_tgt_deg,
+                 grain_id, sym_ops: np.ndarray):
+    """
+    GROD (Grain Reference Orientation Deviation) を計算する。
+
+    基準方位: ref ステージにおける各粒の平均回転行列（SVDで SO(3) に射影）
+              外れ値（MAD法）を除去した 2パス推定を使用。
+    対象方位: tgt ステージの各サブセットのオイラー角
+    sym_ops : (S, 3, 3) 結晶対称操作行列群
+
+    Returns
+    -------
+    angle  : ndarray (N,), 単位 degrees
+    axis_x, axis_y, axis_z : ndarray (N,), 結晶座標系での回転軸成分
+    """
+    N = len(phi1_ref_deg)
+    angle  = np.full(N, np.nan)
+    axis_x = np.full(N, np.nan)
+    axis_y = np.full(N, np.nan)
+    axis_z = np.full(N, np.nan)
+
+    # 各粒の基準平均回転行列を計算（2パス外れ値フィルタリング）
+    grain_ref_mat = {}
+    for gid_raw in np.unique(grain_id):
+        gid = int(gid_raw)
+        if gid <= 0:
+            continue
+        idx = np.where(grain_id == gid_raw)[0]
+
+        # 有効点の回転行列を収集
+        mats = []
+        for i in idx:
+            if not (np.isfinite(phi1_ref_deg[i]) and
+                    np.isfinite(PHI_ref_deg[i]) and
+                    np.isfinite(phi2_ref_deg[i])):
+                continue
+            mats.append(_euler_to_matrix_rad(
+                np.radians(float(phi1_ref_deg[i])),
+                np.radians(float(PHI_ref_deg[i])),
+                np.radians(float(phi2_ref_deg[i]))))
+        if not mats:
+            continue
+
+        mats_arr = np.array(mats)   # (n, 3, 3)
+
+        # 1パス目: 全点での SVD 平均
+        R1 = _svd_mean_SO3(mats_arr)
+
+        if len(mats_arr) >= 5:
+            dev = _misori_angles_batch(R1, mats_arr)
+            med = np.median(dev)
+            mad = np.median(np.abs(dev - med))
+            threshold = max(5.0, med + 3.0 * 1.4826 * mad)
+            keep = dev <= threshold
+            if keep.sum() >= 3:
+                R_final = _svd_mean_SO3(mats_arr[keep])
+            else:
+                R_final = R1
+        else:
+            R_final = R1
+
+        grain_ref_mat[gid] = R_final
+
+    # 各サブセットのディスオリエンテーション計算（対称操作を考慮）
+    # sym_ops: (S, 3, 3)
+    for i in range(N):
+        gid = int(grain_id[i])
+        if gid not in grain_ref_mat:
+            continue
+        if not (np.isfinite(phi1_tgt_deg[i]) and
+                np.isfinite(PHI_tgt_deg[i]) and
+                np.isfinite(phi2_tgt_deg[i])):
+            continue
+        g_ref = grain_ref_mat[gid]
+        g_tgt = _euler_to_matrix_rad(
+            np.radians(float(phi1_tgt_deg[i])),
+            np.radians(float(PHI_tgt_deg[i])),
+            np.radians(float(phi2_tgt_deg[i])))
+
+        # 全対称等価な相対回転を求め、最小角度（ディスオリエンテーション）を採用
+        # delta_k = g_ref.T @ sym_k @ g_tgt  （対称操作は両行列の間に挟む）
+        deltas = (g_ref.T[np.newaxis] @ sym_ops) @ g_tgt   # (S, 3, 3)
+        traces = deltas[:, 0, 0] + deltas[:, 1, 1] + deltas[:, 2, 2]  # (S,)
+        angles_all = np.degrees(np.arccos(np.clip((traces - 1.0) / 2.0, -1.0, 1.0)))
+        best = int(np.argmin(angles_all))
+        theta = float(angles_all[best])
+        angle[i] = theta
+
+        dm = deltas[best]
+        sin_t = np.sin(np.radians(theta))
+        if sin_t > 1e-6:
+            axis_x[i] = (dm[2, 1] - dm[1, 2]) / (2.0 * sin_t)
+            axis_y[i] = (dm[0, 2] - dm[2, 0]) / (2.0 * sin_t)
+            axis_z[i] = (dm[1, 0] - dm[0, 1]) / (2.0 * sin_t)
+
+    return angle, axis_x, axis_y, axis_z
+
+
 # ============================================================
 # 定数
 # ============================================================
@@ -402,6 +542,9 @@ class StressStrainMapperApp(QMainWindow):
 
         # Grain マップ操作イベントID
         self._grain_cid = None
+
+        # Mapタブの表示モード ("var" or "grod")
+        self._map_mode = "var"
 
         self._build_ui()
         self._draw_grain_map()
@@ -561,14 +704,6 @@ class StressStrainMapperApp(QMainWindow):
         row5.addWidget(btn_auto)
         layout.addLayout(row5)
 
-        # 結晶粒界オーバーレイ
-        row_gb = QHBoxLayout()
-        self._map_show_gb_cb = QCheckBox("Grain boundaries")
-        self._map_show_gb_cb.setChecked(False)
-        row_gb.addWidget(self._map_show_gb_cb)
-        row_gb.addStretch()
-        layout.addLayout(row_gb)
-
         # ボタン
         row6 = QHBoxLayout()
         btn_draw = QPushButton("Draw Map")
@@ -582,7 +717,95 @@ class StressStrainMapperApp(QMainWindow):
         row6.addWidget(btn_all)
         layout.addLayout(row6)
 
+        # ---- GROD ----
+        grod_lbl = QLabel("<b>─── GROD ───────────────────────────────</b>")
+        layout.addWidget(grod_lbl)
+
+        grod_stages = self._grod_euler_stages()
+
+        rg0 = QHBoxLayout()
+        rg0.addWidget(QLabel("対称性:"))
+        self._map_grod_sym_cb = QComboBox()
+        self._map_grod_sym_cb.addItems(list(SYM_GROUPS.keys()))
+        self._map_grod_sym_cb.setCurrentText("Cubic")
+        rg0.addWidget(self._map_grod_sym_cb, stretch=1)
+        layout.addLayout(rg0)
+
+        rg1 = QHBoxLayout()
+        rg1.addWidget(QLabel("基準ステージ:"))
+        self._map_grod_ref_cb = QComboBox()
+        self._map_grod_ref_cb.addItems(grod_stages)
+        rg1.addWidget(self._map_grod_ref_cb, stretch=1)
+        layout.addLayout(rg1)
+
+        rg2 = QHBoxLayout()
+        rg2.addWidget(QLabel("表示変数:"))
+        self._map_grod_var_cb = QComboBox()
+        self._map_grod_var_cb.addItems(
+            ["GROD Angle [deg]", "GROD Axis X", "GROD Axis Y", "GROD Axis Z"])
+        rg2.addWidget(self._map_grod_var_cb, stretch=1)
+        layout.addLayout(rg2)
+
+        rg3 = QHBoxLayout()
+        rg3.addWidget(QLabel("ステージ:"))
+        self._map_grod_stage_slider = QSlider(Qt.Orientation.Horizontal)
+        self._map_grod_stage_slider.setMinimum(0)
+        self._map_grod_stage_slider.setMaximum(max(0, len(grod_stages) - 1))
+        self._map_grod_stage_slider.valueChanged.connect(self._on_map_grod_stage_changed)
+        self._map_grod_stage_label = QLabel(grod_stages[0] if grod_stages else "")
+        rg3.addWidget(self._map_grod_stage_slider, stretch=1)
+        rg3.addWidget(self._map_grod_stage_label)
+        layout.addLayout(rg3)
+
+        rg4 = QHBoxLayout()
+        rg4.addWidget(QLabel("カラーマップ:"))
+        self._map_grod_cmap_cb = QComboBox()
+        self._map_grod_cmap_cb.addItems(CMAPS)
+        rg4.addWidget(self._map_grod_cmap_cb)
+        layout.addLayout(rg4)
+
+        rg5 = QHBoxLayout()
+        rg5.addWidget(QLabel("Min:"))
+        self._map_grod_vmin_edit = QLineEdit()
+        self._map_grod_vmin_edit.setPlaceholderText("auto")
+        rg5.addWidget(self._map_grod_vmin_edit)
+        rg5.addWidget(QLabel("Max:"))
+        self._map_grod_vmax_edit = QLineEdit()
+        self._map_grod_vmax_edit.setPlaceholderText("auto")
+        rg5.addWidget(self._map_grod_vmax_edit)
+        layout.addLayout(rg5)
+
+        rg6 = QHBoxLayout()
+        btn_grod_compute = QPushButton("Compute Map")
+        btn_grod_compute.clicked.connect(self._on_compute_grod)
+        btn_grod_export = QPushButton("Export PNG")
+        btn_grod_export.clicked.connect(self._on_export_grod_png)
+        btn_grod_all = QPushButton("Export All Stages")
+        btn_grod_all.clicked.connect(self._on_export_grod_all_stages)
+        rg6.addWidget(btn_grod_compute)
+        rg6.addWidget(btn_grod_export)
+        rg6.addWidget(btn_grod_all)
+        layout.addLayout(rg6)
+
+        rg7 = QHBoxLayout()
+        btn_add_mat = QPushButton(f"{self.mat_path.name} に追加")
+        btn_add_mat.clicked.connect(self._on_add_grod_to_mat)
+        rg7.addWidget(btn_add_mat)
+        layout.addLayout(rg7)
+
+        self._map_grod_status_lbl = QLabel("")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+        layout.addWidget(self._map_grod_status_lbl)
+
         layout.addStretch()
+
+        # 結晶粒界オーバーレイ
+        row_gb = QHBoxLayout()
+        self._map_show_gb_cb = QCheckBox("Grain boundaries")
+        self._map_show_gb_cb.setChecked(False)
+        row_gb.addWidget(self._map_show_gb_cb)
+        row_gb.addStretch()
+        layout.addLayout(row_gb)
 
         # 初期化
         self._on_map_var_changed(self._map_var_cb.currentText())
@@ -684,21 +907,37 @@ class StressStrainMapperApp(QMainWindow):
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
                 )
                 self.canvas_map.draw()
+        self._map_mode = "var"
 
     def _on_map_scroll(self, event):
         """マウスホイールでステージスライダーを1段階ずつ切り替える。"""
-        if not self._map_stage_slider.isEnabled():
-            return
-        current = self._map_stage_slider.value()
-        if event.button == "up":
-            new_val = max(0, current - 1)
-        elif event.button == "down":
-            new_val = min(self._map_stage_slider.maximum(), current + 1)
+        if self._map_mode == "grod":
+            slider = self._map_grod_stage_slider
+            if not slider.isEnabled():
+                return
+            current = slider.value()
+            if event.button == "up":
+                new_val = max(0, current - 1)
+            elif event.button == "down":
+                new_val = min(slider.maximum(), current + 1)
+            else:
+                return
+            if new_val != current:
+                slider.setValue(new_val)
+                self._on_compute_grod()
         else:
-            return
-        if new_val != current:
-            self._map_stage_slider.setValue(new_val)
-            self._draw_map_current()
+            if not self._map_stage_slider.isEnabled():
+                return
+            current = self._map_stage_slider.value()
+            if event.button == "up":
+                new_val = max(0, current - 1)
+            elif event.button == "down":
+                new_val = min(self._map_stage_slider.maximum(), current + 1)
+            else:
+                return
+            if new_val != current:
+                self._map_stage_slider.setValue(new_val)
+                self._draw_map_current()
 
     def _export_map_current(self):
         base = self._map_var_cb.currentText()
@@ -1004,8 +1243,189 @@ class StressStrainMapperApp(QMainWindow):
     # タブ3: Derived Maps
     # ----------------------------------------------------------
 
+    # ----------------------------------------------------------
+    # GROD ユーティリティ（Mapタブから使用）
+    # ----------------------------------------------------------
+
+    def _grod_euler_stages(self):
+        """euler_phi1 / euler_phi / euler_phi2 の共通ステージを返す。"""
+        s1 = set(self.per_stage.get("euler_phi1", {}).keys())
+        sP = set(self.per_stage.get("euler_phi",  {}).keys())
+        s2 = set(self.per_stage.get("euler_phi2", {}).keys())
+        common = s1 & sP & s2
+        def key(s):
+            m = re.match(r"(\d+)MPa", s)
+            return int(m.group(1)) if m else 0
+        return sorted(common, key=key)
+
+    def _get_grod_euler(self, stage):
+        """指定ステージの euler_phi1/phi/phi2 を degrees で返す。"""
+        phi1 = self.per_stage.get("euler_phi1", {}).get(stage)
+        PHI  = self.per_stage.get("euler_phi",  {}).get(stage)
+        phi2 = self.per_stage.get("euler_phi2", {}).get(stage)
+        return phi1, PHI, phi2
+
+    def _on_map_grod_stage_changed(self, val):
+        stages = self._grod_euler_stages()
+        if 0 <= val < len(stages):
+            self._map_grod_stage_label.setText(stages[val])
+
+    def _on_compute_grod(self):
+        stages = self._grod_euler_stages()
+        if not stages:
+            self._map_grod_status_lbl.setText("エラー: Eulerステージデータが見つかりません")
+            self._map_grod_status_lbl.setStyleSheet("color: red;")
+            return
+        ref_stage = self._map_grod_ref_cb.currentText()
+        tgt_stage = stages[self._map_grod_stage_slider.value()]
+        phi1_ref, PHI_ref, phi2_ref = self._get_grod_euler(ref_stage)
+        phi1_tgt, PHI_tgt, phi2_tgt = self._get_grod_euler(tgt_stage)
+        if any(x is None for x in [phi1_ref, PHI_ref, phi2_ref,
+                                    phi1_tgt, PHI_tgt, phi2_tgt]):
+            self._map_grod_status_lbl.setText("エラー: Eulerデータの読み込みに失敗しました")
+            self._map_grod_status_lbl.setStyleSheet("color: red;")
+            return
+        self._map_grod_status_lbl.setText("計算中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        sym_ops = _get_sym_ops(self._map_grod_sym_cb.currentText())
+        angle, ax_x, ax_y, ax_z = compute_grod(
+            phi1_ref, PHI_ref, phi2_ref,
+            phi1_tgt, PHI_tgt, phi2_tgt, self.grain_id, sym_ops)
+        var_idx = self._map_grod_var_cb.currentIndex()
+        data    = [angle, ax_x, ax_y, ax_z][var_idx]
+        label   = ["GROD Angle [deg]", "GROD Axis X",
+                   "GROD Axis Y", "GROD Axis Z"][var_idx]
+        valid = data[np.isfinite(data)]
+        try:
+            vmin = float(self._map_grod_vmin_edit.text())
+        except ValueError:
+            vmin = float(np.min(valid)) if len(valid) else 0.0
+        try:
+            vmax = float(self._map_grod_vmax_edit.text())
+        except ValueError:
+            vmax = float(np.max(valid)) if len(valid) else 1.0
+        title = f"{label}  [{tgt_stage}]  (ref: {ref_stage})"
+        self.canvas_map.draw_scatter(
+            self.cx, self.cy, data,
+            self._map_grod_cmap_cb.currentText(), vmin, vmax, title,
+            xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id)
+            if segs:
+                self.canvas_map.ax.add_collection(
+                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                self.canvas_map.draw()
+        self._map_grod_last = {"ref_stage": ref_stage, "tgt_stage": tgt_stage,
+                               "var_idx": var_idx}
+        self._map_mode = "grod"
+        self._map_grod_status_lbl.setText(f"完了: ref={ref_stage}, stage={tgt_stage}")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
+    def _on_export_grod_png(self):
+        if not hasattr(self, "_map_grod_last"):
+            QMessageBox.warning(self, "Export", "先に Compute Map を実行してください。")
+            return
+        tgt = self._map_grod_last["tgt_stage"]
+        ref = self._map_grod_last["ref_stage"]
+        var = (self._map_grod_var_cb.currentText()
+               .replace(" ", "_").replace("[", "").replace("]", ""))
+        out = self.mat_path.parent / f"GROD_{var}_{tgt}_ref{ref}.png"
+        self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+        QMessageBox.information(self, "Export", f"保存しました:\n{out}")
+
+    def _on_export_grod_all_stages(self):
+        stages = self._grod_euler_stages()
+        if not stages:
+            QMessageBox.warning(self, "Export All", "Eulerステージデータが見つかりません。")
+            return
+        ref_stage = self._map_grod_ref_cb.currentText()
+        phi1_ref, PHI_ref, phi2_ref = self._get_grod_euler(ref_stage)
+        if any(x is None for x in [phi1_ref, PHI_ref, phi2_ref]):
+            QMessageBox.warning(self, "Export All", "基準ステージのEulerデータを読み込めません。")
+            return
+        var_idx = self._map_grod_var_cb.currentIndex()
+        label = ["GROD_Angle_deg", "GROD_Axis_X", "GROD_Axis_Y", "GROD_Axis_Z"][var_idx]
+        cmap = self._map_grod_cmap_cb.currentText()
+        try:
+            vmin = float(self._map_grod_vmin_edit.text())
+            vmax = float(self._map_grod_vmax_edit.text())
+        except ValueError:
+            vmin = vmax = None
+
+        self._map_grod_status_lbl.setText("全ステージ出力中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        sym_ops = _get_sym_ops(self._map_grod_sym_cb.currentText())
+        saved = 0
+        all_data = []
+        results = []
+        for stage in stages:
+            phi1_t, PHI_t, phi2_t = self._get_grod_euler(stage)
+            if any(x is None for x in [phi1_t, PHI_t, phi2_t]):
+                continue
+            angle, ax_x, ax_y, ax_z = compute_grod(
+                phi1_ref, PHI_ref, phi2_ref,
+                phi1_t, PHI_t, phi2_t, self.grain_id, sym_ops)
+            data = [angle, ax_x, ax_y, ax_z][var_idx]
+            results.append((stage, data))
+            all_data.append(data[np.isfinite(data)])
+
+        if vmin is None or vmax is None:
+            combined = np.concatenate(all_data) if all_data else np.array([0.0, 1.0])
+            vmin = float(np.nanmin(combined))
+            vmax = float(np.nanmax(combined))
+
+        for stage, data in results:
+            title = f"{label}  [{stage}]  (ref: {ref_stage})"
+            self.canvas_map.draw_scatter(
+                self.cx, self.cy, data, cmap, vmin, vmax, title,
+                xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+            if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id)
+                if segs:
+                    self.canvas_map.ax.add_collection(
+                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                    self.canvas_map.draw()
+            out = self.mat_path.parent / f"GROD_{label}_{stage}_ref{ref_stage}.png"
+            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            saved += 1
+
+        self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+        QMessageBox.information(self, "Export All",
+                                f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
+
+    def _on_add_grod_to_mat(self):
+        """per_stage にある GROD データを mat ファイルに追記する。"""
+        if "GROD_angle" not in self.per_stage:
+            QMessageBox.warning(self, "追加", "先に「GROD 計算」を実行してください。")
+            return
+        self._map_grod_status_lbl.setText("保存中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        from scipy.io import loadmat, savemat
+        existing = {k: v for k, v in loadmat(str(self.mat_path)).items()
+                    if not k.startswith("__")}
+        new_vars = {}
+        for base in ("GROD_angle", "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"):
+            for stage, arr in self.per_stage.get(base, {}).items():
+                new_vars[f"{base}_s{stage}"] = arr.reshape(1, -1)
+        existing.update(new_vars)
+        savemat(str(self.mat_path), existing)
+        self._map_grod_status_lbl.setText(
+            f"追加完了: {len(new_vars)} 変数を {self.mat_path.name} に保存しました")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
     def _build_tab_derived(self, parent):
-        layout = QVBoxLayout(parent)
+        # スクロール可能な外枠
+        scroll = QScrollArea(parent)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        scroll.setWidget(container)
+        outer = QVBoxLayout(parent)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+
         x_choices = [b for b in DIC_STRAIN_BASES if b in self.per_stage]
         y_choices = self._ss_y_choices()
 

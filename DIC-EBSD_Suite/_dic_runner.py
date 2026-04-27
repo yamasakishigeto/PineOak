@@ -31,6 +31,7 @@ mod.SEARCH_FINE     = p["s2_search"]
 mod.NCC_THRESHOLD   = p["ncc_threshold"]
 mod.N_WORKERS       = p["n_workers"]
 mod.GAUGE_LENGTH    = p["gauge_length"]
+mod.STRAIN_TYPE     = p.get("strain_type", "infinitesimal")
 mod.USE_PREV_STAGE1 = p["use_prev_stage1"]
 
 SCALE_CONFIG = {k: (v[0], v[1]) for k, v in p["scale"].items()}
@@ -61,6 +62,7 @@ SEARCH_FINE = mod.SEARCH_FINE
 SUBSET_SIZE = mod.SUBSET_SIZE
 NCC_THRESHOLD = mod.NCC_THRESHOLD
 GAUGE_LENGTH  = mod.GAUGE_LENGTH
+STRAIN_TYPE   = mod.STRAIN_TYPE
 STAGE1_AUTO   = mod.STAGE1_AUTO
 STAGE1_MARGIN = mod.STAGE1_MARGIN
 SEARCH_COARSE = mod.SEARCH_COARSE
@@ -106,7 +108,8 @@ _ones  = np.ones(len(_cx))
 ref_stem = REF_PATH.stem
 print(f"  REFグリッド: {len(_cx)}点")
 _ref_strain = mod.calc_strain_field(_cx, _cy, _zeros, _zeros, STEP_FINE,
-                                    gauge_length=GAUGE_LENGTH)
+                                    gauge_length=GAUGE_LENGTH,
+                                    strain_type=STRAIN_TYPE)
 del _ref_img, _ref_al, _ref_cr
 
 results_list = [{
@@ -140,6 +143,14 @@ config_lines = [
 ]
 for k, (lo, hi) in SCALE_CONFIG.items():
     config_lines.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
+
+_CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+_cmap_cfg = p.get('cmap', {})
+config_lines.append('')
+config_lines.append('[カラーマップ]')
+for k in ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']:
+    config_lines.append(f'  {k:<12}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
 
 config_path = OUTPUT_DIR / 'dic_config.txt'
 with open(config_path, 'w', encoding='utf-8') as f:
@@ -215,6 +226,8 @@ pickle_data = {
     'output_dir':    str(OUTPUT_DIR),
     'ncc_threshold': NCC_THRESHOLD,
     'roi':           roi,
+    'gauge_length':  GAUGE_LENGTH,
+    'strain_type':   STRAIN_TYPE,
 }
 with open(pickle_path, 'wb') as f:
     pickle.dump(pickle_data, f)
