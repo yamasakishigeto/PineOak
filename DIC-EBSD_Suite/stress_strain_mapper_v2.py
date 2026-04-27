@@ -384,7 +384,7 @@ class StressStrainMapperApp(QMainWindow):
         super().__init__()
         self.mat_path = mat_path
         self.setWindowTitle(f"PineOak v1.0  —  Stress–Strain Mapper  —  {mat_path.name}")
-        self.resize(1600, 1200)
+        self.resize(1280, 960)
 
         # データ読み込み
         self.static, self.per_stage, self.stages = parse_mat(mat_path)
@@ -459,12 +459,12 @@ class StressStrainMapperApp(QMainWindow):
         left_split = QSplitter(Qt.Orientation.Vertical)
         left_split.addWidget(self._wrap_canvas(self.canvas_map, "Map"))
         left_split.addWidget(self._wrap_canvas(self.canvas_curve, "Stress-Strain Curve"))
-        left_split.setSizes([550, 550])
+        left_split.setSizes([440, 440])
 
         # 右列: コントロールパネル（上下貫通）
         main_split.addWidget(left_split)
         main_split.addWidget(self._build_control_panel())
-        main_split.setSizes([900, 700])
+        main_split.setSizes([720, 560])
 
         # マウスホイールでステージを切り替え
         self.canvas_map.mpl_connect("scroll_event", self._on_map_scroll)
