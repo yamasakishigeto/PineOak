@@ -331,6 +331,32 @@ def _misori_angles_batch(R_ref, mats_arr):
     return np.degrees(np.arccos(np.clip((traces - 1.0) / 2.0, -1.0, 1.0)))
 
 
+def _align_orientations(R_ref, mats_arr, sym_ops):
+    """mats_arr の各行列を、対称操作で R_ref に最も近い等価方位に揃えて返す。
+
+    Parameters
+    ----------
+    R_ref    : (3, 3) 基準回転行列
+    mats_arr : (n, 3, 3) 揃える対象の回転行列群
+    sym_ops  : (S, 3, 3) 結晶対称操作行列群
+
+    Returns
+    -------
+    aligned  : (n, 3, 3) 揃え済み回転行列群
+    """
+    # (R_ref.T @ sym_ops[k]) @ mats_arr[i] を全 k, i で一括計算
+    # R_ref.T @ sym_ops  → (S, 3, 3)
+    R_ref_T_sym = R_ref.T[np.newaxis] @ sym_ops          # (S, 3, 3)
+    # (n, S, 3, 3): deltas[i, k] = R_ref_T_sym[k] @ mats_arr[i]
+    deltas = R_ref_T_sym[np.newaxis] @ mats_arr[:, np.newaxis]
+    traces = deltas[..., 0, 0] + deltas[..., 1, 1] + deltas[..., 2, 2]  # (n, S)
+    best_k = np.argmin(
+        np.arccos(np.clip((traces - 1.0) / 2.0, -1.0, 1.0)), axis=1)    # (n,)
+    # aligned[i] = sym_ops[best_k[i]] @ mats_arr[i]
+    aligned = np.einsum('nij,njk->nik', sym_ops[best_k], mats_arr)       # (n, 3, 3)
+    return aligned
+
+
 def compute_grod(phi1_ref_deg, PHI_ref_deg, phi2_ref_deg,
                  phi1_tgt_deg, PHI_tgt_deg, phi2_tgt_deg,
                  grain_id, sym_ops: np.ndarray):
@@ -377,21 +403,26 @@ def compute_grod(phi1_ref_deg, PHI_ref_deg, phi2_ref_deg,
 
         mats_arr = np.array(mats)   # (n, 3, 3)
 
-        # 1パス目: 全点での SVD 平均
+        # 1パス目: 対称性なしの仮平均（初期推定）
         R1 = _svd_mean_SO3(mats_arr)
 
-        if len(mats_arr) >= 5:
-            dev = _misori_angles_batch(R1, mats_arr)
+        # 対称操作で全点を R1 に最も近い等価方位に揃えてから再平均
+        mats_aligned = _align_orientations(R1, mats_arr, sym_ops)
+        R2 = _svd_mean_SO3(mats_aligned)
+
+        if len(mats_aligned) >= 5:
+            # MADフィルタ（整合済み行列・対称性なしで偏差計算）
+            dev = _misori_angles_batch(R2, mats_aligned)
             med = np.median(dev)
             mad = np.median(np.abs(dev - med))
             threshold = max(5.0, med + 3.0 * 1.4826 * mad)
             keep = dev <= threshold
             if keep.sum() >= 3:
-                R_final = _svd_mean_SO3(mats_arr[keep])
+                R_final = _svd_mean_SO3(mats_aligned[keep])
             else:
-                R_final = R1
+                R_final = R2
         else:
-            R_final = R1
+            R_final = R2
 
         grain_ref_mat[gid] = R_final
 
@@ -465,7 +496,16 @@ class MapCanvas(FigureCanvasQtAgg):
         self.ax = self._fig.add_subplot(111)
         self._colorbar = None
 
-        sc = self.ax.scatter(x, y, c=data, cmap=cmap, vmin=vmin, vmax=vmax, s=8, alpha=0.9)
+        # Min/Max 範囲外の点を NaN にして透明表示
+        plot_data = np.array(data, dtype=float)
+        if vmin is not None:
+            plot_data[plot_data < vmin] = np.nan
+        if vmax is not None:
+            plot_data[plot_data > vmax] = np.nan
+        cmap_obj = matplotlib.colormaps[cmap].copy()
+        cmap_obj.set_bad(alpha=0)
+
+        sc = self.ax.scatter(x, y, c=plot_data, cmap=cmap_obj, vmin=vmin, vmax=vmax, s=8, alpha=0.9)
         self._colorbar = self._fig.colorbar(sc, ax=self.ax)
         if cbar_label:
             self._colorbar.set_label(cbar_label)
@@ -645,18 +685,29 @@ class StressStrainMapperApp(QMainWindow):
     # ----------------------------------------------------------
 
     def _build_tab_map(self, parent):
-        layout = QVBoxLayout(parent)
+        # Derived Maps と同様にスクロール可能な外枠
+        scroll = QScrollArea(parent)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        scroll.setWidget(container)
+        outer = QVBoxLayout(parent)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
-        # 変数プルダウン
+        # ---- 変数マップ GroupBox ----
+        grp_var = QGroupBox("変数マップ")
+        g_var = QVBoxLayout(grp_var)
+
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("変数:"))
         self._map_var_cb = QComboBox()
         self._map_var_cb.addItems(self._all_variable_names())
         self._map_var_cb.currentTextChanged.connect(self._on_map_var_changed)
         row1.addWidget(self._map_var_cb, stretch=1)
-        layout.addLayout(row1)
+        g_var.addLayout(row1)
 
-        # ステージスライダー
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("ステージ:"))
         self._map_stage_slider = QSlider(Qt.Orientation.Horizontal)
@@ -666,9 +717,8 @@ class StressStrainMapperApp(QMainWindow):
         self._map_stage_label = QLabel("")
         row2.addWidget(self._map_stage_slider, stretch=1)
         row2.addWidget(self._map_stage_label)
-        layout.addLayout(row2)
+        g_var.addLayout(row2)
 
-        # 座標系
         row3 = QHBoxLayout()
         row3.addWidget(QLabel("座標系:"))
         self._map_coord_bg = QButtonGroup(parent)
@@ -679,17 +729,15 @@ class StressStrainMapperApp(QMainWindow):
         self._map_coord_bg.addButton(self._rb_deformed, 1)
         row3.addWidget(rb_ref)
         row3.addWidget(self._rb_deformed)
-        layout.addLayout(row3)
+        g_var.addLayout(row3)
 
-        # カラーマップ
         row4 = QHBoxLayout()
         row4.addWidget(QLabel("カラーマップ:"))
         self._map_cmap_cb = QComboBox()
         self._map_cmap_cb.addItems(CMAPS)
         row4.addWidget(self._map_cmap_cb)
-        layout.addLayout(row4)
+        g_var.addLayout(row4)
 
-        # Min / Max
         row5 = QHBoxLayout()
         row5.addWidget(QLabel("Min:"))
         self._map_min_edit = QLineEdit()
@@ -702,9 +750,8 @@ class StressStrainMapperApp(QMainWindow):
         btn_auto = QPushButton("Auto")
         btn_auto.clicked.connect(self._map_auto_minmax)
         row5.addWidget(btn_auto)
-        layout.addLayout(row5)
+        g_var.addLayout(row5)
 
-        # ボタン
         row6 = QHBoxLayout()
         btn_draw = QPushButton("Draw Map")
         btn_draw.clicked.connect(self._draw_map_current)
@@ -715,11 +762,13 @@ class StressStrainMapperApp(QMainWindow):
         row6.addWidget(btn_draw)
         row6.addWidget(btn_export)
         row6.addWidget(btn_all)
-        layout.addLayout(row6)
+        g_var.addLayout(row6)
 
-        # ---- GROD ----
-        grod_lbl = QLabel("<b>─── GROD ───────────────────────────────</b>")
-        layout.addWidget(grod_lbl)
+        layout.addWidget(grp_var)
+
+        # ---- GROD GroupBox ----
+        grp_grod = QGroupBox("GROD")
+        g_grod = QVBoxLayout(grp_grod)
 
         grod_stages = self._grod_euler_stages()
 
@@ -729,14 +778,14 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_sym_cb.addItems(list(SYM_GROUPS.keys()))
         self._map_grod_sym_cb.setCurrentText("Cubic")
         rg0.addWidget(self._map_grod_sym_cb, stretch=1)
-        layout.addLayout(rg0)
+        g_grod.addLayout(rg0)
 
         rg1 = QHBoxLayout()
         rg1.addWidget(QLabel("基準ステージ:"))
         self._map_grod_ref_cb = QComboBox()
         self._map_grod_ref_cb.addItems(grod_stages)
         rg1.addWidget(self._map_grod_ref_cb, stretch=1)
-        layout.addLayout(rg1)
+        g_grod.addLayout(rg1)
 
         rg2 = QHBoxLayout()
         rg2.addWidget(QLabel("表示変数:"))
@@ -744,7 +793,7 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_var_cb.addItems(
             ["GROD Angle [deg]", "GROD Axis X", "GROD Axis Y", "GROD Axis Z"])
         rg2.addWidget(self._map_grod_var_cb, stretch=1)
-        layout.addLayout(rg2)
+        g_grod.addLayout(rg2)
 
         rg3 = QHBoxLayout()
         rg3.addWidget(QLabel("ステージ:"))
@@ -755,14 +804,14 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_stage_label = QLabel(grod_stages[0] if grod_stages else "")
         rg3.addWidget(self._map_grod_stage_slider, stretch=1)
         rg3.addWidget(self._map_grod_stage_label)
-        layout.addLayout(rg3)
+        g_grod.addLayout(rg3)
 
         rg4 = QHBoxLayout()
         rg4.addWidget(QLabel("カラーマップ:"))
         self._map_grod_cmap_cb = QComboBox()
         self._map_grod_cmap_cb.addItems(CMAPS)
         rg4.addWidget(self._map_grod_cmap_cb)
-        layout.addLayout(rg4)
+        g_grod.addLayout(rg4)
 
         rg5 = QHBoxLayout()
         rg5.addWidget(QLabel("Min:"))
@@ -773,7 +822,7 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_vmax_edit = QLineEdit()
         self._map_grod_vmax_edit.setPlaceholderText("auto")
         rg5.addWidget(self._map_grod_vmax_edit)
-        layout.addLayout(rg5)
+        g_grod.addLayout(rg5)
 
         rg6 = QHBoxLayout()
         btn_grod_compute = QPushButton("Compute Map")
@@ -785,27 +834,29 @@ class StressStrainMapperApp(QMainWindow):
         rg6.addWidget(btn_grod_compute)
         rg6.addWidget(btn_grod_export)
         rg6.addWidget(btn_grod_all)
-        layout.addLayout(rg6)
+        g_grod.addLayout(rg6)
 
         rg7 = QHBoxLayout()
-        btn_add_mat = QPushButton(f"{self.mat_path.name} に追加")
+        btn_add_mat = QPushButton(f"{self.mat_path.stem}_derived.mat に保存")
         btn_add_mat.clicked.connect(self._on_add_grod_to_mat)
         rg7.addWidget(btn_add_mat)
-        layout.addLayout(rg7)
+        g_grod.addLayout(rg7)
 
-        self._map_grod_status_lbl = QLabel("")
-        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
-        layout.addWidget(self._map_grod_status_lbl)
+        layout.addWidget(grp_grod)
 
-        layout.addStretch()
-
-        # 結晶粒界オーバーレイ
+        # ---- 共通：粒界描画・ステータス ----
         row_gb = QHBoxLayout()
         self._map_show_gb_cb = QCheckBox("Grain boundaries")
         self._map_show_gb_cb.setChecked(False)
         row_gb.addWidget(self._map_show_gb_cb)
         row_gb.addStretch()
         layout.addLayout(row_gb)
+
+        self._map_grod_status_lbl = QLabel("")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+        layout.addWidget(self._map_grod_status_lbl)
+
+        layout.addStretch()
 
         # 初期化
         self._on_map_var_changed(self._map_var_cb.currentText())
@@ -924,7 +975,7 @@ class StressStrainMapperApp(QMainWindow):
                 return
             if new_val != current:
                 slider.setValue(new_val)
-                self._on_compute_grod()
+                # valueChanged → _on_map_grod_stage_changed → _draw_grod_stage
         else:
             if not self._map_stage_slider.isEnabled():
                 return
@@ -1269,32 +1320,68 @@ class StressStrainMapperApp(QMainWindow):
         stages = self._grod_euler_stages()
         if 0 <= val < len(stages):
             self._map_grod_stage_label.setText(stages[val])
+        # キャッシュがあれば再描画（再計算なし）
+        if "GROD_angle" in self.per_stage and self._map_mode == "grod":
+            self._draw_grod_stage()
 
     def _on_compute_grod(self):
+        """全ステージ一括計算 → per_stage に保存 → 現在スライダー位置を表示。"""
         stages = self._grod_euler_stages()
         if not stages:
             self._map_grod_status_lbl.setText("エラー: Eulerステージデータが見つかりません")
             self._map_grod_status_lbl.setStyleSheet("color: red;")
             return
         ref_stage = self._map_grod_ref_cb.currentText()
-        tgt_stage = stages[self._map_grod_stage_slider.value()]
         phi1_ref, PHI_ref, phi2_ref = self._get_grod_euler(ref_stage)
-        phi1_tgt, PHI_tgt, phi2_tgt = self._get_grod_euler(tgt_stage)
-        if any(x is None for x in [phi1_ref, PHI_ref, phi2_ref,
-                                    phi1_tgt, PHI_tgt, phi2_tgt]):
+        if any(x is None for x in [phi1_ref, PHI_ref, phi2_ref]):
             self._map_grod_status_lbl.setText("エラー: Eulerデータの読み込みに失敗しました")
             self._map_grod_status_lbl.setStyleSheet("color: red;")
             return
-        self._map_grod_status_lbl.setText("計算中...")
-        self._map_grod_status_lbl.setStyleSheet("color: gray;")
-        sym_ops = _get_sym_ops(self._map_grod_sym_cb.currentText())
-        angle, ax_x, ax_y, ax_z = compute_grod(
-            phi1_ref, PHI_ref, phi2_ref,
-            phi1_tgt, PHI_tgt, phi2_tgt, self.grain_id, sym_ops)
+        sym_name = self._map_grod_sym_cb.currentText()
+        sym_ops  = _get_sym_ops(sym_name)
+
+        # キャッシュをクリア
+        for base in ("GROD_angle", "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"):
+            self.per_stage[base] = {}
+
+        n_total = len(stages)
+        for i, stage in enumerate(stages):
+            self._map_grod_status_lbl.setText(
+                f"計算中... {i + 1}/{n_total}  [{stage}]")
+            self._map_grod_status_lbl.setStyleSheet("color: gray;")
+            QApplication.processEvents()   # UIを都度更新
+            phi1_t, PHI_t, phi2_t = self._get_grod_euler(stage)
+            if any(x is None for x in [phi1_t, PHI_t, phi2_t]):
+                continue
+            angle, ax_x, ax_y, ax_z = compute_grod(
+                phi1_ref, PHI_ref, phi2_ref,
+                phi1_t, PHI_t, phi2_t, self.grain_id, sym_ops)
+            self.per_stage["GROD_angle"][stage]  = angle
+            self.per_stage["GROD_axis_x"][stage] = ax_x
+            self.per_stage["GROD_axis_y"][stage] = ax_y
+            self.per_stage["GROD_axis_z"][stage] = ax_z
+
+        self._grod_cache_key = (ref_stage, sym_name)
+        self._draw_grod_stage()
+        n_done = len(self.per_stage["GROD_angle"])
+        self._map_grod_status_lbl.setText(
+            f"完了: {n_done} ステージ計算済み (ref={ref_stage}, {sym_name})")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
+    def _draw_grod_stage(self):
+        """per_stage キャッシュからスライダーの現在ステージを描画する。"""
+        stages = self._grod_euler_stages()
+        val = self._map_grod_stage_slider.value()
+        if not stages or val >= len(stages):
+            return
+        tgt_stage = stages[val]
         var_idx = self._map_grod_var_cb.currentIndex()
-        data    = [angle, ax_x, ax_y, ax_z][var_idx]
-        label   = ["GROD Angle [deg]", "GROD Axis X",
-                   "GROD Axis Y", "GROD Axis Z"][var_idx]
+        base  = ["GROD_angle",     "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"][var_idx]
+        label = ["GROD Angle [deg]","GROD Axis X", "GROD Axis Y", "GROD Axis Z"][var_idx]
+        data  = self.per_stage.get(base, {}).get(tgt_stage)
+        if data is None:
+            return
+        ref_stage = getattr(self, "_grod_cache_key", ("?",))[0]
         valid = data[np.isfinite(data)]
         try:
             vmin = float(self._map_grod_vmin_edit.text())
@@ -1315,18 +1402,16 @@ class StressStrainMapperApp(QMainWindow):
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
                 self.canvas_map.draw()
-        self._map_grod_last = {"ref_stage": ref_stage, "tgt_stage": tgt_stage,
-                               "var_idx": var_idx}
         self._map_mode = "grod"
-        self._map_grod_status_lbl.setText(f"完了: ref={ref_stage}, stage={tgt_stage}")
-        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _on_export_grod_png(self):
-        if not hasattr(self, "_map_grod_last"):
+        if "GROD_angle" not in self.per_stage:
             QMessageBox.warning(self, "Export", "先に Compute Map を実行してください。")
             return
-        tgt = self._map_grod_last["tgt_stage"]
-        ref = self._map_grod_last["ref_stage"]
+        stages = self._grod_euler_stages()
+        val = self._map_grod_stage_slider.value()
+        tgt = stages[val] if 0 <= val < len(stages) else "unknown"
+        ref = getattr(self, "_grod_cache_key", ("?",))[0]
         var = (self._map_grod_var_cb.currentText()
                .replace(" ", "_").replace("[", "").replace("]", ""))
         out = self.mat_path.parent / f"GROD_{var}_{tgt}_ref{ref}.png"
@@ -1334,47 +1419,29 @@ class StressStrainMapperApp(QMainWindow):
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     def _on_export_grod_all_stages(self):
-        stages = self._grod_euler_stages()
-        if not stages:
-            QMessageBox.warning(self, "Export All", "Eulerステージデータが見つかりません。")
+        """キャッシュがなければ先に全ステージ計算してから PNG を一括出力する。"""
+        if "GROD_angle" not in self.per_stage:
+            self._on_compute_grod()
+        if "GROD_angle" not in self.per_stage:
             return
-        ref_stage = self._map_grod_ref_cb.currentText()
-        phi1_ref, PHI_ref, phi2_ref = self._get_grod_euler(ref_stage)
-        if any(x is None for x in [phi1_ref, PHI_ref, phi2_ref]):
-            QMessageBox.warning(self, "Export All", "基準ステージのEulerデータを読み込めません。")
-            return
+        ref_stage = getattr(self, "_grod_cache_key", ("?",))[0]
         var_idx = self._map_grod_var_cb.currentIndex()
-        label = ["GROD_Angle_deg", "GROD_Axis_X", "GROD_Axis_Y", "GROD_Axis_Z"][var_idx]
-        cmap = self._map_grod_cmap_cb.currentText()
+        base  = ["GROD_angle",    "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"][var_idx]
+        label = ["GROD_Angle_deg","GROD_Axis_X",  "GROD_Axis_Y", "GROD_Axis_Z"][var_idx]
+        cmap  = self._map_grod_cmap_cb.currentText()
         try:
             vmin = float(self._map_grod_vmin_edit.text())
             vmax = float(self._map_grod_vmax_edit.text())
         except ValueError:
-            vmin = vmax = None
+            all_vals = [d[np.isfinite(d)]
+                        for d in self.per_stage.get(base, {}).values()]
+            combined = np.concatenate(all_vals) if all_vals else np.array([0.0, 1.0])
+            vmin, vmax = float(np.nanmin(combined)), float(np.nanmax(combined))
 
         self._map_grod_status_lbl.setText("全ステージ出力中...")
         self._map_grod_status_lbl.setStyleSheet("color: gray;")
-        sym_ops = _get_sym_ops(self._map_grod_sym_cb.currentText())
         saved = 0
-        all_data = []
-        results = []
-        for stage in stages:
-            phi1_t, PHI_t, phi2_t = self._get_grod_euler(stage)
-            if any(x is None for x in [phi1_t, PHI_t, phi2_t]):
-                continue
-            angle, ax_x, ax_y, ax_z = compute_grod(
-                phi1_ref, PHI_ref, phi2_ref,
-                phi1_t, PHI_t, phi2_t, self.grain_id, sym_ops)
-            data = [angle, ax_x, ax_y, ax_z][var_idx]
-            results.append((stage, data))
-            all_data.append(data[np.isfinite(data)])
-
-        if vmin is None or vmax is None:
-            combined = np.concatenate(all_data) if all_data else np.array([0.0, 1.0])
-            vmin = float(np.nanmin(combined))
-            vmax = float(np.nanmax(combined))
-
-        for stage, data in results:
+        for stage, data in self.per_stage.get(base, {}).items():
             title = f"{label}  [{stage}]  (ref: {ref_stage})"
             self.canvas_map.draw_scatter(
                 self.cx, self.cy, data, cmap, vmin, vmax, title,
@@ -1394,25 +1461,55 @@ class StressStrainMapperApp(QMainWindow):
         QMessageBox.information(self, "Export All",
                                 f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
 
+    def _derived_mat_path(self):
+        """保存先の _derived.mat パスを返す。"""
+        return self.mat_path.with_name(self.mat_path.stem + "_derived.mat")
+
+    def _load_derived_mat(self):
+        """_derived.mat があればそれを、なければ元ファイルをベースとして読み込む。"""
+        from scipy.io import loadmat
+        p = self._derived_mat_path()
+        src = p if p.exists() else self.mat_path
+        return {k: v for k, v in loadmat(str(src)).items()
+                if not k.startswith("__")}
+
     def _on_add_grod_to_mat(self):
-        """per_stage にある GROD データを mat ファイルに追記する。"""
-        if "GROD_angle" not in self.per_stage:
-            QMessageBox.warning(self, "追加", "先に「GROD 計算」を実行してください。")
+        """per_stage にある GROD 全ステージデータを _derived.mat に保存する。"""
+        if "GROD_angle" not in self.per_stage or not self.per_stage["GROD_angle"]:
+            QMessageBox.warning(self, "追加", "先に「Compute Map」を実行してください。")
             return
         self._map_grod_status_lbl.setText("保存中...")
         self._map_grod_status_lbl.setStyleSheet("color: gray;")
-        from scipy.io import loadmat, savemat
-        existing = {k: v for k, v in loadmat(str(self.mat_path)).items()
-                    if not k.startswith("__")}
+        from scipy.io import savemat
+        data = self._load_derived_mat()
         new_vars = {}
         for base in ("GROD_angle", "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"):
             for stage, arr in self.per_stage.get(base, {}).items():
                 new_vars[f"{base}_s{stage}"] = arr.reshape(1, -1)
-        existing.update(new_vars)
-        savemat(str(self.mat_path), existing)
+        data.update(new_vars)
+        out = self._derived_mat_path()
+        savemat(str(out), data)
         self._map_grod_status_lbl.setText(
-            f"追加完了: {len(new_vars)} 変数を {self.mat_path.name} に保存しました")
+            f"追加完了: {len(new_vars)} 変数を {out.name} に保存しました")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
+    def _on_add_derived_to_mat(self):
+        """計算済みの Derived Maps データを _derived.mat に保存する。"""
+        if not self._derived_results:
+            QMessageBox.warning(self, "追加",
+                                "先に各項目の「Compute & Map」を実行してください。")
+            return
+        from scipy.io import savemat
+        data = self._load_derived_mat()
+        new_vars = {}
+        for key, arr in self._derived_results.items():
+            new_vars[key] = np.asarray(arr).reshape(1, -1)
+        data.update(new_vars)
+        out = self._derived_mat_path()
+        savemat(str(out), data)
+        keys_str = ", ".join(new_vars.keys())
+        QMessageBox.information(self, "追加完了",
+                                f"{len(new_vars)} 変数を保存しました:\n{keys_str}\n→ {out.name}")
 
     def _build_tab_derived(self, parent):
         # スクロール可能な外枠
@@ -1492,7 +1589,7 @@ class StressStrainMapperApp(QMainWindow):
         self._ys_excel_lbl = QLabel("PatRep Excel: (未選択)")
         self._ys_excel_lbl.setStyleSheet("color: gray; font-size: 10px;")
         re2.addWidget(self._ys_excel_lbl, stretch=1)
-        btn_excel = QPushButton("参照…"); btn_excel.setFixedWidth(60)
+        btn_excel = QPushButton("弾性スティフネス参照…"); btn_excel.setFixedWidth(120)
         btn_excel.clicked.connect(self._select_ys_excel)
         re2.addWidget(btn_excel)
         g2.addLayout(re2)
@@ -1551,6 +1648,12 @@ class StressStrainMapperApp(QMainWindow):
         r6.addWidget(b5); r6.addWidget(b6)
         g3.addLayout(r6)
         layout.addWidget(grp3)
+
+        row_add = QHBoxLayout()
+        btn_add_derived = QPushButton(f"{self.mat_path.stem}_derived.mat に保存")
+        btn_add_derived.clicked.connect(self._on_add_derived_to_mat)
+        row_add.addWidget(btn_add_derived)
+        layout.addLayout(row_add)
 
         row_gb_d = QHBoxLayout()
         self._derived_show_gb_cb = QCheckBox("Grain boundaries")
