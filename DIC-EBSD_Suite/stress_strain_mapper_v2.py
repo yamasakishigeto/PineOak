@@ -453,24 +453,18 @@ class StressStrainMapperApp(QMainWindow):
         main_split = QSplitter(Qt.Orientation.Horizontal)
         self.setCentralWidget(main_split)
 
-        # 左列: Grain ID Map（上） + SS Curve（下）
-        self.canvas_grain = MapCanvas()
+        # 左列: マップ（上） + SS Curve（下）
+        self.canvas_map = MapCanvas()
         self.canvas_curve = CurveCanvas()
         left_split = QSplitter(Qt.Orientation.Vertical)
-        left_split.addWidget(self._wrap_canvas(self.canvas_grain, "Grain ID Map"))
+        left_split.addWidget(self._wrap_canvas(self.canvas_map, "Map"))
         left_split.addWidget(self._wrap_canvas(self.canvas_curve, "Stress-Strain Curve"))
         left_split.setSizes([550, 550])
 
-        # 右列: Variable Map（上） + コントロールパネル（下）
-        self.canvas_map = MapCanvas()
-        right_split = QSplitter(Qt.Orientation.Vertical)
-        right_split.addWidget(self._wrap_canvas(self.canvas_map, "Variable Map"))
-        right_split.addWidget(self._build_control_panel())
-        right_split.setSizes([550, 550])
-
+        # 右列: コントロールパネル（上下貫通）
         main_split.addWidget(left_split)
-        main_split.addWidget(right_split)
-        main_split.setSizes([800, 800])
+        main_split.addWidget(self._build_control_panel())
+        main_split.setSizes([900, 700])
 
         # マウスホイールでステージを切り替え
         self.canvas_map.mpl_connect("scroll_event", self._on_map_scroll)
@@ -913,19 +907,19 @@ class StressStrainMapperApp(QMainWindow):
 
     def _reconnect_grain_events(self, mode_id=None):
         if self._grain_cid is not None:
-            self.canvas_grain.mpl_disconnect(self._grain_cid)
+            self.canvas_map.mpl_disconnect(self._grain_cid)
             self._grain_cid = None
         if mode_id is None:
             mode_id = self._ss_mode_bg.checkedId()
         event = "motion_notify_event" if mode_id == 1 else "button_press_event"
-        self._grain_cid = self.canvas_grain.mpl_connect(event, self._on_grain_event)
+        self._grain_cid = self.canvas_map.mpl_connect(event, self._on_grain_event)
 
     def _nearest_idx(self, x0, y0):
         d2 = (self.cx - x0) ** 2 + (self.cy - y0) ** 2
         return int(np.argmin(d2))
 
     def _on_grain_event(self, event):
-        if event.inaxes != self.canvas_grain.ax:
+        if event.inaxes != self.canvas_map.ax:
             return
         if event.xdata is None or event.ydata is None:
             return
@@ -1285,15 +1279,15 @@ class StressStrainMapperApp(QMainWindow):
     # ----------------------------------------------------------
 
     def _draw_grain_map(self):
-        ax = self.canvas_grain.ax
-        fig = self.canvas_grain._fig
+        ax = self.canvas_map.ax
+        fig = self.canvas_map._fig
         ax.clear()
-        if self.canvas_grain._colorbar is not None:
+        if self.canvas_map._colorbar is not None:
             try:
-                self.canvas_grain._colorbar.remove()
+                self.canvas_map._colorbar.remove()
             except Exception:
                 pass
-            self.canvas_grain._colorbar = None
+            self.canvas_map._colorbar = None
 
         K = len(self._grain_unique)
         cmap = "turbo"
@@ -1303,7 +1297,7 @@ class StressStrainMapperApp(QMainWindow):
                         c=self._grain_code, cmap=cmap, norm=norm)
         cbar = fig.colorbar(sc, ax=ax)
         cbar.set_label("Grain ID")
-        self.canvas_grain._colorbar = cbar
+        self.canvas_map._colorbar = cbar
         if K <= 20:
             cbar.set_ticks(np.linspace(0, K - 1, K))
             cbar.set_ticklabels([str(g) for g in self._grain_unique])
@@ -1319,7 +1313,7 @@ class StressStrainMapperApp(QMainWindow):
         ax.set_xlim(self._xlim)
         ax.set_ylim(self._ylim)
         ax.set_aspect("equal", adjustable="box")
-        self.canvas_grain.draw()
+        self.canvas_map.draw()
 
 
 # ============================================================
