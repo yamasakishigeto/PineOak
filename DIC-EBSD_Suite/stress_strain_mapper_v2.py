@@ -1683,7 +1683,8 @@ class StressStrainMapperApp(QMainWindow):
             self._map_ps_status_lbl.setStyleSheet("color: red;")
             return
 
-        for base in ("PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max"):
+        for base in ("PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max",
+                     "PS_vec1", "PS_vec2", "PS_vec3"):
             self.per_stage[base] = {}
 
         n_total = len(stages)
