@@ -110,20 +110,22 @@ def build_ss(per_stage, x_base, y_base):
 
 
 def compute_principal_stress(s11, s22, s33, s12, s23, s31):
-    """6成分応力テンソルの固有値として主応力を計算する（ベクトル化）。
+    """6成分応力テンソルの固有値・固有ベクトルを計算する（ベクトル化）。
 
     Returns
     -------
     sigma1, sigma2, sigma3 : ndarray  (σ1 ≥ σ2 ≥ σ3)
+    vec1, vec2, vec3       : ndarray  shape (N, 3)  各主応力方向の単位ベクトル
     """
     N = len(s11)
     result = np.full((N, 3), np.nan)
+    vecs   = np.full((N, 3, 3), np.nan)   # vecs[:, :, k] が第k固有ベクトル
 
-    # NaN/inf を含む行は除外して eigvalsh に渡す
     valid = (np.isfinite(s11) & np.isfinite(s22) & np.isfinite(s33) &
              np.isfinite(s12) & np.isfinite(s23) & np.isfinite(s31))
     if not np.any(valid):
-        return result[:, 0], result[:, 1], result[:, 2]
+        return (result[:, 0], result[:, 1], result[:, 2],
+                vecs[:, :, 0], vecs[:, :, 1], vecs[:, :, 2])
 
     Nv = int(np.count_nonzero(valid))
     T = np.zeros((Nv, 3, 3))
@@ -132,9 +134,93 @@ def compute_principal_stress(s11, s22, s33, s12, s23, s31):
     T[:, 1, 2] = T[:, 2, 1] = s23[valid]
     T[:, 0, 2] = T[:, 2, 0] = s31[valid]
 
-    eigvals = np.linalg.eigvalsh(T)   # (Nv, 3) ascending
-    result[valid] = eigvals[:, ::-1]  # descending: σ1 ≥ σ2 ≥ σ3
-    return result[:, 0], result[:, 1], result[:, 2]
+    eigvals, eigvecs = np.linalg.eigh(T)   # ascending; eigvecs[:, :, k] = k番目固有ベクトル
+    idx = eigvals.argsort(axis=1)[:, ::-1]  # 降順ソート用インデックス (Nv, 3)
+    ni = np.arange(Nv)
+    eigvals = eigvals[ni[:, None], idx]                                      # (Nv, 3)
+    eigvecs = np.stack([eigvecs[ni, :, idx[:, k]] for k in range(3)], axis=2)  # (Nv, 3, 3)
+
+    result[valid] = eigvals
+    vecs[valid]   = eigvecs
+
+    return (result[:, 0], result[:, 1], result[:, 2],
+            vecs[:, :, 0], vecs[:, :, 1], vecs[:, :, 2])
+
+
+def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
+    """すべり面・方向のテキストを結晶直交座標系の単位ベクトルに変換する。
+
+    3指数（立方晶）と4指数（六方晶）を自動判別。
+    Returns (n_slip, b_slip) どちらも shape (3,), 正規化済み。
+    """
+    def _parse_nums(text):
+        return [float(x) for x in text.replace(',', ' ').split()]
+
+    plane = _parse_nums(plane_text)
+    direc = _parse_nums(dir_text)
+
+    if len(plane) == 4:
+        # 4指数 Miller-Bravais → 3指数 Miller 変換
+        h, k, _i, l = plane
+        plane = [h, k, l]
+        u, v, t, w = direc
+        direc = [2*u + v, u + 2*v, w]
+        # HCP 直交座標変換 (a=1, c=ca_ratio)
+        c = ca_ratio
+        def to_cartesian_hcp_plane(h, k, l):
+            return np.array([h, (h + 2*k) / np.sqrt(3), l / c])
+        def to_cartesian_hcp_dir(U, V, W):
+            return np.array([U - V/2, V * np.sqrt(3)/2, W * c])
+        n_raw = to_cartesian_hcp_plane(*plane)
+        b_raw = to_cartesian_hcp_dir(*direc)
+    else:
+        n_raw = np.array(plane, dtype=float)
+        b_raw = np.array(direc, dtype=float)
+
+    nn = np.linalg.norm(n_raw)
+    bn = np.linalg.norm(b_raw)
+    if nn < 1e-12 or bn < 1e-12:
+        raise ValueError("すべり面または方向のノルムがゼロです")
+    return n_raw / nn, b_raw / bn
+
+
+def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs):
+    """各点のシュミット因子を計算する（ベクトル化）。
+
+    Parameters
+    ----------
+    phi1_deg, PHI_deg, phi2_deg : ndarray shape (N,)  Bunge オイラー角 [degrees]
+    n_slip : ndarray shape (3,)  すべり面法線（結晶直交座標系・正規化済み）
+    b_slip : ndarray shape (3,)  すべり方向（結晶直交座標系・正規化済み）
+    load_vecs : ndarray shape (N, 3) or (3,)  負荷軸（試料座標系・正規化済み）
+
+    Returns
+    -------
+    schmid : ndarray shape (N,)  Schmid 因子 (0〜0.5)
+    """
+    N = len(phi1_deg)
+    schmid = np.full(N, np.nan)
+
+    lvecs = np.broadcast_to(load_vecs, (N, 3)).copy() if load_vecs.ndim == 1 \
+            else np.asarray(load_vecs, dtype=float)
+
+    valid = (np.isfinite(phi1_deg) & np.isfinite(PHI_deg) & np.isfinite(phi2_deg)
+             & np.all(np.isfinite(lvecs), axis=1))
+    if not np.any(valid):
+        return schmid
+
+    for i in np.nonzero(valid)[0]:
+        g = _euler_to_matrix_rad(
+            np.radians(float(phi1_deg[i])),
+            np.radians(float(PHI_deg[i])),
+            np.radians(float(phi2_deg[i])))  # 結晶→試料
+        # 負荷軸を結晶座標系へ
+        n_load_crys = g.T @ lvecs[i]
+        cos_phi = abs(float(n_load_crys @ n_slip))
+        cos_lam = abs(float(n_load_crys @ b_slip))
+        schmid[i] = cos_phi * cos_lam
+
+    return schmid
 
 
 def compute_hardening_rate(sv, ss, n, m):
@@ -734,7 +820,7 @@ class StressStrainMapperApp(QMainWindow):
         sh0 = QHBoxLayout()
         sh0.addWidget(QLabel("モード:"))
         self._map_mode_bg = QButtonGroup(parent)
-        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "主応力")]:
+        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "主応力"), (3, "シュミット因子")]:
             rb = QRadioButton(_lbl)
             if _id == 0:
                 rb.setChecked(True)
@@ -789,6 +875,8 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_stage_label  = self._map_shared_stage_label
         self._map_ps_stage_slider   = self._map_shared_stage_slider
         self._map_ps_stage_label    = self._map_shared_stage_label
+        self._map_sf_stage_slider   = self._map_shared_stage_slider
+        self._map_sf_stage_label    = self._map_shared_stage_label
 
         # ---- DIC/EBSD変数 GroupBox ----
         grp_var = QGroupBox("DIC/EBSD変数")
@@ -906,6 +994,77 @@ class StressStrainMapperApp(QMainWindow):
 
         layout.addWidget(grp_ps)
 
+        # ---- シュミット因子 GroupBox ----
+        grp_sf = QGroupBox("シュミット因子 (Schmid Factor)")
+        g_sf = QVBoxLayout(grp_sf)
+
+        sf0 = QHBoxLayout()
+        sf0.addWidget(QLabel("すべり面:"))
+        self._map_sf_plane_edit = QLineEdit("1 1 1")
+        self._map_sf_plane_edit.setPlaceholderText("例: 1 1 1  または  0 0 0 1")
+        sf0.addWidget(self._map_sf_plane_edit, stretch=1)
+        g_sf.addLayout(sf0)
+
+        sf1 = QHBoxLayout()
+        sf1.addWidget(QLabel("すべり方向:"))
+        self._map_sf_dir_edit = QLineEdit("1 -1 0")
+        self._map_sf_dir_edit.setPlaceholderText("例: 1 -1 0  または  1 1 -2 0")
+        sf1.addWidget(self._map_sf_dir_edit, stretch=1)
+        g_sf.addLayout(sf1)
+
+        sf2 = QHBoxLayout()
+        sf2.addWidget(QLabel("c/a 比:"))
+        self._map_sf_ca_edit = QLineEdit("1.633")
+        self._map_sf_ca_edit.setEnabled(False)
+        sf2.addWidget(self._map_sf_ca_edit)
+        sf2.addStretch()
+        g_sf.addLayout(sf2)
+
+        def _update_ca_enable():
+            txt = self._map_sf_plane_edit.text()
+            nums = [x for x in txt.replace(',', ' ').split() if x]
+            self._map_sf_ca_edit.setEnabled(len(nums) == 4)
+        self._map_sf_plane_edit.textChanged.connect(lambda _: _update_ca_enable())
+
+        sf3 = QHBoxLayout()
+        sf3.addWidget(QLabel("負荷軸:"))
+        self._map_sf_load_bg = QButtonGroup(parent)
+        rb_lx = QRadioButton("X")
+        rb_ly = QRadioButton("Y")
+        rb_lv = QRadioButton("任意:")
+        rb_ps = QRadioButton("σ1方向")
+        rb_lx.setChecked(True)
+        for _i, _rb in enumerate([rb_lx, rb_ly, rb_lv, rb_ps]):
+            self._map_sf_load_bg.addButton(_rb, _i)
+            sf3.addWidget(_rb)
+        self._map_sf_load_vec_edit = QLineEdit("0 0 1")
+        self._map_sf_load_vec_edit.setPlaceholderText("x y z")
+        self._map_sf_load_vec_edit.setEnabled(False)
+        self._map_sf_load_bg.idClicked.connect(
+            lambda i: self._map_sf_load_vec_edit.setEnabled(i == 2))
+        sf3.addWidget(self._map_sf_load_vec_edit)
+        sf3.addStretch()
+        g_sf.addLayout(sf3)
+
+        sf4 = QHBoxLayout()
+        sf4.addWidget(QLabel("カラーマップ:"))
+        self._map_sf_cmap_cb = QComboBox()
+        self._map_sf_cmap_cb.addItems(CMAPS)
+        self._map_sf_cmap_cb.setCurrentText("jet")
+        sf4.addWidget(self._map_sf_cmap_cb)
+        g_sf.addLayout(sf4)
+
+        sf5 = QHBoxLayout()
+        sf5.addWidget(QLabel("Min:"))
+        self._map_sf_vmin_edit = QLineEdit("0")
+        sf5.addWidget(self._map_sf_vmin_edit)
+        sf5.addWidget(QLabel("Max:"))
+        self._map_sf_vmax_edit = QLineEdit("0.5")
+        sf5.addWidget(self._map_sf_vmax_edit)
+        g_sf.addLayout(sf5)
+
+        layout.addWidget(grp_sf)
+
         # ---- 共通：粒界描画・ステータス ----
         row_gb = QHBoxLayout()
         self._map_show_gb_cb = QCheckBox("Grain boundaries")
@@ -968,10 +1127,10 @@ class StressStrainMapperApp(QMainWindow):
 
     def _on_map_mode_selector_changed(self, mode_id):
         """モード選択ラジオボタンが切り替わったとき。スライダー範囲とボタンラベルを更新。"""
-        mode_map = {0: "var", 1: "grod", 2: "ps"}
+        mode_map = {0: "var", 1: "grod", 2: "ps", 3: "sf"}
         self._map_mode = mode_map.get(mode_id, "var")
-        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute 主応力"}
-        self._map_shared_draw_btn.setText(labels[mode_id])
+        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute 主応力", 3: "Compute シュミット因子"}
+        self._map_shared_draw_btn.setText(labels.get(mode_id, "Draw Map"))
         # スライダー範囲を新モードに合わせて更新
         self._map_shared_stage_slider.blockSignals(True)
         if self._map_mode == "var":
@@ -1000,6 +1159,13 @@ class StressStrainMapperApp(QMainWindow):
             if stages:
                 self._map_shared_stage_label.setText(
                     stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
+        elif self._map_mode == "sf":
+            stages = self._grod_euler_stages()
+            self._map_shared_stage_slider.setMaximum(max(0, len(stages) - 1))
+            self._map_shared_stage_slider.setEnabled(bool(stages))
+            if stages:
+                self._map_shared_stage_label.setText(
+                    stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
         self._map_shared_stage_slider.blockSignals(False)
 
     def _on_shared_draw_compute(self):
@@ -1010,6 +1176,8 @@ class StressStrainMapperApp(QMainWindow):
             self._on_compute_grod()
         elif self._map_mode == "ps":
             self._on_compute_ps()
+        elif self._map_mode == "sf":
+            self._on_compute_sf()
 
     def _on_shared_export_png(self):
         """Export PNG ボタン。モードに応じて全ステージを PNG 保存。"""
@@ -1019,6 +1187,8 @@ class StressStrainMapperApp(QMainWindow):
             self._on_export_grod_all_stages()
         elif self._map_mode == "ps":
             self._on_export_ps_all_stages()
+        elif self._map_mode == "sf":
+            self._on_export_sf_all_stages()
 
     def _on_shared_stage_changed(self, val):
         """共有スライダーの valueChanged ハンドラ。モードに応じてラベル更新・再描画。"""
@@ -1039,6 +1209,12 @@ class StressStrainMapperApp(QMainWindow):
                 self._map_shared_stage_label.setText(stages[val])
             if "PS_sigma1" in self.per_stage:
                 self._draw_ps_stage()
+        elif self._map_mode == "sf":
+            stages = self._grod_euler_stages()
+            if 0 <= val < len(stages):
+                self._map_shared_stage_label.setText(stages[val])
+            if "SF_schmid" in self.per_stage:
+                self._draw_sf_stage()
 
     def _on_shared_save_to_mat(self):
         """共有保存ボタン。現在のモードに応じて _derived.mat に保存する。"""
@@ -1046,6 +1222,8 @@ class StressStrainMapperApp(QMainWindow):
             self._on_add_grod_to_mat()
         elif self._map_mode == "ps":
             self._on_add_ps_to_mat()
+        elif self._map_mode == "sf":
+            self._on_add_sf_to_mat()
         else:
             QMessageBox.information(self, "保存",
                                     "保存対象がありません。\nGROD または主応力を計算してください。")
@@ -1485,11 +1663,15 @@ class StressStrainMapperApp(QMainWindow):
             s12 = self.per_stage["rmap_s12"][stage].astype(float)
             s23 = self.per_stage["rmap_s23"][stage].astype(float)
             s31 = self.per_stage["rmap_s31"][stage].astype(float)
-            sig1, sig2, sig3 = compute_principal_stress(s11, s22, s33, s12, s23, s31)
+            sig1, sig2, sig3, vec1, vec2, vec3 = compute_principal_stress(
+                s11, s22, s33, s12, s23, s31)
             self.per_stage["PS_sigma1"][stage] = sig1
             self.per_stage["PS_sigma2"][stage] = sig2
             self.per_stage["PS_sigma3"][stage] = sig3
             self.per_stage["PS_tau_max"][stage] = (sig1 - sig3) / 2.0
+            self.per_stage["PS_vec1"][stage] = vec1   # shape (N, 3)
+            self.per_stage["PS_vec2"][stage] = vec2
+            self.per_stage["PS_vec3"][stage] = vec3
 
         self._draw_ps_stage()
         self._map_ps_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
@@ -1597,6 +1779,161 @@ class StressStrainMapperApp(QMainWindow):
         for base in ("PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max"):
             for stage, arr in self.per_stage.get(base, {}).items():
                 new_vars[f"{base}_s{stage}"] = arr.reshape(1, -1)
+        data.update(new_vars)
+        out = self._derived_mat_path()
+        savemat(str(out), data)
+        self._map_ps_status_lbl.setText(
+            f"追加完了: {len(new_vars)} 変数を {out.name} に保存しました")
+        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+
+    # ----------------------------------------------------------
+    # シュミット因子マップ（Mapタブから使用）
+    # ----------------------------------------------------------
+
+    def _sf_load_vec(self, stage):
+        """GUIの負荷軸設定から試料座標系の単位ベクトルを返す。shape (N, 3) または (3,)。"""
+        load_id = self._map_sf_load_bg.checkedId()
+        if load_id == 0:    # X
+            return np.array([1.0, 0.0, 0.0])
+        elif load_id == 1:  # Y
+            return np.array([0.0, 1.0, 0.0])
+        elif load_id == 2:  # 任意
+            nums = [float(x) for x in self._map_sf_load_vec_edit.text().split()]
+            if len(nums) < 3:
+                raise ValueError("負荷軸ベクトルは 3 成分必要です (例: 1 0 0)")
+            v = np.array(nums[:3], dtype=float)
+            norm = np.linalg.norm(v)
+            if norm < 1e-12:
+                raise ValueError("負荷軸ベクトルのノルムがゼロです")
+            return v / norm
+        else:  # σ1方向
+            vecs = self.per_stage.get("PS_vec1", {}).get(stage)
+            if vecs is None:
+                raise ValueError("σ1 方向を使用するには先に「Compute 主応力」を実行してください")
+            # shape (N, 3)、各点ごとの負荷軸
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            norms[norms < 1e-12] = 1.0
+            return vecs / norms
+
+    def _on_compute_sf(self):
+        stages = self._grod_euler_stages()
+        if not stages:
+            self._map_ps_status_lbl.setText("エラー: Euler角ステージデータが見つかりません")
+            self._map_ps_status_lbl.setStyleSheet("color: red;")
+            return
+
+        try:
+            ca = float(self._map_sf_ca_edit.text())
+            n_slip, b_slip = _parse_slip_system(
+                self._map_sf_plane_edit.text(),
+                self._map_sf_dir_edit.text(),
+                ca)
+        except Exception as e:
+            QMessageBox.critical(self, "入力エラー", str(e))
+            return
+
+        self.per_stage["SF_schmid"] = {}
+        n_total = len(stages)
+        for i, stage in enumerate(stages):
+            self._map_ps_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
+            self._map_ps_status_lbl.setStyleSheet("color: gray;")
+            QApplication.processEvents()
+
+            phi1, PHI, phi2 = self._get_grod_euler(stage)
+            if phi1 is None:
+                continue
+            try:
+                load_vecs = self._sf_load_vec(stage)
+            except ValueError as e:
+                QMessageBox.critical(self, "負荷軸エラー", str(e))
+                return
+
+            schmid = compute_schmid_factor(
+                phi1.astype(float), PHI.astype(float), phi2.astype(float),
+                n_slip, b_slip, load_vecs)
+            self.per_stage["SF_schmid"][stage] = schmid
+
+        self._draw_sf_stage()
+        self._map_ps_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
+        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+
+    def _draw_sf_stage(self):
+        stages = self._grod_euler_stages()
+        val = self._map_sf_stage_slider.value()
+        if not stages or val >= len(stages):
+            return
+        tgt_stage = stages[val]
+        data = self.per_stage.get("SF_schmid", {}).get(tgt_stage)
+        if data is None:
+            return
+        try:
+            vmin = float(self._map_sf_vmin_edit.text())
+        except ValueError:
+            vmin = 0.0
+        try:
+            vmax = float(self._map_sf_vmax_edit.text())
+        except ValueError:
+            vmax = 0.5
+        x, y = self._get_xy(tgt_stage)
+        label = "Schmid Factor"
+        title = f"{label}  [{tgt_stage}]"
+        self.canvas_map.draw_scatter(
+            x, y, data,
+            self._map_sf_cmap_cb.currentText(), vmin, vmax, title,
+            xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+            segs = compute_boundary_segments(x, y, self.grain_id)
+            if segs:
+                self.canvas_map.ax.add_collection(
+                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                self.canvas_map.draw()
+
+    def _on_export_sf_all_stages(self):
+        if "SF_schmid" not in self.per_stage:
+            self._on_compute_sf()
+        if "SF_schmid" not in self.per_stage:
+            return
+        cmap = self._map_sf_cmap_cb.currentText()
+        try:
+            vmin = float(self._map_sf_vmin_edit.text())
+            vmax = float(self._map_sf_vmax_edit.text())
+        except ValueError:
+            vmin, vmax = 0.0, 0.5
+        label = "Schmid Factor"
+        self._map_ps_status_lbl.setText("全ステージ出力中...")
+        self._map_ps_status_lbl.setStyleSheet("color: gray;")
+        saved = 0
+        for stage, data in self.per_stage.get("SF_schmid", {}).items():
+            x, y = self._get_xy(stage)
+            title = f"{label}  [{stage}]"
+            self.canvas_map.draw_scatter(
+                x, y, data, cmap, vmin, vmax, title,
+                xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+            if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+                segs = compute_boundary_segments(x, y, self.grain_id)
+                if segs:
+                    self.canvas_map.ax.add_collection(
+                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                    self.canvas_map.draw()
+            out = self.mat_path.parent / f"SF_schmid_{stage}.png"
+            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            saved += 1
+        self._map_ps_status_lbl.setText(f"完了: {saved} 枚を保存")
+        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+        QMessageBox.information(self, "Export All",
+                                f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
+
+    def _on_add_sf_to_mat(self):
+        if "SF_schmid" not in self.per_stage or not self.per_stage["SF_schmid"]:
+            QMessageBox.warning(self, "追加", "先に「Compute シュミット因子」を実行してください。")
+            return
+        self._map_ps_status_lbl.setText("保存中...")
+        self._map_ps_status_lbl.setStyleSheet("color: gray;")
+        from scipy.io import savemat
+        data = self._load_derived_mat()
+        new_vars = {}
+        for stage, arr in self.per_stage["SF_schmid"].items():
+            new_vars[f"SF_schmid_s{stage}"] = arr.reshape(1, -1)
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)
