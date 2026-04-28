@@ -239,7 +239,7 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
         np.radians(phi2_deg[valid].astype(float)))
 
     # 負荷軸を結晶座標系へ変換: n_crys[n] = g[n].T @ lv[n]
-    n_load_crys = np.einsum('nji,nj->ni', g, lvecs[valid])   # (Nv, 3)  g.T @ v
+    n_load_crys = np.einsum('nji,ni->nj', g, lvecs[valid])   # (Nv, 3)  g @ v (sample→crystal)
 
     # 全等価系のシュミット因子を一括計算して最大を取る
     cos_phi = np.abs(n_load_crys @ n_equivs.T)   # (Nv, S)
