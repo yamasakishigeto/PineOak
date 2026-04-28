@@ -411,15 +411,19 @@ def compute_E_per_subset(phi1_deg, PHI_deg, phi2_deg, C_voigt_GPa, stress_dir):
     return E
 
 
-def compute_boundary_segments(x, y, grain_id):
+def compute_boundary_segments(x, y, grain_id, x_draw=None, y_draw=None):
     """隣接サブセット間で grain_id が異なる箇所の境界線分を返す。
 
-    サブセット間隔を自動検出し、グリッド座標に正規化して隣接判定する。
-    境界線は隣接サブセットの中点に垂直線分として描く。
+    x, y       : 近傍探索用座標（参照座標・規則グリッド）
+    grain_id   : 各点の粒ID
+    x_draw, y_draw : 実際の描画位置（None の場合は x, y と同じ）
+                     変形座標系使用時に cx+u, cy+v を渡す。
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     grain_id = np.asarray(grain_id)
+    xd = x if x_draw is None else np.asarray(x_draw, dtype=float)
+    yd = y if y_draw is None else np.asarray(y_draw, dtype=float)
 
     cx_unique = np.unique(x[np.isfinite(x)])
     cy_unique = np.unique(y[np.isfinite(y)])
@@ -431,7 +435,7 @@ def compute_boundary_segments(x, y, grain_id):
     if dx == 0 or dy == 0:
         return []
 
-    # グリッドインデックスで辞書を作成（NaN 座標はスキップ）
+    # 近傍探索は参照グリッドインデックスで行う
     coord_to_idx = {}
     for i, (xi, yi) in enumerate(zip(x, y)):
         if np.isfinite(xi) and np.isfinite(yi):
@@ -442,16 +446,18 @@ def compute_boundary_segments(x, y, grain_id):
         if not (np.isfinite(xi) and np.isfinite(yi)):
             continue
         gx, gy = round(xi / dx), round(yi / dy)
-        # 右隣 → 垂直境界線
+        # 右隣 → 垂直境界線（描画位置は変形座標の中点）
         nb = coord_to_idx.get((gx + 1, gy))
         if nb is not None and grain_id[nb] != gi:
-            mx = (xi + x[nb]) / 2
-            segments.append([(mx, yi - dy / 2), (mx, yi + dy / 2)])
-        # 下隣 → 水平境界線
+            mx = (xd[i] + xd[nb]) / 2
+            my = (yd[i] + yd[nb]) / 2
+            segments.append([(mx, my - dy / 2), (mx, my + dy / 2)])
+        # 下隣 → 水平境界線（描画位置は変形座標の中点）
         nb = coord_to_idx.get((gx, gy + 1))
         if nb is not None and grain_id[nb] != gi:
-            my = (yi + y[nb]) / 2
-            segments.append([(xi - dx / 2, my), (xi + dx / 2, my)])
+            mx = (xd[i] + xd[nb]) / 2
+            my = (yd[i] + yd[nb]) / 2
+            segments.append([(mx - dx / 2, my), (mx + dx / 2, my)])
     return segments
 
 
@@ -1329,7 +1335,7 @@ class StressStrainMapperApp(QMainWindow):
         cbar_label = f"{base} [{unit}]" if unit else base
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = compute_boundary_segments(x, y, self.grain_id)
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
@@ -1740,7 +1746,7 @@ class StressStrainMapperApp(QMainWindow):
             self._map_ps_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = compute_boundary_segments(x, y, self.grain_id)
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
@@ -1787,7 +1793,7 @@ class StressStrainMapperApp(QMainWindow):
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = compute_boundary_segments(x, y, self.grain_id)
+                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
                 if segs:
                     self.canvas_map.ax.add_collection(
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
@@ -1919,7 +1925,7 @@ class StressStrainMapperApp(QMainWindow):
             self._map_sf_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = compute_boundary_segments(x, y, self.grain_id)
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
@@ -1947,7 +1953,7 @@ class StressStrainMapperApp(QMainWindow):
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = compute_boundary_segments(x, y, self.grain_id)
+                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
                 if segs:
                     self.canvas_map.ax.add_collection(
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
@@ -2074,7 +2080,7 @@ class StressStrainMapperApp(QMainWindow):
             self._map_grod_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = compute_boundary_segments(x, y, self.grain_id)
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
@@ -2124,7 +2130,7 @@ class StressStrainMapperApp(QMainWindow):
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = compute_boundary_segments(x, y, self.grain_id)
+                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
                 if segs:
                     self.canvas_map.ax.add_collection(
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
