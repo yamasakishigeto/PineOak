@@ -181,7 +181,13 @@ def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
     bn = np.linalg.norm(b_raw)
     if nn < 1e-12 or bn < 1e-12:
         raise ValueError("すべり面または方向のノルムがゼロです")
-    return n_raw / nn, b_raw / bn
+    n_unit = n_raw / nn
+    b_unit = b_raw / bn
+    dot = abs(float(n_unit @ b_unit))
+    if dot > 1e-4:
+        raise ValueError(
+            f"すべり方向がすべり面内にありません（内積 = {dot:.4f}、ゼロである必要があります）")
+    return n_unit, b_unit
 
 
 def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs):
