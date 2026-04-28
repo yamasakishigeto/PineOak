@@ -727,8 +727,8 @@ class StressStrainMapperApp(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
-        # ---- 共有コントロール（全モード共通） ----
-        grp_shared = QGroupBox("共有コントロール")
+        # ---- 共通コントロール（全モード共通） ----
+        grp_shared = QGroupBox("共通コントロール")
         g_shared = QVBoxLayout(grp_shared)
 
         sh0 = QHBoxLayout()
@@ -743,6 +743,19 @@ class StressStrainMapperApp(QMainWindow):
         sh0.addStretch()
         self._map_mode_bg.idClicked.connect(self._on_map_mode_selector_changed)
         g_shared.addLayout(sh0)
+
+        sh_coord = QHBoxLayout()
+        sh_coord.addWidget(QLabel("座標系:"))
+        self._map_coord_bg = QButtonGroup(parent)
+        rb_ref = QRadioButton("Reference (cx, cy)")
+        self._rb_deformed = QRadioButton("Deformed (cx+u, cy+v)")
+        rb_ref.setChecked(True)
+        self._map_coord_bg.addButton(rb_ref, 0)
+        self._map_coord_bg.addButton(self._rb_deformed, 1)
+        sh_coord.addWidget(rb_ref)
+        sh_coord.addWidget(self._rb_deformed)
+        sh_coord.addStretch()
+        g_shared.addLayout(sh_coord)
 
         sh1 = QHBoxLayout()
         sh1.addWidget(QLabel("ステージ:"))
@@ -788,18 +801,6 @@ class StressStrainMapperApp(QMainWindow):
         self._map_var_cb.currentTextChanged.connect(self._on_map_var_changed)
         row1.addWidget(self._map_var_cb, stretch=1)
         g_var.addLayout(row1)
-
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("座標系:"))
-        self._map_coord_bg = QButtonGroup(parent)
-        rb_ref = QRadioButton("Reference (cx, cy)")
-        self._rb_deformed = QRadioButton("Deformed (cx+u, cy+v)")
-        rb_ref.setChecked(True)
-        self._map_coord_bg.addButton(rb_ref, 0)
-        self._map_coord_bg.addButton(self._rb_deformed, 1)
-        row3.addWidget(rb_ref)
-        row3.addWidget(self._rb_deformed)
-        g_var.addLayout(row3)
 
         row4 = QHBoxLayout()
         row4.addWidget(QLabel("カラーマップ:"))
