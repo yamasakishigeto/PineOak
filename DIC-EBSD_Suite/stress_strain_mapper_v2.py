@@ -734,7 +734,7 @@ class StressStrainMapperApp(QMainWindow):
         sh0 = QHBoxLayout()
         sh0.addWidget(QLabel("モード:"))
         self._map_mode_bg = QButtonGroup(parent)
-        for _id, _lbl in [(0, "変数マップ"), (1, "GROD"), (2, "主応力マップ")]:
+        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "主応力")]:
             rb = QRadioButton(_lbl)
             if _id == 0:
                 rb.setChecked(True)
@@ -790,8 +790,8 @@ class StressStrainMapperApp(QMainWindow):
         self._map_ps_stage_slider   = self._map_shared_stage_slider
         self._map_ps_stage_label    = self._map_shared_stage_label
 
-        # ---- 変数マップ GroupBox ----
-        grp_var = QGroupBox("変数マップ")
+        # ---- DIC/EBSD変数 GroupBox ----
+        grp_var = QGroupBox("DIC/EBSD変数")
         g_var = QVBoxLayout(grp_var)
 
         row1 = QHBoxLayout()
@@ -874,8 +874,8 @@ class StressStrainMapperApp(QMainWindow):
 
         layout.addWidget(grp_grod)
 
-        # ---- 主応力マップ GroupBox ----
-        grp_ps = QGroupBox("主応力マップ (Principal Stress)")
+        # ---- 主応力 GroupBox ----
+        grp_ps = QGroupBox("主応力 (Principal Stress)")
         g_ps = QVBoxLayout(grp_ps)
 
         ps0 = QHBoxLayout()
@@ -1048,7 +1048,7 @@ class StressStrainMapperApp(QMainWindow):
             self._on_add_ps_to_mat()
         else:
             QMessageBox.information(self, "保存",
-                                    "保存対象がありません。\nGROD または主応力マップを計算してください。")
+                                    "保存対象がありません。\nGROD または主応力を計算してください。")
 
     def _get_map_data(self, base, stage_idx):
         if base in self.per_stage:
