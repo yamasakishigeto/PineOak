@@ -190,8 +190,20 @@ def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
     return n_unit, b_unit
 
 
-def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs):
-    """各点のシュミット因子を計算する（ベクトル化）。
+def _euler_to_matrices_rad(phi1, PHI, phi2):
+    """Bunge オイラー角配列（ラジアン）→ 回転行列配列 (N, 3, 3)（ベクトル化）。"""
+    c1, c, c2 = np.cos(phi1), np.cos(PHI), np.cos(phi2)
+    s1, s, s2 = np.sin(phi1), np.sin(PHI), np.sin(phi2)
+    N = len(phi1)
+    g = np.zeros((N, 3, 3))
+    g[:, 0, 0] =  c1*c2 - s1*s2*c;  g[:, 0, 1] =  s1*c2 + c1*s2*c;  g[:, 0, 2] = s2*s
+    g[:, 1, 0] = -c1*s2 - s1*c2*c;  g[:, 1, 1] = -s1*s2 + c1*c2*c;  g[:, 1, 2] = c2*s
+    g[:, 2, 0] =  s1*s;              g[:, 2, 1] = -c1*s;              g[:, 2, 2] = c
+    return g
+
+
+def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs, sym_ops):
+    """全等価すべり系の最大シュミット因子を計算する（完全ベクトル化）。
 
     Parameters
     ----------
@@ -199,32 +211,40 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
     n_slip : ndarray shape (3,)  すべり面法線（結晶直交座標系・正規化済み）
     b_slip : ndarray shape (3,)  すべり方向（結晶直交座標系・正規化済み）
     load_vecs : ndarray shape (N, 3) or (3,)  負荷軸（試料座標系・正規化済み）
+    sym_ops : ndarray shape (S, 3, 3)  対称操作行列群
 
     Returns
     -------
-    schmid : ndarray shape (N,)  Schmid 因子 (0〜0.5)
+    schmid : ndarray shape (N,)  最大 Schmid 因子 (0〜0.5)
     """
     N = len(phi1_deg)
     schmid = np.full(N, np.nan)
 
-    lvecs = np.broadcast_to(load_vecs, (N, 3)).copy() if load_vecs.ndim == 1 \
-            else np.asarray(load_vecs, dtype=float)
+    lvecs = (np.broadcast_to(load_vecs, (N, 3)).copy() if np.asarray(load_vecs).ndim == 1
+             else np.asarray(load_vecs, dtype=float))
 
     valid = (np.isfinite(phi1_deg) & np.isfinite(PHI_deg) & np.isfinite(phi2_deg)
              & np.all(np.isfinite(lvecs), axis=1))
     if not np.any(valid):
         return schmid
 
-    for i in np.nonzero(valid)[0]:
-        g = _euler_to_matrix_rad(
-            np.radians(float(phi1_deg[i])),
-            np.radians(float(PHI_deg[i])),
-            np.radians(float(phi2_deg[i])))  # 結晶→試料
-        # 負荷軸を結晶座標系へ
-        n_load_crys = g.T @ lvecs[i]
-        cos_phi = abs(float(n_load_crys @ n_slip))
-        cos_lam = abs(float(n_load_crys @ b_slip))
-        schmid[i] = cos_phi * cos_lam
+    # 等価すべり系を対称操作で生成: (S, 3)
+    n_equivs = sym_ops @ n_slip   # (S, 3)
+    b_equivs = sym_ops @ b_slip   # (S, 3)
+
+    # 全有効点の回転行列: (Nv, 3, 3)
+    g = _euler_to_matrices_rad(
+        np.radians(phi1_deg[valid].astype(float)),
+        np.radians(PHI_deg[valid].astype(float)),
+        np.radians(phi2_deg[valid].astype(float)))
+
+    # 負荷軸を結晶座標系へ変換: n_crys[n] = g[n].T @ lv[n]
+    n_load_crys = np.einsum('nji,ni->nj', g, lvecs[valid])   # (Nv, 3)
+
+    # 全等価系のシュミット因子を一括計算して最大を取る
+    cos_phi = np.abs(n_load_crys @ n_equivs.T)   # (Nv, S)
+    cos_lam = np.abs(n_load_crys @ b_equivs.T)   # (Nv, S)
+    schmid[valid] = (cos_phi * cos_lam).max(axis=1)
 
     return schmid
 
@@ -1003,6 +1023,14 @@ class StressStrainMapperApp(QMainWindow):
         # ---- シュミット因子 GroupBox ----
         grp_sf = QGroupBox("シュミット因子 (Schmid Factor)")
         g_sf = QVBoxLayout(grp_sf)
+
+        sf_sym = QHBoxLayout()
+        sf_sym.addWidget(QLabel("対称性:"))
+        self._map_sf_sym_cb = QComboBox()
+        self._map_sf_sym_cb.addItems(list(SYM_GROUPS.keys()))
+        self._map_sf_sym_cb.setCurrentText("Cubic")
+        sf_sym.addWidget(self._map_sf_sym_cb, stretch=1)
+        g_sf.addLayout(sf_sym)
 
         sf0 = QHBoxLayout()
         sf0.addWidget(QLabel("すべり面:"))
@@ -1838,6 +1866,8 @@ class StressStrainMapperApp(QMainWindow):
             QMessageBox.critical(self, "入力エラー", str(e))
             return
 
+        sym_ops = _get_sym_ops(self._map_sf_sym_cb.currentText())
+
         self.per_stage["SF_schmid"] = {}
         n_total = len(stages)
         for i, stage in enumerate(stages):
@@ -1856,7 +1886,7 @@ class StressStrainMapperApp(QMainWindow):
 
             schmid = compute_schmid_factor(
                 phi1.astype(float), PHI.astype(float), phi2.astype(float),
-                n_slip, b_slip, load_vecs)
+                n_slip, b_slip, load_vecs, sym_ops)
             self.per_stage["SF_schmid"][stage] = schmid
 
         self._draw_sf_stage()
