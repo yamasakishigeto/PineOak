@@ -213,7 +213,8 @@ def _euler_to_matrices_rad(phi1, PHI, phi2):
     return g
 
 
-def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs, sym_ops):
+def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs, sym_ops,
+                          return_trace=False):
     """全等価すべり系の最大シュミット因子を計算する（完全ベクトル化）。
 
     Parameters
@@ -223,10 +224,12 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
     b_slip : ndarray shape (3,)  すべり方向（結晶直交座標系・正規化済み）
     load_vecs : ndarray shape (N, 3) or (3,)  負荷軸（試料座標系・正規化済み）
     sym_ops : ndarray shape (S, 3, 3)  対称操作行列群
+    return_trace : bool  True のとき XY 面上のトレース方向 (N, 2) も返す
 
     Returns
     -------
     schmid : ndarray shape (N,)  最大 Schmid 因子 (0〜0.5)
+    trace  : ndarray shape (N, 2)  トレース方向単位ベクトル（return_trace=True のとき）
     """
     N = len(phi1_deg)
     schmid = np.full(N, np.nan)
@@ -237,6 +240,8 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
     valid = (np.isfinite(phi1_deg) & np.isfinite(PHI_deg) & np.isfinite(phi2_deg)
              & np.all(np.isfinite(lvecs), axis=1))
     if not np.any(valid):
+        if return_trace:
+            return schmid, np.full((N, 2), np.nan)
         return schmid
 
     # 等価すべり系を対称操作で生成: (S, 3)
@@ -250,14 +255,29 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
         np.radians(phi2_deg[valid].astype(float)))
 
     # 負荷軸を結晶座標系へ変換: n_crys[n] = g[n].T @ lv[n]
-    n_load_crys = np.einsum('nji,ni->nj', g, lvecs[valid])   # (Nv, 3)  g @ v (sample→crystal)
+    n_load_crys = np.einsum('nji,ni->nj', g, lvecs[valid])   # (Nv, 3)
 
     # 全等価系のシュミット因子を一括計算して最大を取る
     cos_phi = np.abs(n_load_crys @ n_equivs.T)   # (Nv, S)
     cos_lam = np.abs(n_load_crys @ b_equivs.T)   # (Nv, S)
-    schmid[valid] = (cos_phi * cos_lam).max(axis=1)
+    sf_all  = cos_phi * cos_lam                   # (Nv, S)
+    max_idx = sf_all.argmax(axis=1)               # (Nv,)
+    schmid[valid] = sf_all[np.arange(len(max_idx)), max_idx]
 
-    return schmid
+    if not return_trace:
+        return schmid
+
+    # 最大シュミット因子のすべり系を試料座標系に変換してトレース方向を計算
+    n_samp = np.einsum('nij,sj->nsi', g, n_equivs)          # (Nv, S, 3)
+    n_max  = n_samp[np.arange(len(max_idx)), max_idx, :]     # (Nv, 3)
+    tx =  n_max[:, 1]
+    ty = -n_max[:, 0]
+    norm = np.sqrt(tx**2 + ty**2)
+    norm[norm < 1e-12] = 1.0
+    trace = np.full((N, 2), np.nan)
+    trace[valid, 0] = tx / norm
+    trace[valid, 1] = ty / norm
+    return schmid, trace
 
 
 def compute_hardening_rate(sv, ss, n, m):

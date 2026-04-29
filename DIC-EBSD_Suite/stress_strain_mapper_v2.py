@@ -507,6 +507,20 @@ class StressStrainMapperApp(QMainWindow):
         sf5.addStretch()
         g_sf.addLayout(sf5)
 
+        sf_trace = QHBoxLayout()
+        self._map_sf_trace_cb = QCheckBox("すべり面トレースを表示")
+        sf_trace.addWidget(self._map_sf_trace_cb)
+        sf_trace.addWidget(QLabel("線長:"))
+        self._map_sf_trace_len_edit = QLineEdit("4.0")
+        self._map_sf_trace_len_edit.setFixedWidth(50)
+        sf_trace.addWidget(self._map_sf_trace_len_edit)
+        sf_trace.addWidget(QLabel("線幅:"))
+        self._map_sf_trace_lw_edit = QLineEdit("1.0")
+        self._map_sf_trace_lw_edit.setFixedWidth(40)
+        sf_trace.addWidget(self._map_sf_trace_lw_edit)
+        sf_trace.addStretch()
+        g_sf.addLayout(sf_trace)
+
         layout.addWidget(grp_sf)
 
         # ---- RSS GroupBox ----
@@ -1190,6 +1204,7 @@ class StressStrainMapperApp(QMainWindow):
         sym_ops = _get_sym_ops(self._map_sf_sym_cb.currentText())
 
         self.per_stage["SF_schmid"] = {}
+        self.per_stage["SF_trace"] = {}
         n_total = len(stages)
         for i, stage in enumerate(stages):
             self._map_grod_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
@@ -1205,10 +1220,11 @@ class StressStrainMapperApp(QMainWindow):
                 QMessageBox.critical(self, "負荷軸エラー", str(e))
                 return
 
-            schmid = compute_schmid_factor(
+            schmid, trace = compute_schmid_factor(
                 phi1.astype(float), PHI.astype(float), phi2.astype(float),
-                n_slip, b_slip, load_vecs, sym_ops)
+                n_slip, b_slip, load_vecs, sym_ops, return_trace=True)
             self.per_stage["SF_schmid"][stage] = schmid
+            self.per_stage["SF_trace"][stage] = trace
 
         self._draw_sf_stage()
         self._map_grod_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
@@ -1238,6 +1254,23 @@ class StressStrainMapperApp(QMainWindow):
             x, y, data,
             self._map_sf_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+        if self._map_sf_trace_cb.isChecked():
+            trace = self.per_stage.get("SF_trace", {}).get(tgt_stage)
+            if trace is not None:
+                try:
+                    L  = float(self._map_sf_trace_len_edit.text())
+                    lw = float(self._map_sf_trace_lw_edit.text())
+                except ValueError:
+                    L, lw = 4.0, 1.0
+                mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
+                xi = x[mask]; yi = y[mask]
+                tx = trace[mask, 0]; ty = trace[mask, 1]
+                pts_s = np.column_stack([xi - L * tx, yi - L * ty])
+                pts_e = np.column_stack([xi + L * tx, yi + L * ty])
+                t_segs = np.stack([pts_s, pts_e], axis=1)
+                self.canvas_map.ax.add_collection(
+                    LineCollection(t_segs, linewidths=lw, colors="black", alpha=0.7, zorder=3))
+                self.canvas_map.draw()
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
             segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
@@ -1259,6 +1292,12 @@ class StressStrainMapperApp(QMainWindow):
         label = "Schmid Factor"
         self._map_grod_status_lbl.setText("全ステージ出力中...")
         self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        show_trace = self._map_sf_trace_cb.isChecked()
+        try:
+            trace_L  = float(self._map_sf_trace_len_edit.text())
+            trace_lw = float(self._map_sf_trace_lw_edit.text())
+        except ValueError:
+            trace_L, trace_lw = 4.0, 1.0
         saved = 0
         for stage, data in self.per_stage.get("SF_schmid", {}).items():
             x, y = self._get_xy(stage)
@@ -1266,6 +1305,18 @@ class StressStrainMapperApp(QMainWindow):
             self.canvas_map.draw_scatter(
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+            if show_trace:
+                trace = self.per_stage.get("SF_trace", {}).get(stage)
+                if trace is not None:
+                    mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
+                    xi = x[mask]; yi = y[mask]
+                    tx = trace[mask, 0]; ty = trace[mask, 1]
+                    pts_s = np.column_stack([xi - trace_L * tx, yi - trace_L * ty])
+                    pts_e = np.column_stack([xi + trace_L * tx, yi + trace_L * ty])
+                    t_segs = np.stack([pts_s, pts_e], axis=1)
+                    self.canvas_map.ax.add_collection(
+                        LineCollection(t_segs, linewidths=trace_lw, colors="black", alpha=0.7, zorder=3))
+                    self.canvas_map.draw()
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
                 segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
                 if segs:
