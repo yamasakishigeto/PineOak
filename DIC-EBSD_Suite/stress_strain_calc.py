@@ -84,44 +84,6 @@ def build_ss(per_stage, x_base, y_base):
     return sv, ss, common_stages
 
 
-def compute_principal_stress(s11, s22, s33, s12, s23, s31):
-    """6成分応力テンソルの固有値・固有ベクトルを計算する（ベクトル化）。
-
-    Returns
-    -------
-    sigma1, sigma2, sigma3 : ndarray  (σ1 ≥ σ2 ≥ σ3)
-    vec1, vec2, vec3       : ndarray  shape (N, 3)  各主応力方向の単位ベクトル
-    """
-    N = len(s11)
-    result = np.full((N, 3), np.nan)
-    vecs   = np.full((N, 3, 3), np.nan)   # vecs[:, :, k] が第k固有ベクトル
-
-    valid = (np.isfinite(s11) & np.isfinite(s22) & np.isfinite(s33) &
-             np.isfinite(s12) & np.isfinite(s23) & np.isfinite(s31))
-    if not np.any(valid):
-        return (result[:, 0], result[:, 1], result[:, 2],
-                vecs[:, :, 0], vecs[:, :, 1], vecs[:, :, 2])
-
-    Nv = int(np.count_nonzero(valid))
-    T = np.zeros((Nv, 3, 3))
-    T[:, 0, 0] = s11[valid];  T[:, 1, 1] = s22[valid];  T[:, 2, 2] = s33[valid]
-    T[:, 0, 1] = T[:, 1, 0] = s12[valid]
-    T[:, 1, 2] = T[:, 2, 1] = s23[valid]
-    T[:, 0, 2] = T[:, 2, 0] = s31[valid]
-
-    eigvals, eigvecs = np.linalg.eigh(T)   # ascending; eigvecs[:, :, k] = k番目固有ベクトル
-    idx = eigvals.argsort(axis=1)[:, ::-1]  # 降順ソート用インデックス (Nv, 3)
-    ni = np.arange(Nv)
-    eigvals = eigvals[ni[:, None], idx]                                      # (Nv, 3)
-    eigvecs = np.stack([eigvecs[ni, :, idx[:, k]] for k in range(3)], axis=2)  # (Nv, 3, 3)
-
-    result[valid] = eigvals
-    vecs[valid]   = eigvecs
-
-    return (result[:, 0], result[:, 1], result[:, 2],
-            vecs[:, :, 0], vecs[:, :, 1], vecs[:, :, 2])
-
-
 def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
     """すべり面・方向のテキストを結晶直交座標系の単位ベクトルに変換する。
 

@@ -41,7 +41,6 @@ from PyQt6.QtCore import Qt
 from stress_strain_calc import (
     SYM_GROUPS, _get_sym_ops,
     parse_mat, build_ss,
-    compute_principal_stress,
     _parse_slip_system, _euler_to_matrices_rad, compute_schmid_factor,
     compute_hardening_rate, compute_strain_energy, compute_yield_stress,
     read_stiffness_from_patrep_excel,
@@ -292,7 +291,7 @@ class StressStrainMapperApp(QMainWindow):
         sh0 = QHBoxLayout()
         sh0.addWidget(QLabel("モード:"))
         self._map_mode_bg = QButtonGroup(parent)
-        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "主応力"), (3, "シュミット因子")]:
+        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "シュミット因子")]:
             rb = QRadioButton(_lbl)
             if _id == 0:
                 rb.setChecked(True)
@@ -345,8 +344,6 @@ class StressStrainMapperApp(QMainWindow):
         self._map_stage_label       = self._map_shared_stage_label
         self._map_grod_stage_slider = self._map_shared_stage_slider
         self._map_grod_stage_label  = self._map_shared_stage_label
-        self._map_ps_stage_slider   = self._map_shared_stage_slider
-        self._map_ps_stage_label    = self._map_shared_stage_label
         self._map_sf_stage_slider   = self._map_shared_stage_slider
         self._map_sf_stage_label    = self._map_shared_stage_label
 
@@ -434,39 +431,6 @@ class StressStrainMapperApp(QMainWindow):
 
         layout.addWidget(grp_grod)
 
-        # ---- 主応力 GroupBox ----
-        grp_ps = QGroupBox("主応力 (Principal Stress)")
-        g_ps = QVBoxLayout(grp_ps)
-
-        ps02 = QHBoxLayout()
-        ps02.addWidget(QLabel("表示変数:"))
-        self._map_ps_comp_cb = QComboBox()
-        self._map_ps_comp_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self._map_ps_comp_cb.addItems(["σ1 (最大主応力)", "σ2 (中間主応力)", "σ3 (最小主応力)", "τmax (最大主せん断応力)"])
-        ps02.addWidget(self._map_ps_comp_cb)
-        ps02.addWidget(QLabel("カラーマップ:"))
-        self._map_ps_cmap_cb = QComboBox()
-        self._map_ps_cmap_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self._map_ps_cmap_cb.addItems(CMAPS)
-        self._map_ps_cmap_cb.setCurrentText("coolwarm")
-        ps02.addWidget(self._map_ps_cmap_cb)
-        ps02.addStretch()
-        g_ps.addLayout(ps02)
-
-        ps3 = QHBoxLayout()
-        ps3.addWidget(QLabel("Min:"))
-        self._map_ps_vmin_edit = QLineEdit()
-        self._map_ps_vmin_edit.setPlaceholderText("auto")
-        ps3.addWidget(self._map_ps_vmin_edit)
-        ps3.addWidget(QLabel("Max:"))
-        self._map_ps_vmax_edit = QLineEdit()
-        self._map_ps_vmax_edit.setPlaceholderText("auto")
-        ps3.addWidget(self._map_ps_vmax_edit)
-        ps3.addStretch()
-        g_ps.addLayout(ps3)
-
-        layout.addWidget(grp_ps)
-
         # ---- シュミット因子 GroupBox ----
         grp_sf = QGroupBox("シュミット因子 (Schmid Factor)")
         g_sf = QVBoxLayout(grp_sf)
@@ -518,7 +482,6 @@ class StressStrainMapperApp(QMainWindow):
         rb_lx = QRadioButton("X方向")
         rb_ly = QRadioButton("Y方向")
         rb_lv = QRadioButton("任意:")
-        rb_ps = QRadioButton("σ1方向")
         rb_lx.setChecked(True)
         for _i, _rb in enumerate([rb_lx, rb_ly, rb_lv]):
             self._map_sf_load_bg.addButton(_rb, _i)
@@ -529,8 +492,6 @@ class StressStrainMapperApp(QMainWindow):
         self._map_sf_load_bg.idClicked.connect(
             lambda i: self._map_sf_load_vec_edit.setEnabled(i == 2))
         sf3.addWidget(self._map_sf_load_vec_edit)
-        self._map_sf_load_bg.addButton(rb_ps, 3)
-        sf3.addWidget(rb_ps)
         sf3.addStretch()
         g_sf.addLayout(sf3)
 
@@ -564,7 +525,6 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_status_lbl = QLabel("")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
         layout.addWidget(self._map_grod_status_lbl)
-        self._map_ps_status_lbl = self._map_grod_status_lbl  # 共用
 
         layout.addStretch()
 
@@ -608,9 +568,9 @@ class StressStrainMapperApp(QMainWindow):
 
     def _on_map_mode_selector_changed(self, mode_id):
         """モード選択ラジオボタンが切り替わったとき。スライダー範囲とボタンラベルを更新。"""
-        mode_map = {0: "var", 1: "grod", 2: "ps", 3: "sf"}
+        mode_map = {0: "var", 1: "grod", 2: "sf"}
         self._map_mode = mode_map.get(mode_id, "var")
-        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute 主応力", 3: "Compute シュミット因子"}
+        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute シュミット因子"}
         self._map_shared_draw_btn.setText(labels.get(mode_id, "Draw Map"))
         # スライダー範囲を新モードに合わせて更新
         self._map_shared_stage_slider.blockSignals(True)
@@ -633,13 +593,6 @@ class StressStrainMapperApp(QMainWindow):
             if stages:
                 self._map_shared_stage_label.setText(
                     stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
-        elif self._map_mode == "ps":
-            stages = self._ps_stages()
-            self._map_shared_stage_slider.setMaximum(max(0, len(stages) - 1))
-            self._map_shared_stage_slider.setEnabled(bool(stages))
-            if stages:
-                self._map_shared_stage_label.setText(
-                    stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
         elif self._map_mode == "sf":
             stages = self._grod_euler_stages()
             self._map_shared_stage_slider.setMaximum(max(0, len(stages) - 1))
@@ -655,8 +608,6 @@ class StressStrainMapperApp(QMainWindow):
             self._draw_map_current()
         elif self._map_mode == "grod":
             self._on_compute_grod()
-        elif self._map_mode == "ps":
-            self._on_compute_ps()
         elif self._map_mode == "sf":
             self._on_compute_sf()
 
@@ -666,8 +617,6 @@ class StressStrainMapperApp(QMainWindow):
             self._export_map_all_stages()
         elif self._map_mode == "grod":
             self._on_export_grod_all_stages()
-        elif self._map_mode == "ps":
-            self._on_export_ps_all_stages()
         elif self._map_mode == "sf":
             self._on_export_sf_all_stages()
 
@@ -684,12 +633,6 @@ class StressStrainMapperApp(QMainWindow):
                 self._map_shared_stage_label.setText(stages[val])
             if "GROD_angle" in self.per_stage:
                 self._draw_grod_stage()
-        elif self._map_mode == "ps":
-            stages = self._ps_stages()
-            if 0 <= val < len(stages):
-                self._map_shared_stage_label.setText(stages[val])
-            if "PS_sigma1" in self.per_stage:
-                self._draw_ps_stage()
         elif self._map_mode == "sf":
             stages = self._grod_euler_stages()
             if 0 <= val < len(stages):
@@ -701,13 +644,11 @@ class StressStrainMapperApp(QMainWindow):
         """共有保存ボタン。現在のモードに応じて _derived.mat に保存する。"""
         if self._map_mode == "grod":
             self._on_add_grod_to_mat()
-        elif self._map_mode == "ps":
-            self._on_add_ps_to_mat()
         elif self._map_mode == "sf":
             self._on_add_sf_to_mat()
         else:
             QMessageBox.information(self, "保存",
-                                    "保存対象がありません。\nGROD または主応力を計算してください。")
+                                    "保存対象がありません。\nGROD またはシュミット因子を計算してください。")
 
     def _get_map_data(self, base, stage_idx):
         if base in self.per_stage:
@@ -1115,168 +1056,6 @@ class StressStrainMapperApp(QMainWindow):
     # ----------------------------------------------------------
 
     # ----------------------------------------------------------
-    # 主応力マップ（Mapタブから使用）
-    # ----------------------------------------------------------
-
-    def _ps_stages(self):
-        """rmap_s11/s22/s33/s12/s23/s31 の共通ステージを返す。"""
-        def key(s):
-            m = re.match(r"(\d+)MPa", s)
-            return int(m.group(1)) if m else 0
-        keys = ("rmap_s11", "rmap_s22", "rmap_s33",
-                "rmap_s12", "rmap_s23", "rmap_s31")
-        sets = [set(self.per_stage.get(k, {}).keys()) for k in keys]
-        common = sets[0]
-        for s in sets[1:]:
-            common &= s
-        return sorted(common, key=key)
-
-    def _on_compute_ps(self):
-        stages = self._ps_stages()
-        if not stages:
-            self._map_ps_status_lbl.setText("エラー: rmap_s11/s22/s33/s12/s23/s31 の共通ステージがありません")
-            self._map_ps_status_lbl.setStyleSheet("color: red;")
-            return
-
-        for base in ("PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max",
-                     "PS_vec1", "PS_vec2", "PS_vec3"):
-            self.per_stage[base] = {}
-
-        n_total = len(stages)
-        for i, stage in enumerate(stages):
-            self._map_ps_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
-            self._map_ps_status_lbl.setStyleSheet("color: gray;")
-            QApplication.processEvents()
-            s11 = self.per_stage["rmap_s11"][stage].astype(float)
-            s22 = self.per_stage["rmap_s22"][stage].astype(float)
-            s33 = self.per_stage["rmap_s33"][stage].astype(float)
-            s12 = self.per_stage["rmap_s12"][stage].astype(float)
-            s23 = self.per_stage["rmap_s23"][stage].astype(float)
-            s31 = self.per_stage["rmap_s31"][stage].astype(float)
-            sig1, sig2, sig3, vec1, vec2, vec3 = compute_principal_stress(
-                s11, s22, s33, s12, s23, s31)
-            self.per_stage["PS_sigma1"][stage] = sig1
-            self.per_stage["PS_sigma2"][stage] = sig2
-            self.per_stage["PS_sigma3"][stage] = sig3
-            self.per_stage["PS_tau_max"][stage] = (sig1 - sig3) / 2.0
-            self.per_stage["PS_vec1"][stage] = vec1   # shape (N, 3)
-            self.per_stage["PS_vec2"][stage] = vec2
-            self.per_stage["PS_vec3"][stage] = vec3
-
-        self._draw_ps_stage()
-        self._map_ps_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
-
-    def _draw_ps_stage(self):
-        stages = self._ps_stages()
-        val = self._map_ps_stage_slider.value()
-        if not stages or val >= len(stages):
-            return
-        tgt_stage = stages[val]
-        comp_idx = self._map_ps_comp_cb.currentIndex()
-        base  = ["PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max"][comp_idx]
-        label = ["σ1 [GPa]", "σ2 [GPa]", "σ3 [GPa]", "τmax [GPa]"][comp_idx]
-        data  = self.per_stage.get(base, {}).get(tgt_stage)
-        if data is None:
-            return
-        valid = data[np.isfinite(data)]
-        try:
-            vmin = float(self._map_ps_vmin_edit.text())
-        except ValueError:
-            vmin = float(np.min(valid)) if len(valid) else 0.0
-        try:
-            vmax = float(self._map_ps_vmax_edit.text())
-        except ValueError:
-            vmax = float(np.max(valid)) if len(valid) else 1.0
-        x, y = self._get_xy(tgt_stage)
-        title = f"{label}  [{tgt_stage}]"
-        self.canvas_map.draw_scatter(
-            x, y, data,
-            self._map_ps_cmap_cb.currentText(), vmin, vmax, title,
-            xlim=self._xlim, ylim=self._ylim, cbar_label=label)
-        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
-                self.canvas_map.draw()
-
-    def _on_export_ps_png(self):
-        if "PS_sigma1" not in self.per_stage:
-            QMessageBox.warning(self, "Export", "先に Compute & Map を実行してください。")
-            return
-        stages = self._ps_stages()
-        val = self._map_ps_stage_slider.value()
-        tgt = stages[val] if 0 <= val < len(stages) else "unknown"
-        comp = ["sigma1", "sigma2", "sigma3", "tau_max"][self._map_ps_comp_cb.currentIndex()]
-        out = self.mat_path.parent / f"PS_{comp}_{tgt}.png"
-        self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
-        QMessageBox.information(self, "Export", f"保存しました:\n{out}")
-
-    def _on_export_ps_all_stages(self):
-        if "PS_sigma1" not in self.per_stage:
-            self._on_compute_ps()
-        if "PS_sigma1" not in self.per_stage:
-            return
-        comp_idx = self._map_ps_comp_cb.currentIndex()
-        base  = ["PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max"][comp_idx]
-        label = ["σ1 [GPa]", "σ2 [GPa]", "σ3 [GPa]", "τmax [GPa]"][comp_idx]
-        comp  = ["sigma1", "sigma2", "sigma3", "tau_max"][comp_idx]
-        cmap  = self._map_ps_cmap_cb.currentText()
-        try:
-            vmin = float(self._map_ps_vmin_edit.text())
-            vmax = float(self._map_ps_vmax_edit.text())
-        except ValueError:
-            all_vals = [d[np.isfinite(d)]
-                        for d in self.per_stage.get(base, {}).values()]
-            combined = np.concatenate(all_vals) if all_vals else np.array([0.0, 1.0])
-            vmin, vmax = float(np.nanmin(combined)), float(np.nanmax(combined))
-
-        self._map_ps_status_lbl.setText("全ステージ出力中...")
-        self._map_ps_status_lbl.setStyleSheet("color: gray;")
-        saved = 0
-        for stage, data in self.per_stage.get(base, {}).items():
-            x, y = self._get_xy(stage)
-            title = f"{label}  [{stage}]"
-            self.canvas_map.draw_scatter(
-                x, y, data, cmap, vmin, vmax, title,
-                xlim=self._xlim, ylim=self._ylim, cbar_label=label)
-            if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
-                if segs:
-                    self.canvas_map.ax.add_collection(
-                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
-                    self.canvas_map.draw()
-            out = self.mat_path.parent / f"PS_{comp}_{stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
-            saved += 1
-
-        self._map_ps_status_lbl.setText(f"完了: {saved} 枚を保存")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
-        QMessageBox.information(self, "Export All",
-                                f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
-
-    def _on_add_ps_to_mat(self):
-        """計算済みの主応力・τmax を _derived.mat に保存する。"""
-        if "PS_sigma1" not in self.per_stage or not self.per_stage["PS_sigma1"]:
-            QMessageBox.warning(self, "追加", "先に「Compute & Map」を実行してください。")
-            return
-        self._map_ps_status_lbl.setText("保存中...")
-        self._map_ps_status_lbl.setStyleSheet("color: gray;")
-        from scipy.io import savemat
-        data = self._load_derived_mat()
-        new_vars = {}
-        for base in ("PS_sigma1", "PS_sigma2", "PS_sigma3", "PS_tau_max"):
-            for stage, arr in self.per_stage.get(base, {}).items():
-                new_vars[f"{base}_s{stage}"] = arr.reshape(1, -1)
-        data.update(new_vars)
-        out = self._derived_mat_path()
-        savemat(str(out), data)
-        self._map_ps_status_lbl.setText(
-            f"追加完了: {len(new_vars)} 変数を {out.name} に保存しました")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
-
-    # ----------------------------------------------------------
     # シュミット因子マップ（Mapタブから使用）
     # ----------------------------------------------------------
 
@@ -1287,7 +1066,7 @@ class StressStrainMapperApp(QMainWindow):
             return np.array([1.0, 0.0, 0.0])
         elif load_id == 1:  # Y
             return np.array([0.0, 1.0, 0.0])
-        elif load_id == 2:  # 任意
+        else:  # 任意 (id==2)
             nums = [float(x) for x in self._map_sf_load_vec_edit.text().split()]
             if len(nums) < 3:
                 raise ValueError("負荷軸ベクトルは 3 成分必要です (例: 1 0 0)")
@@ -1296,20 +1075,12 @@ class StressStrainMapperApp(QMainWindow):
             if norm < 1e-12:
                 raise ValueError("負荷軸ベクトルのノルムがゼロです")
             return v / norm
-        else:  # σ1方向
-            vecs = self.per_stage.get("PS_vec1", {}).get(stage)
-            if vecs is None:
-                raise ValueError("σ1 方向を使用するには先に「Compute 主応力」を実行してください")
-            # shape (N, 3)、各点ごとの負荷軸
-            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-            norms[norms < 1e-12] = 1.0
-            return vecs / norms
 
     def _on_compute_sf(self):
         stages = self._grod_euler_stages()
         if not stages:
-            self._map_ps_status_lbl.setText("エラー: Euler角ステージデータが見つかりません")
-            self._map_ps_status_lbl.setStyleSheet("color: red;")
+            self._map_grod_status_lbl.setText("エラー: Euler角ステージデータが見つかりません")
+            self._map_grod_status_lbl.setStyleSheet("color: red;")
             return
 
         try:
@@ -1327,8 +1098,8 @@ class StressStrainMapperApp(QMainWindow):
         self.per_stage["SF_schmid"] = {}
         n_total = len(stages)
         for i, stage in enumerate(stages):
-            self._map_ps_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
-            self._map_ps_status_lbl.setStyleSheet("color: gray;")
+            self._map_grod_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
+            self._map_grod_status_lbl.setStyleSheet("color: gray;")
             QApplication.processEvents()
 
             phi1, PHI, phi2 = self._get_grod_euler(stage)
@@ -1346,8 +1117,8 @@ class StressStrainMapperApp(QMainWindow):
             self.per_stage["SF_schmid"][stage] = schmid
 
         self._draw_sf_stage()
-        self._map_ps_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+        self._map_grod_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _draw_sf_stage(self):
         stages = self._grod_euler_stages()
@@ -1392,8 +1163,8 @@ class StressStrainMapperApp(QMainWindow):
         except ValueError:
             vmin, vmax = 0.0, 0.5
         label = "Schmid Factor"
-        self._map_ps_status_lbl.setText("全ステージ出力中...")
-        self._map_ps_status_lbl.setStyleSheet("color: gray;")
+        self._map_grod_status_lbl.setText("全ステージ出力中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
         saved = 0
         for stage, data in self.per_stage.get("SF_schmid", {}).items():
             x, y = self._get_xy(stage)
@@ -1410,8 +1181,8 @@ class StressStrainMapperApp(QMainWindow):
             out = self.mat_path.parent / f"SF_schmid_{stage}.png"
             self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
             saved += 1
-        self._map_ps_status_lbl.setText(f"完了: {saved} 枚を保存")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+        self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
         QMessageBox.information(self, "Export All",
                                 f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
 
@@ -1419,8 +1190,8 @@ class StressStrainMapperApp(QMainWindow):
         if "SF_schmid" not in self.per_stage or not self.per_stage["SF_schmid"]:
             QMessageBox.warning(self, "追加", "先に「Compute シュミット因子」を実行してください。")
             return
-        self._map_ps_status_lbl.setText("保存中...")
-        self._map_ps_status_lbl.setStyleSheet("color: gray;")
+        self._map_grod_status_lbl.setText("保存中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
         from scipy.io import savemat
         data = self._load_derived_mat()
         new_vars = {}
@@ -1429,9 +1200,9 @@ class StressStrainMapperApp(QMainWindow):
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)
-        self._map_ps_status_lbl.setText(
+        self._map_grod_status_lbl.setText(
             f"追加完了: {len(new_vars)} 変数を {out.name} に保存しました")
-        self._map_ps_status_lbl.setStyleSheet("color: goldenrod;")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
 
     # ----------------------------------------------------------
     # GROD ユーティリティ（Mapタブから使用）
