@@ -1723,9 +1723,8 @@ class StressStrainMapperApp(QMainWindow):
         from scipy.io import savemat
         data = self._load_derived_mat()
         new_vars = {}
-        for base in ("GROD_angle", "GROD_axis_x", "GROD_axis_y", "GROD_axis_z"):
-            for stage, arr in self.per_stage.get(base, {}).items():
-                new_vars[f"{base}_s{stage}"] = arr.reshape(1, -1)
+        for stage, arr in self.per_stage.get("GROD_angle", {}).items():
+            new_vars[f"GROD_angle_s{stage}"] = arr.reshape(1, -1)
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)
