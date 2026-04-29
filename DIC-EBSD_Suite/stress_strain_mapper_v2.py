@@ -566,6 +566,20 @@ class StressStrainMapperApp(QMainWindow):
         rss_mm.addStretch()
         g_rss.addLayout(rss_mm)
 
+        rss_trace = QHBoxLayout()
+        self._map_rss_trace_cb = QCheckBox("すべり面トレースを表示")
+        rss_trace.addWidget(self._map_rss_trace_cb)
+        rss_trace.addWidget(QLabel("線長:"))
+        self._map_rss_trace_len_edit = QLineEdit("4.0")
+        self._map_rss_trace_len_edit.setFixedWidth(50)
+        rss_trace.addWidget(self._map_rss_trace_len_edit)
+        rss_trace.addWidget(QLabel("線幅:"))
+        self._map_rss_trace_lw_edit = QLineEdit("1.0")
+        self._map_rss_trace_lw_edit.setFixedWidth(40)
+        rss_trace.addWidget(self._map_rss_trace_lw_edit)
+        rss_trace.addStretch()
+        g_rss.addLayout(rss_trace)
+
         layout.addWidget(grp_rss)
 
         # ---- 共通：粒界描画・ステータス ----
@@ -835,7 +849,7 @@ class StressStrainMapperApp(QMainWindow):
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         fname = f"map_{base}_{stage}.png" if stage else f"map_{base}.png"
         out = self.mat_path.parent / fname
-        self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     def _export_map_all_stages(self):
@@ -865,7 +879,7 @@ class StressStrainMapperApp(QMainWindow):
             self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, f"{base} [{stage}]", xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
             self.canvas_map._fig.savefig(
                 str(self.mat_path.parent / f"map_{base}_{stage}.png"),
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
 
         QMessageBox.information(self, "Export All",
                                 f"{len(sts)} 枚を保存しました:\n{self.mat_path.parent}")
@@ -1259,7 +1273,7 @@ class StressStrainMapperApp(QMainWindow):
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"SF_schmid_{stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
             saved += 1
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
@@ -1321,6 +1335,7 @@ class StressStrainMapperApp(QMainWindow):
 
         sym_ops = _get_sym_ops(self._map_rss_sym_cb.currentText())
         self.per_stage["RSS_max"] = {}
+        self.per_stage["RSS_trace"] = {}
         n_total = len(stages)
         for i, stage in enumerate(stages):
             self._map_grod_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
@@ -1336,11 +1351,12 @@ class StressStrainMapperApp(QMainWindow):
             s12 = self.per_stage["rmap_s12"][stage].astype(float)
             s23 = self.per_stage["rmap_s23"][stage].astype(float)
             s31 = self.per_stage["rmap_s31"][stage].astype(float)
-            rss = compute_rss(
+            rss, trace = compute_rss(
                 phi1.astype(float), PHI.astype(float), phi2.astype(float),
                 s11, s22, s33, s12, s23, s31,
-                n_slip, b_slip, sym_ops)
+                n_slip, b_slip, sym_ops, return_trace=True)
             self.per_stage["RSS_max"][stage] = rss
+            self.per_stage["RSS_trace"][stage] = trace
 
         self._draw_rss_stage()
         self._map_grod_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
@@ -1371,6 +1387,23 @@ class StressStrainMapperApp(QMainWindow):
             x, y, data,
             self._map_rss_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+        if self._map_rss_trace_cb.isChecked():
+            trace = self.per_stage.get("RSS_trace", {}).get(tgt_stage)
+            if trace is not None:
+                try:
+                    L  = float(self._map_rss_trace_len_edit.text())
+                    lw = float(self._map_rss_trace_lw_edit.text())
+                except ValueError:
+                    L, lw = 4.0, 1.0
+                mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
+                xi = x[mask]; yi = y[mask]
+                tx = trace[mask, 0]; ty = trace[mask, 1]
+                pts_s = np.column_stack([xi - L * tx, yi - L * ty])
+                pts_e = np.column_stack([xi + L * tx, yi + L * ty])
+                t_segs = np.stack([pts_s, pts_e], axis=1)
+                self.canvas_map.ax.add_collection(
+                    LineCollection(t_segs, linewidths=lw, colors="black", alpha=0.7, zorder=3))
+                self.canvas_map.draw()
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
             segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
             if segs:
@@ -1394,6 +1427,12 @@ class StressStrainMapperApp(QMainWindow):
         label = "Max RSS [GPa]"
         self._map_grod_status_lbl.setText("全ステージ出力中...")
         self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        show_trace = self._map_rss_trace_cb.isChecked()
+        try:
+            trace_L  = float(self._map_rss_trace_len_edit.text())
+            trace_lw = float(self._map_rss_trace_lw_edit.text())
+        except ValueError:
+            trace_L, trace_lw = 4.0, 1.0
         saved = 0
         for stage, data in self.per_stage.get("RSS_max", {}).items():
             x, y = self._get_xy(stage)
@@ -1401,6 +1440,18 @@ class StressStrainMapperApp(QMainWindow):
             self.canvas_map.draw_scatter(
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+            if show_trace:
+                trace = self.per_stage.get("RSS_trace", {}).get(stage)
+                if trace is not None:
+                    mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
+                    xi = x[mask]; yi = y[mask]
+                    tx = trace[mask, 0]; ty = trace[mask, 1]
+                    pts_s = np.column_stack([xi - trace_L * tx, yi - trace_L * ty])
+                    pts_e = np.column_stack([xi + trace_L * tx, yi + trace_L * ty])
+                    t_segs = np.stack([pts_s, pts_e], axis=1)
+                    self.canvas_map.ax.add_collection(
+                        LineCollection(t_segs, linewidths=trace_lw, colors="black", alpha=0.7, zorder=3))
+                    self.canvas_map.draw()
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
                 segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
                 if segs:
@@ -1408,7 +1459,7 @@ class StressStrainMapperApp(QMainWindow):
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"RSS_max_{stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
             saved += 1
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
@@ -1546,7 +1597,7 @@ class StressStrainMapperApp(QMainWindow):
         var = (self._map_grod_var_cb.currentText()
                .replace(" ", "_").replace("[", "").replace("]", ""))
         out = self.mat_path.parent / f"GROD_{var}_{tgt}_ref{ref}.png"
-        self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     def _on_export_grod_all_stages(self):
@@ -1585,7 +1636,7 @@ class StressStrainMapperApp(QMainWindow):
                         LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"GROD_{label}_{stage}_ref{ref_stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
             saved += 1
 
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
@@ -1933,7 +1984,7 @@ class StressStrainMapperApp(QMainWindow):
             QMessageBox.warning(self, "Export", "先に Compute & Map を実行してください。")
             return
         out = self.mat_path.parent / f"derived_{key}.png"
-        self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     # ----------------------------------------------------------

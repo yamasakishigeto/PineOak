@@ -86,7 +86,8 @@ def build_ss(per_stage, x_base, y_base):
 
 def compute_rss(phi1_deg, PHI_deg, phi2_deg,
                 s11, s22, s33, s12, s23, s31,
-                n_slip, b_slip, sym_ops):
+                n_slip, b_slip, sym_ops,
+                return_trace=False):
     """全等価すべり系の最大分解せん断応力（|RSS|）を計算する（ベクトル化）。
 
     Parameters
@@ -96,10 +97,12 @@ def compute_rss(phi1_deg, PHI_deg, phi2_deg,
     n_slip : ndarray shape (3,)  すべり面法線（結晶直交座標系・正規化済み）
     b_slip : ndarray shape (3,)  すべり方向（結晶直交座標系・正規化済み）
     sym_ops : ndarray shape (S, 3, 3)  対称操作行列群
+    return_trace : bool  True のとき XY 面上のトレース方向 (N, 2) も返す
 
     Returns
     -------
     rss : ndarray shape (N,)  最大 |RSS| 値
+    trace : ndarray shape (N, 2)  トレース方向単位ベクトル（return_trace=True のとき）
     """
     N = len(phi1_deg)
     rss = np.full(N, np.nan)
@@ -108,6 +111,8 @@ def compute_rss(phi1_deg, PHI_deg, phi2_deg,
              & np.isfinite(s11) & np.isfinite(s22) & np.isfinite(s33)
              & np.isfinite(s12) & np.isfinite(s23) & np.isfinite(s31))
     if not np.any(valid):
+        if return_trace:
+            return rss, np.full((N, 2), np.nan)
         return rss
 
     Nv = int(np.count_nonzero(valid))
@@ -134,8 +139,23 @@ def compute_rss(phi1_deg, PHI_deg, phi2_deg,
     sigma_b = np.einsum('nij,nsj->nsi', sigma, b_samp)   # (Nv, S, 3)
     rss_all = np.einsum('nsi,nsi->ns', n_samp, sigma_b)   # (Nv, S)
 
-    rss[valid] = np.abs(rss_all).max(axis=1)
-    return rss
+    max_idx = np.abs(rss_all).argmax(axis=1)              # (Nv,)
+    rss[valid] = np.abs(rss_all)[np.arange(Nv), max_idx]
+
+    if not return_trace:
+        return rss
+
+    # RSS 最大のすべり系の試料座標系法線からトレース方向を計算
+    # n = [nx, ny, nz] → trace = [ny, -nx] (XY 面との交線方向)
+    n_max = n_samp[np.arange(Nv), max_idx, :]             # (Nv, 3)
+    tx =  n_max[:, 1]
+    ty = -n_max[:, 0]
+    norm = np.sqrt(tx**2 + ty**2)
+    norm[norm < 1e-12] = 1.0
+    trace = np.full((N, 2), np.nan)
+    trace[valid, 0] = tx / norm
+    trace[valid, 1] = ty / norm
+    return rss, trace
 
 
 def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
