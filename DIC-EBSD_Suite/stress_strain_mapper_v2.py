@@ -511,11 +511,11 @@ class StressStrainMapperApp(QMainWindow):
         self._map_sf_trace_cb = QCheckBox("すべり面トレースを表示")
         sf_trace.addWidget(self._map_sf_trace_cb)
         sf_trace.addWidget(QLabel("線長:"))
-        self._map_sf_trace_len_edit = QLineEdit("4.0")
+        self._map_sf_trace_len_edit = QLineEdit("10.0")
         self._map_sf_trace_len_edit.setFixedWidth(50)
         sf_trace.addWidget(self._map_sf_trace_len_edit)
         sf_trace.addWidget(QLabel("線幅:"))
-        self._map_sf_trace_lw_edit = QLineEdit("1.0")
+        self._map_sf_trace_lw_edit = QLineEdit("0.5")
         self._map_sf_trace_lw_edit.setFixedWidth(40)
         sf_trace.addWidget(self._map_sf_trace_lw_edit)
         sf_trace.addStretch()
@@ -584,11 +584,11 @@ class StressStrainMapperApp(QMainWindow):
         self._map_rss_trace_cb = QCheckBox("すべり面トレースを表示")
         rss_trace.addWidget(self._map_rss_trace_cb)
         rss_trace.addWidget(QLabel("線長:"))
-        self._map_rss_trace_len_edit = QLineEdit("4.0")
+        self._map_rss_trace_len_edit = QLineEdit("10.0")
         self._map_rss_trace_len_edit.setFixedWidth(50)
         rss_trace.addWidget(self._map_rss_trace_len_edit)
         rss_trace.addWidget(QLabel("線幅:"))
-        self._map_rss_trace_lw_edit = QLineEdit("1.0")
+        self._map_rss_trace_lw_edit = QLineEdit("0.5")
         self._map_rss_trace_lw_edit.setFixedWidth(40)
         rss_trace.addWidget(self._map_rss_trace_lw_edit)
         rss_trace.addStretch()
@@ -1261,7 +1261,7 @@ class StressStrainMapperApp(QMainWindow):
                     L  = float(self._map_sf_trace_len_edit.text())
                     lw = float(self._map_sf_trace_lw_edit.text())
                 except ValueError:
-                    L, lw = 4.0, 1.0
+                    L, lw = 10.0, 0.5
                 mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
                 xi = x[mask]; yi = y[mask]
                 tx = trace[mask, 0]; ty = trace[mask, 1]
@@ -1297,7 +1297,7 @@ class StressStrainMapperApp(QMainWindow):
             trace_L  = float(self._map_sf_trace_len_edit.text())
             trace_lw = float(self._map_sf_trace_lw_edit.text())
         except ValueError:
-            trace_L, trace_lw = 4.0, 1.0
+            trace_L, trace_lw = 10.0, 0.5
         saved = 0
         for stage, data in self.per_stage.get("SF_schmid", {}).items():
             x, y = self._get_xy(stage)
@@ -1448,7 +1448,7 @@ class StressStrainMapperApp(QMainWindow):
                     L  = float(self._map_rss_trace_len_edit.text())
                     lw = float(self._map_rss_trace_lw_edit.text())
                 except ValueError:
-                    L, lw = 4.0, 1.0
+                    L, lw = 10.0, 0.5
                 mask = np.isfinite(trace[:, 0]) & np.isfinite(x) & np.isfinite(y)
                 xi = x[mask]; yi = y[mask]
                 tx = trace[mask, 0]; ty = trace[mask, 1]
@@ -1486,7 +1486,7 @@ class StressStrainMapperApp(QMainWindow):
             trace_L  = float(self._map_rss_trace_len_edit.text())
             trace_lw = float(self._map_rss_trace_lw_edit.text())
         except ValueError:
-            trace_L, trace_lw = 4.0, 1.0
+            trace_L, trace_lw = 10.0, 0.5
         saved = 0
         for stage, data in self.per_stage.get("RSS_max", {}).items():
             x, y = self._get_xy(stage)
