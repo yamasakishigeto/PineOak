@@ -1342,6 +1342,9 @@ class StressStrainMapperApp(QMainWindow):
         new_vars = {}
         for stage, arr in self.per_stage["SF_schmid"].items():
             new_vars[f"SF_schmid_s{stage}"] = arr.reshape(1, -1)
+        for stage, trace in self.per_stage.get("SF_trace", {}).items():
+            angle = np.degrees(np.arctan2(trace[:, 1], trace[:, 0])) % 180
+            new_vars[f"SF_trace_angle_s{stage}"] = angle.reshape(1, -1)
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)
@@ -1528,6 +1531,9 @@ class StressStrainMapperApp(QMainWindow):
         new_vars = {}
         for stage, arr in self.per_stage["RSS_max"].items():
             new_vars[f"RSS_max_s{stage}"] = arr.reshape(1, -1)
+        for stage, trace in self.per_stage.get("RSS_trace", {}).items():
+            angle = np.degrees(np.arctan2(trace[:, 1], trace[:, 0])) % 180
+            new_vars[f"RSS_trace_angle_s{stage}"] = angle.reshape(1, -1)
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)
