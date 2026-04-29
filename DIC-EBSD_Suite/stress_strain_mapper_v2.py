@@ -41,7 +41,7 @@ from PyQt6.QtCore import Qt
 from stress_strain_calc import (
     SYM_GROUPS, _get_sym_ops,
     parse_mat, build_ss,
-    _parse_slip_system, _euler_to_matrices_rad, compute_schmid_factor,
+    _parse_slip_system, _euler_to_matrices_rad, compute_schmid_factor, compute_rss,
     compute_hardening_rate, compute_strain_energy, compute_yield_stress,
     read_stiffness_from_patrep_excel,
     _euler_to_matrix_rad, compute_E_per_subset,
@@ -291,7 +291,7 @@ class StressStrainMapperApp(QMainWindow):
         sh0 = QHBoxLayout()
         sh0.addWidget(QLabel("モード:"))
         self._map_mode_bg = QButtonGroup(parent)
-        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "シュミット因子")]:
+        for _id, _lbl in [(0, "DIC/EBSD変数"), (1, "GROD"), (2, "シュミット因子"), (3, "RSS")]:
             rb = QRadioButton(_lbl)
             if _id == 0:
                 rb.setChecked(True)
@@ -346,6 +346,8 @@ class StressStrainMapperApp(QMainWindow):
         self._map_grod_stage_label  = self._map_shared_stage_label
         self._map_sf_stage_slider   = self._map_shared_stage_slider
         self._map_sf_stage_label    = self._map_shared_stage_label
+        self._map_rss_stage_slider  = self._map_shared_stage_slider
+        self._map_rss_stage_label   = self._map_shared_stage_label
 
         # ---- DIC/EBSD変数 GroupBox ----
         grp_var = QGroupBox("DIC/EBSD変数")
@@ -507,6 +509,65 @@ class StressStrainMapperApp(QMainWindow):
 
         layout.addWidget(grp_sf)
 
+        # ---- RSS GroupBox ----
+        grp_rss = QGroupBox("分解せん断応力 (Resolved Shear Stress)")
+        g_rss = QVBoxLayout(grp_rss)
+
+        rss_sym = QHBoxLayout()
+        rss_sym.addWidget(QLabel("対称性:"))
+        self._map_rss_sym_cb = QComboBox()
+        self._map_rss_sym_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._map_rss_sym_cb.addItems(list(SYM_GROUPS.keys()))
+        self._map_rss_sym_cb.setCurrentText("Cubic")
+        rss_sym.addWidget(self._map_rss_sym_cb)
+        rss_sym.addWidget(QLabel("カラーマップ:"))
+        self._map_rss_cmap_cb = QComboBox()
+        self._map_rss_cmap_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._map_rss_cmap_cb.addItems(CMAPS)
+        self._map_rss_cmap_cb.setCurrentText("coolwarm")
+        rss_sym.addWidget(self._map_rss_cmap_cb)
+        rss_sym.addStretch()
+        g_rss.addLayout(rss_sym)
+
+        rss_slip = QHBoxLayout()
+        rss_slip.addWidget(QLabel("すべり面:"))
+        self._map_rss_plane_edit = QLineEdit("1 1 1")
+        self._map_rss_plane_edit.setPlaceholderText("例: 1 1 1  または  0 0 0 1")
+        rss_slip.addWidget(self._map_rss_plane_edit, stretch=1)
+        rss_slip.addWidget(QLabel("すべり方向:"))
+        self._map_rss_dir_edit = QLineEdit("1 -1 0")
+        self._map_rss_dir_edit.setPlaceholderText("例: 1 -1 0  または  1 1 -2 0")
+        rss_slip.addWidget(self._map_rss_dir_edit, stretch=1)
+        g_rss.addLayout(rss_slip)
+
+        rss_ca = QHBoxLayout()
+        rss_ca.addWidget(QLabel("c/a 比:"))
+        self._map_rss_ca_edit = QLineEdit("1.633")
+        self._map_rss_ca_edit.setEnabled(False)
+        rss_ca.addWidget(self._map_rss_ca_edit)
+        rss_ca.addStretch()
+        g_rss.addLayout(rss_ca)
+
+        def _update_rss_ca_enable():
+            txt = self._map_rss_plane_edit.text()
+            nums = [x for x in txt.replace(',', ' ').split() if x]
+            self._map_rss_ca_edit.setEnabled(len(nums) == 4)
+        self._map_rss_plane_edit.textChanged.connect(lambda _: _update_rss_ca_enable())
+
+        rss_mm = QHBoxLayout()
+        rss_mm.addWidget(QLabel("Min:"))
+        self._map_rss_vmin_edit = QLineEdit()
+        self._map_rss_vmin_edit.setPlaceholderText("auto")
+        rss_mm.addWidget(self._map_rss_vmin_edit)
+        rss_mm.addWidget(QLabel("Max:"))
+        self._map_rss_vmax_edit = QLineEdit()
+        self._map_rss_vmax_edit.setPlaceholderText("auto")
+        rss_mm.addWidget(self._map_rss_vmax_edit)
+        rss_mm.addStretch()
+        g_rss.addLayout(rss_mm)
+
+        layout.addWidget(grp_rss)
+
         # ---- 共通：粒界描画・ステータス ----
         row_gb = QHBoxLayout()
         self._map_show_gb_cb = QCheckBox("Grain boundaries")
@@ -568,9 +629,9 @@ class StressStrainMapperApp(QMainWindow):
 
     def _on_map_mode_selector_changed(self, mode_id):
         """モード選択ラジオボタンが切り替わったとき。スライダー範囲とボタンラベルを更新。"""
-        mode_map = {0: "var", 1: "grod", 2: "sf"}
+        mode_map = {0: "var", 1: "grod", 2: "sf", 3: "rss"}
         self._map_mode = mode_map.get(mode_id, "var")
-        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute シュミット因子"}
+        labels = {0: "Draw Map", 1: "Compute GROD", 2: "Compute シュミット因子", 3: "Compute RSS"}
         self._map_shared_draw_btn.setText(labels.get(mode_id, "Draw Map"))
         # スライダー範囲を新モードに合わせて更新
         self._map_shared_stage_slider.blockSignals(True)
@@ -600,6 +661,13 @@ class StressStrainMapperApp(QMainWindow):
             if stages:
                 self._map_shared_stage_label.setText(
                     stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
+        elif self._map_mode == "rss":
+            stages = self._rss_stages()
+            self._map_shared_stage_slider.setMaximum(max(0, len(stages) - 1))
+            self._map_shared_stage_slider.setEnabled(bool(stages))
+            if stages:
+                self._map_shared_stage_label.setText(
+                    stages[min(self._map_shared_stage_slider.value(), len(stages) - 1)])
         self._map_shared_stage_slider.blockSignals(False)
 
     def _on_shared_draw_compute(self):
@@ -610,6 +678,8 @@ class StressStrainMapperApp(QMainWindow):
             self._on_compute_grod()
         elif self._map_mode == "sf":
             self._on_compute_sf()
+        elif self._map_mode == "rss":
+            self._on_compute_rss()
 
     def _on_shared_export_png(self):
         """Export PNG ボタン。モードに応じて全ステージを PNG 保存。"""
@@ -619,6 +689,8 @@ class StressStrainMapperApp(QMainWindow):
             self._on_export_grod_all_stages()
         elif self._map_mode == "sf":
             self._on_export_sf_all_stages()
+        elif self._map_mode == "rss":
+            self._on_export_rss_all_stages()
 
     def _on_shared_stage_changed(self, val):
         """共有スライダーの valueChanged ハンドラ。モードに応じてラベル更新・再描画。"""
@@ -639,6 +711,12 @@ class StressStrainMapperApp(QMainWindow):
                 self._map_shared_stage_label.setText(stages[val])
             if "SF_schmid" in self.per_stage:
                 self._draw_sf_stage()
+        elif self._map_mode == "rss":
+            stages = self._rss_stages()
+            if 0 <= val < len(stages):
+                self._map_shared_stage_label.setText(stages[val])
+            if "RSS_max" in self.per_stage:
+                self._draw_rss_stage()
 
     def _on_shared_save_to_mat(self):
         """共有保存ボタン。現在のモードに応じて _derived.mat に保存する。"""
@@ -646,9 +724,11 @@ class StressStrainMapperApp(QMainWindow):
             self._on_add_grod_to_mat()
         elif self._map_mode == "sf":
             self._on_add_sf_to_mat()
+        elif self._map_mode == "rss":
+            self._on_add_rss_to_mat()
         else:
             QMessageBox.information(self, "保存",
-                                    "保存対象がありません。\nGROD またはシュミット因子を計算してください。")
+                                    "保存対象がありません。\nGROD・シュミット因子・RSS のいずれかを計算してください。")
 
     def _get_map_data(self, base, stage_idx):
         if base in self.per_stage:
@@ -1197,6 +1277,155 @@ class StressStrainMapperApp(QMainWindow):
         new_vars = {}
         for stage, arr in self.per_stage["SF_schmid"].items():
             new_vars[f"SF_schmid_s{stage}"] = arr.reshape(1, -1)
+        data.update(new_vars)
+        out = self._derived_mat_path()
+        savemat(str(out), data)
+        self._map_grod_status_lbl.setText(
+            f"追加完了: {len(new_vars)} 変数を {out.name} に保存しました")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
+    # ----------------------------------------------------------
+    # RSS マップ（Mapタブから使用）
+    # ----------------------------------------------------------
+
+    def _rss_stages(self):
+        """euler + rmap_s* の共通ステージを返す。"""
+        def key(s):
+            m = re.match(r"(\d+)MPa", s)
+            return int(m.group(1)) if m else 0
+        euler_stages = set(self._grod_euler_stages())
+        stress_keys = ("rmap_s11", "rmap_s22", "rmap_s33", "rmap_s12", "rmap_s23", "rmap_s31")
+        stress_sets = [set(self.per_stage.get(k, {}).keys()) for k in stress_keys]
+        stress_common = stress_sets[0]
+        for s in stress_sets[1:]:
+            stress_common &= s
+        return sorted(euler_stages & stress_common, key=key)
+
+    def _on_compute_rss(self):
+        stages = self._rss_stages()
+        if not stages:
+            self._map_grod_status_lbl.setText(
+                "エラー: Euler角と応力テンソル (rmap_s*) の共通ステージがありません")
+            self._map_grod_status_lbl.setStyleSheet("color: red;")
+            return
+
+        try:
+            ca = float(self._map_rss_ca_edit.text())
+            n_slip, b_slip = _parse_slip_system(
+                self._map_rss_plane_edit.text(),
+                self._map_rss_dir_edit.text(),
+                ca)
+        except Exception as e:
+            QMessageBox.critical(self, "入力エラー", str(e))
+            return
+
+        sym_ops = _get_sym_ops(self._map_rss_sym_cb.currentText())
+        self.per_stage["RSS_max"] = {}
+        n_total = len(stages)
+        for i, stage in enumerate(stages):
+            self._map_grod_status_lbl.setText(f"計算中... {i + 1}/{n_total}  [{stage}]")
+            self._map_grod_status_lbl.setStyleSheet("color: gray;")
+            QApplication.processEvents()
+
+            phi1, PHI, phi2 = self._get_grod_euler(stage)
+            if phi1 is None:
+                continue
+            s11 = self.per_stage["rmap_s11"][stage].astype(float)
+            s22 = self.per_stage["rmap_s22"][stage].astype(float)
+            s33 = self.per_stage["rmap_s33"][stage].astype(float)
+            s12 = self.per_stage["rmap_s12"][stage].astype(float)
+            s23 = self.per_stage["rmap_s23"][stage].astype(float)
+            s31 = self.per_stage["rmap_s31"][stage].astype(float)
+            rss = compute_rss(
+                phi1.astype(float), PHI.astype(float), phi2.astype(float),
+                s11, s22, s33, s12, s23, s31,
+                n_slip, b_slip, sym_ops)
+            self.per_stage["RSS_max"][stage] = rss
+
+        self._draw_rss_stage()
+        self._map_grod_status_lbl.setText(f"完了: {n_total} ステージ計算済み")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+
+    def _draw_rss_stage(self):
+        stages = self._rss_stages()
+        val = self._map_rss_stage_slider.value()
+        if not stages or val >= len(stages):
+            return
+        tgt_stage = stages[val]
+        data = self.per_stage.get("RSS_max", {}).get(tgt_stage)
+        if data is None:
+            return
+        valid = data[np.isfinite(data)]
+        try:
+            vmin = float(self._map_rss_vmin_edit.text())
+        except ValueError:
+            vmin = float(np.min(valid)) if len(valid) else 0.0
+        try:
+            vmax = float(self._map_rss_vmax_edit.text())
+        except ValueError:
+            vmax = float(np.max(valid)) if len(valid) else 1.0
+        x, y = self._get_xy(tgt_stage)
+        label = "Max RSS [GPa]"
+        title = f"{label}  [{tgt_stage}]"
+        self.canvas_map.draw_scatter(
+            x, y, data,
+            self._map_rss_cmap_cb.currentText(), vmin, vmax, title,
+            xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+        if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+            segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
+            if segs:
+                self.canvas_map.ax.add_collection(
+                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                self.canvas_map.draw()
+
+    def _on_export_rss_all_stages(self):
+        if "RSS_max" not in self.per_stage:
+            self._on_compute_rss()
+        if "RSS_max" not in self.per_stage:
+            return
+        cmap = self._map_rss_cmap_cb.currentText()
+        try:
+            vmin = float(self._map_rss_vmin_edit.text())
+            vmax = float(self._map_rss_vmax_edit.text())
+        except ValueError:
+            all_vals = [d[np.isfinite(d)] for d in self.per_stage.get("RSS_max", {}).values()]
+            combined = np.concatenate(all_vals) if all_vals else np.array([0.0, 1.0])
+            vmin, vmax = float(np.nanmin(combined)), float(np.nanmax(combined))
+        label = "Max RSS [GPa]"
+        self._map_grod_status_lbl.setText("全ステージ出力中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        saved = 0
+        for stage, data in self.per_stage.get("RSS_max", {}).items():
+            x, y = self._get_xy(stage)
+            title = f"{label}  [{stage}]"
+            self.canvas_map.draw_scatter(
+                x, y, data, cmap, vmin, vmax, title,
+                xlim=self._xlim, ylim=self._ylim, cbar_label=label)
+            if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
+                segs = compute_boundary_segments(self.cx, self.cy, self.grain_id, x_draw=x, y_draw=y)
+                if segs:
+                    self.canvas_map.ax.add_collection(
+                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                    self.canvas_map.draw()
+            out = self.mat_path.parent / f"RSS_max_{stage}.png"
+            self.canvas_map._fig.savefig(str(out), dpi=150, bbox_inches="tight")
+            saved += 1
+        self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
+        self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
+        QMessageBox.information(self, "Export All",
+                                f"{saved} 枚を保存しました:\n{self.mat_path.parent}")
+
+    def _on_add_rss_to_mat(self):
+        if "RSS_max" not in self.per_stage or not self.per_stage["RSS_max"]:
+            QMessageBox.warning(self, "追加", "先に「Compute RSS」を実行してください。")
+            return
+        self._map_grod_status_lbl.setText("保存中...")
+        self._map_grod_status_lbl.setStyleSheet("color: gray;")
+        from scipy.io import savemat
+        data = self._load_derived_mat()
+        new_vars = {}
+        for stage, arr in self.per_stage["RSS_max"].items():
+            new_vars[f"RSS_max_s{stage}"] = arr.reshape(1, -1)
         data.update(new_vars)
         out = self._derived_mat_path()
         savemat(str(out), data)

@@ -84,6 +84,60 @@ def build_ss(per_stage, x_base, y_base):
     return sv, ss, common_stages
 
 
+def compute_rss(phi1_deg, PHI_deg, phi2_deg,
+                s11, s22, s33, s12, s23, s31,
+                n_slip, b_slip, sym_ops):
+    """全等価すべり系の最大分解せん断応力（|RSS|）を計算する（ベクトル化）。
+
+    Parameters
+    ----------
+    phi1_deg, PHI_deg, phi2_deg : ndarray shape (N,)  Bunge オイラー角 [degrees]
+    s11..s31 : ndarray shape (N,)  対称応力テンソル成分
+    n_slip : ndarray shape (3,)  すべり面法線（結晶直交座標系・正規化済み）
+    b_slip : ndarray shape (3,)  すべり方向（結晶直交座標系・正規化済み）
+    sym_ops : ndarray shape (S, 3, 3)  対称操作行列群
+
+    Returns
+    -------
+    rss : ndarray shape (N,)  最大 |RSS| 値
+    """
+    N = len(phi1_deg)
+    rss = np.full(N, np.nan)
+
+    valid = (np.isfinite(phi1_deg) & np.isfinite(PHI_deg) & np.isfinite(phi2_deg)
+             & np.isfinite(s11) & np.isfinite(s22) & np.isfinite(s33)
+             & np.isfinite(s12) & np.isfinite(s23) & np.isfinite(s31))
+    if not np.any(valid):
+        return rss
+
+    Nv = int(np.count_nonzero(valid))
+    sigma = np.zeros((Nv, 3, 3))
+    sigma[:, 0, 0] = s11[valid]; sigma[:, 1, 1] = s22[valid]; sigma[:, 2, 2] = s33[valid]
+    sigma[:, 0, 1] = sigma[:, 1, 0] = s12[valid]
+    sigma[:, 1, 2] = sigma[:, 2, 1] = s23[valid]
+    sigma[:, 0, 2] = sigma[:, 2, 0] = s31[valid]
+
+    g = _euler_to_matrices_rad(
+        np.radians(phi1_deg[valid].astype(float)),
+        np.radians(PHI_deg[valid].astype(float)),
+        np.radians(phi2_deg[valid].astype(float)))
+
+    # 等価すべり系を対称操作で生成: (S, 3)
+    n_equivs = sym_ops @ n_slip
+    b_equivs = sym_ops @ b_slip
+
+    # 結晶座標系 → 試料座標系: shape (Nv, S, 3)
+    n_samp = np.einsum('nij,sj->nsi', g, n_equivs)
+    b_samp = np.einsum('nij,sj->nsi', g, b_equivs)
+
+    # RSS[n,s] = n_samp[n,s] · sigma[n] · b_samp[n,s]
+    sigma_b = np.einsum('nij,nsj->nsi', sigma, b_samp)   # (Nv, S, 3)
+    rss_all = np.einsum('nsi,nsi->ns', n_samp, sigma_b)   # (Nv, S)
+
+    rss[valid] = np.abs(rss_all).max(axis=1)
+    return rss
+
+
 def _parse_slip_system(plane_text, dir_text, ca_ratio=1.633):
     """すべり面・方向のテキストを結晶直交座標系の単位ベクトルに変換する。
 
