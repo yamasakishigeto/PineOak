@@ -471,7 +471,7 @@ class StatsWindow(QMainWindow):
 
         # ヒストグラム
         self._hist_var.clear()
-        self._hist_var.addItems(stage_deps)
+        self._hist_var.addItems(stage_deps + self._indep_vars)
         self._hist_stages.clear()
         for s in self._stages:
             self._hist_stages.addItem(QListWidgetItem(s))
@@ -582,9 +582,13 @@ class StatsWindow(QMainWindow):
                 QMessageBox.warning(self, "未選択", "ステージを1つ以上選択してください")
                 return
 
+            # ステージ非依存変数はステージ選択に関係なく1回だけ取得
+            is_indep = var in self._indep_vars
+            plot_stages = [sel[0]] if is_indep else sel
+
             # 全ステージのデータをまとめて共通ビンエッジを決定
             all_data = []
-            for stage in sel:
+            for stage in plot_stages:
                 d = self._get(var, stage)
                 d = d[np.isfinite(d)]
                 if len(d) > 0:
@@ -603,14 +607,15 @@ class StatsWindow(QMainWindow):
             self._canvas.clear_plot()
             ax = self._canvas.ax
             cmap_f = _plt.get_cmap("plasma")
-            colors = [cmap_f(i / max(len(sel) - 1, 1)) for i in range(len(sel))]
+            colors = [cmap_f(i / max(len(plot_stages) - 1, 1)) for i in range(len(plot_stages))]
 
             lines = []
-            for stage, col, d in zip(sel, colors, all_data):
+            for stage, col, d in zip(plot_stages, colors, all_data):
+                lbl = var if is_indep else stage
                 ax.hist(d, bins=bin_edges, density=density, color=col,
-                        alpha=0.55, label=stage, edgecolor="none")
+                        alpha=0.55, label=lbl, edgecolor="none")
                 lines.append(
-                    f"{stage}: mean={np.mean(d):.4g}  std={np.std(d):.4g}  "
+                    f"{lbl}: mean={np.mean(d):.4g}  std={np.std(d):.4g}  "
                     f"med={np.median(d):.4g}  n={len(d):,}"
                 )
 
