@@ -573,9 +573,10 @@ class StatsWindow(QMainWindow):
             var       = self._evol_var.currentText()
             plot_type = self._evol_type.checkedId()
 
-            xs = [self._stage_mpa(s) for s in self._stages]
+            xs = list(range(len(self._stages)))
             data_list = []
-            valid_xs  = []
+            valid_xs     = []
+            valid_stages = []
             for s, x in zip(self._stages, xs):
                 d = self._get(var, s)
                 d = d[np.isfinite(d)]
@@ -583,6 +584,7 @@ class StatsWindow(QMainWindow):
                     continue
                 data_list.append(d)
                 valid_xs.append(x)
+                valid_stages.append(s)
 
             if not data_list:
                 QMessageBox.warning(self, "データなし", "有効なデータがありません")
@@ -596,7 +598,7 @@ class StatsWindow(QMainWindow):
                 bp = ax.boxplot(
                     data_list,
                     positions=valid_xs,
-                    widths=[max(20, (max(valid_xs) - min(valid_xs)) / (len(valid_xs) * 2))] * len(valid_xs),
+                    widths=0.6,
                     patch_artist=True,
                     showfliers=False,
                     medianprops=dict(color="#00d4ff", linewidth=2),
@@ -628,11 +630,11 @@ class StatsWindow(QMainWindow):
                 ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
                           labelcolor="#333333")
 
-            ax.set_xlabel("Stress [MPa]", fontsize=10)
+            ax.set_xlabel("Stress", fontsize=10)
             ax.set_ylabel(var, fontsize=10)
             ax.set_title(f"{var}  vs Stress Stage", fontsize=11)
             ax.set_xticks(valid_xs)
-            ax.set_xticklabels([str(v) for v in valid_xs], rotation=45, fontsize=8)
+            ax.set_xticklabels(valid_stages, rotation=45, fontsize=8)
             ax.grid(True, alpha=0.4, color="#cccccc")
             self._canvas.finish()
 
