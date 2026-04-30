@@ -35,7 +35,7 @@ from matplotlib.figure import Figure
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QTabWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton,
+    QLabel, QComboBox, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
     QMessageBox, QSizePolicy, QCheckBox,
     QListWidget, QListWidgetItem, QSpinBox,
@@ -240,6 +240,9 @@ class StatsWindow(QMainWindow):
                         ("カラーマップ", self._sc_cmap)]:
             L.addLayout(self._row(lbl, cb))
 
+        self._sc_xlim, self._sc_ylim = [], []
+        L.addWidget(self._axis_range_group(self._sc_xlim, self._sc_ylim))
+
         self._sc_info = QLabel("")
         self._sc_info.setWordWrap(True)
         self._sc_info.setFont(QFont("Courier New", 9))
@@ -275,6 +278,9 @@ class StatsWindow(QMainWindow):
         L.addLayout(self._row("ビン数", self._hist_bins))
         L.addWidget(self._hist_density)
 
+        self._hist_xlim, self._hist_ylim = [], []
+        L.addWidget(self._axis_range_group(self._hist_xlim, self._hist_ylim))
+
         self._hist_info = QLabel("")
         self._hist_info.setWordWrap(True)
         self._hist_info.setFont(QFont("Courier New", 9))
@@ -306,6 +312,9 @@ class StatsWindow(QMainWindow):
             tl.addWidget(rb)
         L.addWidget(tg)
 
+        self._evol_xlim, self._evol_ylim = [], []
+        L.addWidget(self._axis_range_group(self._evol_xlim, self._evol_ylim))
+
         L.addStretch()
         L.addLayout(self._btn_row(self._plot_evol, "evolution"))
         return w
@@ -320,6 +329,47 @@ class StatsWindow(QMainWindow):
         h.addWidget(lb)
         h.addWidget(widget)
         return h
+
+    def _axis_range_group(self, x_edits: list, y_edits: list) -> QGroupBox:
+        """X/Y軸のMin/Max入力欄グループを返す。editsリストに [min_edit, max_edit] を追加する。"""
+        grp = QGroupBox("Axis Range  (空欄 = Auto)")
+        gl = QVBoxLayout(grp)
+        gl.setSpacing(3)
+        for axis, edits in (("X", x_edits), ("Y", y_edits)):
+            h = QHBoxLayout()
+            h.addWidget(QLabel(f"{axis}:"))
+            for placeholder in ("Min", "Max"):
+                e = QLineEdit()
+                e.setPlaceholderText(placeholder)
+                e.setFixedWidth(72)
+                h.addWidget(e)
+                edits.append(e)
+            h.addStretch()
+            gl.addLayout(h)
+        return grp
+
+    @staticmethod
+    def _parse_limit(edit: "QLineEdit"):
+        """テキストを float に変換。空欄または不正値は None を返す。"""
+        try:
+            return float(edit.text())
+        except ValueError:
+            return None
+
+    def _apply_lim(self, ax, xlim_edits: list, ylim_edits: list):
+        """入力欄の値を軸範囲に適用する。空欄は無視。"""
+        xlo = self._parse_limit(xlim_edits[0])
+        xhi = self._parse_limit(xlim_edits[1])
+        ylo = self._parse_limit(ylim_edits[0])
+        yhi = self._parse_limit(ylim_edits[1])
+        if xlo is not None or xhi is not None:
+            cur = ax.get_xlim()
+            ax.set_xlim(xlo if xlo is not None else cur[0],
+                        xhi if xhi is not None else cur[1])
+        if ylo is not None or yhi is not None:
+            cur = ax.get_ylim()
+            ax.set_ylim(ylo if ylo is not None else cur[0],
+                        yhi if yhi is not None else cur[1])
 
     def _btn_row(self, plot_fn, tag: str):
         h = QHBoxLayout()
@@ -342,8 +392,9 @@ class StatsWindow(QMainWindow):
                                             margin-top:8px; padding-top:4px; }
             QGroupBox::title              { color:#00d4ff; font-size:11px; subcontrol-origin:margin;
                                             left:8px; padding:0 4px; }
-            QComboBox, QSpinBox           { background:#111318; border:1px solid #2a2d35;
+            QComboBox, QSpinBox, QLineEdit { background:#111318; border:1px solid #2a2d35;
                                             color:#e0e4ec; padding:3px 6px; border-radius:3px; }
+            QLineEdit::placeholder        { color:#6b7280; }
             QComboBox::drop-down          { border:none; }
             QComboBox QAbstractItemView   { background:#1a1d24; color:#e0e4ec;
                                             selection-background-color:#00d4ff;
@@ -501,6 +552,7 @@ class StatsWindow(QMainWindow):
             ax.set_ylabel(yp, fontsize=10)
             ax.set_title(f"{yp}  vs  {xp}   [{stage}]   n={len(x):,}", fontsize=11)
             ax.grid(True, alpha=0.4, color="#cccccc")
+            self._apply_lim(ax, self._sc_xlim, self._sc_ylim)
             self._canvas.finish()
 
             info = (f"n = {len(x):,}\n"
@@ -554,6 +606,7 @@ class StatsWindow(QMainWindow):
             leg = ax.legend(fontsize=8, facecolor="white", edgecolor="#cccccc",
                             labelcolor="#333333")
             ax.grid(True, alpha=0.4, color="#cccccc", axis="y")
+            self._apply_lim(ax, self._hist_xlim, self._hist_ylim)
             self._canvas.finish()
 
             self._hist_info.setText("\n".join(lines))
@@ -636,6 +689,7 @@ class StatsWindow(QMainWindow):
             ax.set_xticks(valid_xs)
             ax.set_xticklabels(valid_stages, rotation=45, fontsize=8)
             ax.grid(True, alpha=0.4, color="#cccccc")
+            self._apply_lim(ax, self._evol_xlim, self._evol_ylim)
             self._canvas.finish()
 
             self._sb.showMessage(f"ステージ変化プロット完了 — {var}")
