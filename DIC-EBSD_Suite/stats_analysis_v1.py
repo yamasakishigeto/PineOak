@@ -699,7 +699,7 @@ class StatsWindow(QMainWindow):
 
             ax.set_xlabel("Stage", fontsize=10)
             ax.set_ylabel(var, fontsize=10)
-            ax.set_title(f"{var}  vs Stress Stage", fontsize=11)
+            ax.set_title(f"{var}  vs Stage", fontsize=11)
             ax.set_xticks(valid_xs)
             ax.set_xticklabels(valid_stages, rotation=45, fontsize=8)
             ax.grid(True, alpha=0.4, color="#cccccc")
