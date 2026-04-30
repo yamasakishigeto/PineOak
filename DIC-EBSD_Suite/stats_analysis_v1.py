@@ -697,7 +697,7 @@ class StatsWindow(QMainWindow):
                 ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
                           labelcolor="#333333")
 
-            ax.set_xlabel("Stress", fontsize=10)
+            ax.set_xlabel("Stage", fontsize=10)
             ax.set_ylabel(var, fontsize=10)
             ax.set_title(f"{var}  vs Stress Stage", fontsize=11)
             ax.set_xticks(valid_xs)
