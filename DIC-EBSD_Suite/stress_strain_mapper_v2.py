@@ -382,6 +382,25 @@ class StressStrainMapperApp(QMainWindow):
         row5.addStretch()
         g_var.addLayout(row5)
 
+        from PyQt6.QtWidgets import QWidget
+        self._map_ps_trace_widget = QWidget()
+        row_ps = QHBoxLayout(self._map_ps_trace_widget)
+        row_ps.setContentsMargins(0, 0, 0, 0)
+        self._map_ps_trace_cb = QCheckBox("最大主ひずみ方向を表示")
+        self._map_ps_trace_cb.stateChanged.connect(self._draw_map_current)
+        row_ps.addWidget(self._map_ps_trace_cb)
+        row_ps.addWidget(QLabel("線長:"))
+        self._map_ps_trace_len_edit = QLineEdit("10.0")
+        self._map_ps_trace_len_edit.setFixedWidth(50)
+        row_ps.addWidget(self._map_ps_trace_len_edit)
+        row_ps.addWidget(QLabel("線幅:"))
+        self._map_ps_trace_lw_edit = QLineEdit("0.5")
+        self._map_ps_trace_lw_edit.setFixedWidth(40)
+        row_ps.addWidget(self._map_ps_trace_lw_edit)
+        row_ps.addStretch()
+        self._map_ps_trace_widget.setVisible(False)
+        g_var.addWidget(self._map_ps_trace_widget)
+
         layout.addWidget(grp_var)
 
         # ---- GROD GroupBox ----
@@ -634,6 +653,16 @@ class StressStrainMapperApp(QMainWindow):
     def _on_map_var_changed(self, base=None):
         if base is None:
             base = self._map_var_cb.currentText()
+        # 主ひずみ方向チェックボックスの表示切替
+        if base == "e1":
+            self._map_ps_trace_cb.setText("最大主ひずみ方向を表示")
+            self._map_ps_trace_widget.setVisible(True)
+        elif base == "gamma_max":
+            self._map_ps_trace_cb.setText("最大主せん断ひずみ方向を表示")
+            self._map_ps_trace_widget.setVisible(True)
+        else:
+            self._map_ps_trace_cb.setChecked(False)
+            self._map_ps_trace_widget.setVisible(False)
         # 座標系の有効/無効は常に更新
         has_uv = "u" in self.per_stage and "v" in self.per_stage
         self._rb_deformed.setEnabled(has_uv)
@@ -830,6 +859,30 @@ class StressStrainMapperApp(QMainWindow):
                 self.canvas_map.ax.add_collection(
                     LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
                 )
+                self.canvas_map.draw()
+        if self._map_ps_trace_cb.isChecked() and stage:
+            exx_d = self.per_stage.get("exx", {}).get(stage)
+            eyy_d = self.per_stage.get("eyy", {}).get(stage)
+            exy_d = self.per_stage.get("exy", {}).get(stage)
+            if exx_d is not None and eyy_d is not None and exy_d is not None:
+                try:
+                    L  = float(self._map_ps_trace_len_edit.text())
+                    lw = float(self._map_ps_trace_lw_edit.text())
+                except ValueError:
+                    L, lw = 10.0, 0.5
+                theta = 0.5 * np.arctan2(2.0 * exy_d, exx_d - eyy_d)
+                if base == "gamma_max":
+                    theta = theta + np.pi / 4
+                tx = np.cos(theta)
+                ty = np.sin(theta)
+                mask = np.isfinite(theta) & np.isfinite(x) & np.isfinite(y)
+                xi = x[mask]; yi = y[mask]
+                txi = tx[mask]; tyi = ty[mask]
+                pts_s = np.column_stack([xi - L * txi, yi - L * tyi])
+                pts_e = np.column_stack([xi + L * txi, yi + L * tyi])
+                t_segs = np.stack([pts_s, pts_e], axis=1)
+                self.canvas_map.ax.add_collection(
+                    LineCollection(t_segs, linewidths=lw, colors="black", alpha=0.7, zorder=3))
                 self.canvas_map.draw()
 
     def _on_map_scroll(self, event):

@@ -982,7 +982,8 @@ def save_integrated_mat(stages_results, georef_xlsx, out_dir):
         CI_ref_arr[idx]   = _fv('CI')
 
     # DIC 各シート（ひずみ・変位等）を読み込み
-    DIC_SHEETS = ['u', 'v', 'ncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
+    DIC_SHEETS = ['u', 'v', 'zncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy',
+                  'theta_e1', 'theta_gamma']
     out = {
         'subset_id': all_subset_ids.astype(np.float64),
         'cx':        cx_ref,

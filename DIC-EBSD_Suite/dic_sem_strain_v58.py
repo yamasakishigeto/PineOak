@@ -10,7 +10,7 @@ GUIウィザード（tkinter）から全パラメータを設定して実行す�
   - 前段Stage1結果を初期値に使った高速化オプション
   - 2D放物線フィットによるサブピクセル精度
   - joblib並列処理（行単位）
-  - NCCマスク処理（信頼性の低い領域をNaN化）
+  - ZNCCマスク処理（信頼性の低い領域をNaN化）
   - nステップ中心差分によるゲージ長さ指定ひずみ計算
   - dic_config.txtへの設定出力・読み込み
 """
@@ -98,7 +98,7 @@ TRIM_BOTTOM = 0         # 下端トリミング [px]
 TRIM_LEFT   = 0         # 左端トリミング [px]
 TRIM_RIGHT  = 0         # 右端トリミング [px]
 SUBSET_SIZE = 31        # サブセットサイズ [px]
-NCC_THRESHOLD = 0.2     # NCCマスク閾値（これ以下をNaN化）
+ZNCC_THRESHOLD = 0.2     # ZNCCマスク閾値（これ以下をNaN化）
 PRESCAN_GRID = 3        # 事前スキャンのグリッド数（PRESCAN_GRID × PRESCAN_GRID）
 PRESCAN_SEARCH = 50     # 事前スキャンの探索範囲 [px]
 SEARCH_MARGIN = 3       # 推奨search範囲のマージン [px]
@@ -138,6 +138,81 @@ def list_images(folder):
     return files
 
 
+# =============================================================================
+# スペックル品質チェック（ACF / MIG / SSSIG）
+# =============================================================================
+
+def _speckle_acf(img):
+    """2D ACF（FFT法）＋ラジアルプロファイル＋スペックル半径（HWHM）を返す。"""
+    f = img.astype(np.float64) - img.mean()
+    F = np.fft.fft2(f)
+    acf = np.fft.ifft2(F * np.conj(F)).real
+    acf = np.fft.fftshift(acf)
+    acf /= acf.max()
+
+    cy, cx = acf.shape[0] // 2, acf.shape[1] // 2
+    max_r = min(cx, cy)
+    y_idx, x_idx = np.ogrid[:acf.shape[0], :acf.shape[1]]
+    r_map = np.sqrt((x_idx - cx)**2 + (y_idx - cy)**2)
+
+    radial = np.array([
+        acf[(r_map >= ri - 0.5) & (r_map < ri + 0.5)].mean()
+        for ri in range(max_r)
+    ])
+
+    below = np.where(radial < 0.5)[0]
+    if len(below) > 0 and below[0] > 0:
+        i = below[0]
+        r0, r1 = radial[i - 1], radial[i]
+        speckle_radius = (i - 1) + (0.5 - r0) / (r1 - r0)
+    elif len(below) > 0:
+        speckle_radius = 0.0
+    else:
+        speckle_radius = float(max_r)
+    return acf, radial, speckle_radius
+
+
+def _normalize_img(img):
+    """画像を [0, 1] に正規化して float32 で返す（MIG/SSSIG を尺度非依存にするため）。"""
+    g = img.astype(np.float32)
+    g_max = float(g.max())
+    return g / g_max if g_max > 0 else g
+
+
+def _speckle_mig(img):
+    """MIG（Mean Intensity Gradient）マップと平均値を返す。画像は [0,1] 正規化済み。"""
+    g = _normalize_img(img)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    grad = np.sqrt(gx**2 + gy**2)
+    return grad, float(grad.mean())
+
+
+def _speckle_sssig(img, subset_size, step=None):
+    """SSSIG（Sum of Squared Subset Intensity Gradients）マップを返す。画像は [0,1] 正規化済み。"""
+    if step is None:
+        step = max(subset_size // 2, 8)
+    g = _normalize_img(img)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    grad_sq = gx**2 + gy**2
+
+    half = subset_size // 2
+    h, w = img.shape
+    ys = np.arange(half, h - half, step)
+    xs = np.arange(half, w - half, step)
+
+    cx_list, cy_list, vals = [], [], []
+    for cy_s in ys:
+        for cx_s in xs:
+            patch = grad_sq[cy_s - half:cy_s + half + 1, cx_s - half:cx_s + half + 1]
+            vals.append(float(patch.sum()))
+            cx_list.append(cx_s)
+            cy_list.append(cy_s)
+
+    return np.array(cx_list), np.array(cy_list), np.array(vals)
+
+
 def interactive_wizard(initial_dir=None):
     """tkinterによるGUIウィザード。全設定を1ウィンドウで完結。"""
     import tkinter as tk
@@ -173,7 +248,7 @@ def interactive_wizard(initial_dir=None):
     s2_step_var   = tk.IntVar(value=STEP_FINE)
     s2_srch_var   = tk.IntVar(value=SEARCH_FINE)
     subset_var   = tk.IntVar(value=SUBSET_SIZE)
-    ncc_thr_var  = tk.DoubleVar(value=NCC_THRESHOLD)
+    zncc_thr_var  = tk.DoubleVar(value=ZNCC_THRESHOLD)
     n_workers_var = tk.IntVar(value=N_WORKERS)
     prescan_srch_var = tk.IntVar(value=PRESCAN_SEARCH)   # 事前スキャン専用search範囲
     prescan_result_var = tk.StringVar(value='（未実行）')
@@ -488,11 +563,11 @@ def interactive_wizard(initial_dir=None):
 
     ttk.Label(frm_param, text='品質フィルタ', font=fnt_bold).grid(
         row=12, column=0, columnspan=3, sticky='w', pady=(0,4))
-    ttk.Label(frm_param, text='  NCCマスク閾値', font=fnt).grid(row=13, column=0, sticky='w', pady=2)
-    ttk.Spinbox(frm_param, textvariable=ncc_thr_var, from_=0.0, to=1.0,
+    ttk.Label(frm_param, text='  ZNCCマスク閾値', font=fnt).grid(row=13, column=0, sticky='w', pady=2)
+    ttk.Spinbox(frm_param, textvariable=zncc_thr_var, from_=0.0, to=1.0,
                 increment=0.05, width=6, font=fnt, format='%.2f').grid(
         row=13, column=1, padx=8, sticky='w')
-    ttk.Label(frm_param, text='← この値未満のNCC点をNaN化（0で無効）',
+    ttk.Label(frm_param, text='← この値未満のZNCC点をNaN化（0で無効）',
               font=fnt_sm, foreground='gray').grid(row=13, column=2, sticky='w')
 
     ttk.Separator(frm_param, orient='horizontal').grid(
@@ -643,9 +718,136 @@ def interactive_wizard(initial_dir=None):
     ttk.Button(prescan_btn_frame, text='  事前スキャン実行  ', command=on_prescan).pack(side='left', padx=(0,8))
     ttk.Button(prescan_btn_frame, text='推奨値をStage1 searchに反映', command=on_apply_rec).pack(side='left')
 
-    # ===== ⑤ カラースケール設定 =====
-    frm_scale = ttk.LabelFrame(frm_right, text='⑤ カラースケール（空欄=自動）', padding=10)
-    frm_scale.grid(row=3, column=0, sticky='ew', **pad)
+    # ===== ⑤ スペックル品質チェック =====
+    frm_quality = ttk.LabelFrame(frm_right, text=' ⑤ スペックル品質チェック ', padding=8)
+    frm_quality.grid(row=3, column=0, sticky='ew', **pad)
+
+    ttk.Label(frm_quality,
+              text='REF画像のACF・MIG・SSSIGを計算し、DIC解析に十分な品質かを評価します。',
+              font=fnt_sm, foreground='#555').grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,6))
+
+    quality_result_var = tk.StringVar(value='（未実行）')
+    ttk.Label(frm_quality, textvariable=quality_result_var,
+              font=fnt_sm, foreground='#2471a3').grid(row=1, column=0, columnspan=2, sticky='w', pady=(0,4))
+
+    def on_speckle_quality():
+        if not folder_var.get():
+            messagebox.showwarning('未入力', 'フォルダを選択してください')
+            return
+        if ref_var.get() < 0:
+            messagebox.showwarning('未選択', 'REFを選択してください')
+            return
+
+        ref_path = images[ref_var.get()]
+        trim = (trim_top_var.get(), trim_bottom_var.get(),
+                trim_left_var.get(), trim_right_var.get())
+        quality_result_var.set('計算中…')
+        root.update_idletasks()
+
+        try:
+            img = load_and_preprocess(ref_path, trim)
+            subset_size = subset_var.get()
+
+            acf_map, radial, speckle_r = _speckle_acf(img)
+            mig_map, mig_mean          = _speckle_mig(img)
+            cx_s, cy_s, sssig_vals     = _speckle_sssig(img, subset_size)
+            sssig_mean = float(sssig_vals.mean())
+
+            # 品質判定
+            def _judge(val, good, warn):
+                if isinstance(good, tuple):
+                    ok = good[0] <= val <= good[1]
+                else:
+                    ok = val >= good
+                caution = isinstance(warn, tuple) and (warn[0] <= val <= warn[1]) or \
+                          (not isinstance(warn, tuple) and val >= warn)
+                if ok:   return '良好 ✓', '#1a7a1a'
+                if caution: return '要注意 △', '#c47a00'
+                return '不適 ✗', '#b00000'
+
+            r_label,    r_color    = _judge(speckle_r, (2.0, 5.0), (1.5, 8.0))
+            mig_label,  mig_color  = _judge(mig_mean,  8.0, 4.0)
+            sssig_label, sssig_color = _judge(sssig_mean, 5000.0, 1000.0)
+
+            quality_result_var.set(
+                f'スペックル半径 {speckle_r:.1f} px  |  MIG {mig_mean:.1f}  |  SSSIG {sssig_mean:.0f}')
+
+            # 結果ウィンドウ
+            win = tk.Toplevel(root)
+            win.title(f'スペックル品質チェック結果 — {ref_path.name}')
+            win.geometry('980x680')
+
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            fig, axes = plt.subplots(2, 2, figsize=(9.8, 6.4))
+            fig.patch.set_facecolor('#f4f4f4')
+
+            # --- ACF ラジアルプロファイル ---
+            ax = axes[0, 0]
+            r_range = min(30, len(radial))
+            ax.plot(np.arange(r_range), radial[:r_range], color='steelblue', lw=2)
+            ax.axhline(0.5, color='red', ls='--', lw=1, label='0.5（HWHM）')
+            ax.axvline(speckle_r, color='orange', ls='--', lw=1.5,
+                       label=f'スペックル半径 {speckle_r:.1f} px')
+            ax.set_xlabel('距離 [px]'); ax.set_ylabel('正規化ACF')
+            ax.set_title(f'ACF ラジアルプロファイル\nスペックル半径: {speckle_r:.1f} px  [{r_label}]')
+            ax.legend(fontsize=8); ax.set_ylim(-0.1, 1.05); ax.grid(True, alpha=0.3)
+
+            # --- ACF 2D マップ（中央付近を切り出し）---
+            ax = axes[0, 1]
+            crop = 40
+            cy_c, cx_c = acf_map.shape[0] // 2, acf_map.shape[1] // 2
+            acf_crop = acf_map[cy_c - crop:cy_c + crop, cx_c - crop:cx_c + crop]
+            im = ax.imshow(acf_crop, cmap='RdBu_r', vmin=-0.5, vmax=1.0, aspect='equal')
+            ax.axhline(crop, color='white', lw=0.5, alpha=0.5)
+            ax.axvline(crop, color='white', lw=0.5, alpha=0.5)
+            ax.set_title('ACF 2Dマップ（中央±40px）')
+            ax.set_xlabel('Δx [px]'); ax.set_ylabel('Δy [px]')
+            ticks = np.linspace(0, 2 * crop, 5, dtype=int)
+            ax.set_xticks(ticks); ax.set_xticklabels(ticks - crop)
+            ax.set_yticks(ticks); ax.set_yticklabels(ticks - crop)
+            fig.colorbar(im, ax=ax, fraction=0.046)
+
+            # --- MIG マップ ---
+            ax = axes[1, 0]
+            vmax_mig = float(np.percentile(mig_map, 99))
+            im2 = ax.imshow(mig_map, cmap='hot', vmin=0, vmax=vmax_mig, aspect='equal')
+            ax.set_title(f'MIG マップ\n平均値: {mig_mean:.1f}  [{mig_label}]\n'
+                         f'（目安: >8 良好, 4–8 要注意, <4 不適）')
+            ax.set_xlabel('X [px]'); ax.set_ylabel('Y [px]')
+            fig.colorbar(im2, ax=ax, fraction=0.046)
+
+            # --- SSSIG マップ ---
+            ax = axes[1, 1]
+            sssig_grid, _, _, _ = make_grid_map(cx_s, cy_s, sssig_vals, subset_size // 2)
+            h_img, w_img = img.shape
+            im3 = ax.imshow(sssig_grid, cmap='plasma', aspect='equal',
+                            extent=[0, w_img, h_img, 0])
+            ax.set_title(f'SSSIG マップ（subset={subset_size}px）\n'
+                         f'平均値: {sssig_mean:.0f}  [{sssig_label}]\n'
+                         f'（目安: >5000 良好, 1000–5000 要注意, <1000 不適）')
+            ax.set_xlabel('X [px]'); ax.set_ylabel('Y [px]')
+            fig.colorbar(im3, ax=ax, fraction=0.046)
+
+            fig.suptitle(
+                f'{ref_path.name}   スペックル半径: {speckle_r:.1f}px [{r_label}]  '
+                f'MIG: {mig_mean:.1f} [{mig_label}]  SSSIG: {sssig_mean:.0f} [{sssig_label}]',
+                fontsize=10)
+            fig.tight_layout()
+
+            canvas = FigureCanvasTkAgg(fig, master=win)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill='both', expand=True)
+
+        except Exception as e:
+            quality_result_var.set('エラー')
+            messagebox.showerror('エラー', str(e))
+
+    ttk.Button(frm_quality, text='  スペックル品質チェック実行  ',
+               command=on_speckle_quality).grid(row=2, column=0, sticky='w', pady=(0,2))
+
+    # ===== ⑥ カラースケール設定 =====
+    frm_scale = ttk.LabelFrame(frm_right, text='⑥ カラースケール（空欄=自動）', padding=10)
+    frm_scale.grid(row=4, column=0, sticky='ew', **pad)
 
     ttk.Label(frm_scale, text='事前スキャン後に参考値を確認して入力してください。空欄の場合は各マップの値から自動設定されます。',
               font=fnt_sm, foreground='#555').grid(row=0, column=0, columnspan=7, sticky='w', pady=(0,4))
@@ -684,7 +886,7 @@ def interactive_wizard(initial_dir=None):
             _get_int('subset', subset_var)
             _get_int('gauge', gauge_length_var)
             _get_int('workers', n_workers_var)
-            _get_float('NCC閾値', ncc_thr_var)
+            _get_float('ZNCC閾値', zncc_thr_var)
 
             # Stage1/Stage2パラメータはsectionで区別
             import re
@@ -799,7 +1001,7 @@ def interactive_wizard(initial_dir=None):
         result['s2_step']    = s2_step_var.get()
         result['s2_search']  = s2_srch_var.get()
         result['subset_size'] = subset_var.get()
-        result['ncc_threshold'] = ncc_thr_var.get()
+        result['zncc_threshold'] = zncc_thr_var.get()
         result['n_workers']     = n_workers_var.get()
         result['gauge_length']  = gauge_length_var.get()
         result['strain_type']   = strain_type_var.get()
@@ -835,7 +1037,7 @@ def interactive_wizard(initial_dir=None):
             f"Stage2  step={result['s2_step']}px  search={result['s2_search']}px\n"
             f"ゲージ長さ: {result['gauge_length']}px（0=自動）\n"
             f"ひずみ種類: {'グリーン-ラグランジェ（大変形）' if result['strain_type'] == 'green_lagrange' else '微小ひずみ（線形）'}\n"
-            f"NCCマスク閾値: {result['ncc_threshold']:.2f}\n"
+            f"ZNCCマスク閾値: {result['zncc_threshold']:.2f}\n"
             f"ワーカー数: {result['n_workers']}（-1=全コア）\n\n"
             "この設定で実行しますか？"
         )
@@ -863,7 +1065,7 @@ def interactive_wizard(initial_dir=None):
             result['folder'],   result['s1_step'],   result['s1_auto'],
             result['s1_margin'], result['s1_fixed'],
             result['s2_step'],  result['s2_search'],  result['subset_size'],
-            result['ncc_threshold'], result['n_workers'], result['scale'],
+            result['zncc_threshold'], result['n_workers'], result['scale'],
             result['gauge_length'], result['strain_type'],
             result['use_prev_stage1'], result['trim'])
 
@@ -1016,14 +1218,14 @@ def estimate_global_shift(ref, deformed):
     return shift_x, shift_y
 
 # =============================================================================
-# NCC整数画素探索・サブピクセル補間
+# ZNCC整数画素探索・サブピクセル補間
 # =============================================================================
 
 def search_integer_displacement(ref, deformed, cx, cy, subset_size,
                                 search_range, init_u=0, init_v=0):
     """
-    NCC整数画素探索（numpy完全ベクトル化版）。
-    探索範囲内の全候補サブセットを一括スタックしてnumpyで一気にNCC計算する。
+    ZNCC整数画素探索（numpy完全ベクトル化版）。
+    探索範囲内の全候補サブセットを一括スタックしてnumpyで一気にZNCC計算する。
     Pythonループ版に比べて10〜50倍高速。
     """
     half = subset_size // 2
@@ -1035,7 +1237,7 @@ def search_integer_displacement(ref, deformed, cx, cy, subset_size,
     dv_vals = np.arange(round(init_v) - search_range, round(init_v) + search_range + 1)
     search_size = len(dv_vals)  # = 2*search_range+1
 
-    ncc_map = np.zeros((search_size, search_size), dtype=np.float32)
+    zncc_map = np.zeros((search_size, search_size), dtype=np.float32)
     best_u, best_v = round(init_u), round(init_v)
 
     # 有効な候補だけを収集してバッチ処理
@@ -1053,9 +1255,9 @@ def search_integer_displacement(ref, deformed, cx, cy, subset_size,
             valid_idx.append((dv_idx, du_idx))
 
     if not valid_patches:
-        return best_u, best_v, ncc_map
+        return best_u, best_v, zncc_map
 
-    # (N, subset_size, subset_size) のバッチに積み上げてベクトル化NCC
+    # (N, subset_size, subset_size) のバッチに積み上げてベクトル化ZNCC
     batch = np.stack(valid_patches, axis=0).astype(np.float32)       # (N, h, w)
     batch_mean = batch.mean(axis=(1, 2), keepdims=True)               # (N, 1, 1)
     g = batch - batch_mean                                            # (N, h, w)
@@ -1063,22 +1265,22 @@ def search_integer_displacement(ref, deformed, cx, cy, subset_size,
 
     denom = f_norm * g_norm                                           # (N,)
     valid_mask = denom > 1e-7
-    ncc_vals = np.where(valid_mask,
+    zncc_vals = np.where(valid_mask,
                         (f * g).sum(axis=(1, 2)) / np.where(denom > 1e-7, denom, 1.0),
                         0.0)                                          # (N,)
 
     for k, (dv_idx, du_idx) in enumerate(valid_idx):
-        ncc_map[dv_idx, du_idx] = ncc_vals[k]
+        zncc_map[dv_idx, du_idx] = zncc_vals[k]
 
-    best_k = int(np.argmax(ncc_vals))
+    best_k = int(np.argmax(zncc_vals))
     best_dv_idx, best_du_idx = valid_idx[best_k]
     best_u = int(du_vals[best_du_idx])
     best_v = int(dv_vals[best_dv_idx])
 
-    return best_u, best_v, ncc_map
+    return best_u, best_v, zncc_map
 
 
-def subpixel_refinement(ncc_map, best_u, best_v, search_range, init_u=0, init_v=0):
+def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v=0):
     """
     2D放物線フィットによるサブピクセル精度向上。
     ピーク周囲3×3点を使って2次曲面をフィットし、解析的な極大値を求める。
@@ -1086,12 +1288,12 @@ def subpixel_refinement(ncc_map, best_u, best_v, search_range, init_u=0, init_v=
     """
     peak_v_idx = best_v - round(init_v) + search_range
     peak_u_idx = best_u - round(init_u) + search_range
-    if (peak_v_idx <= 0 or peak_v_idx >= ncc_map.shape[0]-1 or
-            peak_u_idx <= 0 or peak_u_idx >= ncc_map.shape[1]-1):
+    if (peak_v_idx <= 0 or peak_v_idx >= zncc_map.shape[0]-1 or
+            peak_u_idx <= 0 or peak_u_idx >= zncc_map.shape[1]-1):
         return float(best_u), float(best_v)
 
     # 3×3近傍を取得
-    patch = ncc_map[peak_v_idx-1:peak_v_idx+2, peak_u_idx-1:peak_u_idx+2]
+    patch = zncc_map[peak_v_idx-1:peak_v_idx+2, peak_u_idx-1:peak_u_idx+2]
 
     # 2D放物線フィット: f(u,v) = a*u^2 + b*v^2 + c*u*v + d*u + e*v + f
     # 9点から最小二乗法で係数を求め、極値を解析的に計算
@@ -1136,30 +1338,45 @@ def subpixel_refinement(ncc_map, best_u, best_v, search_range, init_u=0, init_v=
 # DIC実行（初期値対応版）
 # =============================================================================
 
+def _zncc_at_subpixel(ref_patch, deformed_f32, cx, cy, sub_u, sub_v, subset_size):
+    """サブピクセル位置でバイリニア補間したパッチを使ってZNCCを計算する。"""
+    patch = cv2.getRectSubPix(deformed_f32, (subset_size, subset_size),
+                              (float(cx + sub_u), float(cy + sub_v)))
+    f = ref_patch - ref_patch.mean()
+    g = patch - patch.mean()
+    denom = np.sqrt((f**2).sum()) * np.sqrt((g**2).sum())
+    return float((f * g).sum() / denom) if denom > 1e-7 else 0.0
+
+
 def _process_row(ref, deformed, cx_row, cy, subset_size, search_range,
                  init_us, init_vs):
     """1行分のサブセットをまとめて処理するワーカー（joblib用）。"""
+    deformed_f32 = deformed.astype(np.float32)
+    half = subset_size // 2
     row_results = []
     for cx, init_u, init_v in zip(cx_row, init_us, init_vs):
-        best_u, best_v, ncc_map = search_integer_displacement(
+        best_u, best_v, zncc_map = search_integer_displacement(
             ref, deformed, int(cx), int(cy), subset_size, search_range,
             init_u=init_u, init_v=init_v)
         sub_u, sub_v = subpixel_refinement(
-            ncc_map, best_u, best_v, search_range,
+            zncc_map, best_u, best_v, search_range,
             init_u=init_u, init_v=init_v)
-        row_results.append((int(cx), int(cy), sub_u, sub_v, float(ncc_map.max())))
+        ref_patch = ref[cy-half:cy+half+1, cx-half:cx+half+1].astype(np.float32)
+        zncc_sub = _zncc_at_subpixel(ref_patch, deformed_f32, int(cx), int(cy),
+                                   sub_u, sub_v, subset_size)
+        row_results.append((int(cx), int(cy), sub_u, sub_v, zncc_sub))
     return row_results
 
 
 def run_dic_stage(ref, deformed, subset_size, subset_step, search_range,
                   init_u_func=None, init_v_func=None, label="",
-                  ncc_threshold=NCC_THRESHOLD, n_workers=-1):
+                  zncc_threshold=ZNCC_THRESHOLD, n_workers=-1):
     """
-    DIC探索ステージ。joblib並列処理（行単位）・tqdm・NCCマスク対応。
+    DIC探索ステージ。joblib並列処理（行単位）・tqdm・ZNCCマスク対応。
 
     Parameters
     ----------
-    ncc_threshold : float  NCCピーク値がこれ以下の点をNaN化（0で無効化）
+    zncc_threshold : float  ZNCCピーク値がこれ以下の点をNaN化（0で無効化）
     n_workers     : int    並列ワーカー数（-1で全コア使用）
     """
     half = subset_size // 2
@@ -1202,19 +1419,19 @@ def run_dic_stage(ref, deformed, subset_size, subset_step, search_range,
     cy_arr = np.array([r[1] for r in results])
     u_arr  = np.array([r[2] for r in results], dtype=float)
     v_arr  = np.array([r[3] for r in results], dtype=float)
-    ncc_arr = np.array([r[4] for r in results])
+    zncc_arr = np.array([r[4] for r in results])
 
-    # NCCマスク処理
-    if ncc_threshold > 0:
-        mask = ncc_arr < ncc_threshold
+    # ZNCCマスク処理
+    if zncc_threshold > 0:
+        mask = zncc_arr < zncc_threshold
         n_masked = mask.sum()
         if n_masked > 0:
             u_arr[mask] = np.nan
             v_arr[mask] = np.nan
-            print(f"  NCCマスク: {n_masked}/{total}点をNaN化（NCC < {ncc_threshold}）")
+            print(f"  ZNCCマスク: {n_masked}/{total}点をNaN化（ZNCC < {zncc_threshold}）")
 
     print(f"  {total}/{total} 完了!")
-    return cx_arr, cy_arr, u_arr, v_arr, ncc_arr
+    return cx_arr, cy_arr, u_arr, v_arr, zncc_arr
 
 # =============================================================================
 # 事前スキャン（3×3グリッドで最大変形を推定 → search範囲を推定）
@@ -1243,15 +1460,15 @@ def prescan(ref, deformed, subset_size, search_range, grid=PRESCAN_GRID):
 
     for cy in ys:
         for cx in xs:
-            best_u, best_v, ncc_map = search_integer_displacement(
+            best_u, best_v, zncc_map = search_integer_displacement(
                 ref, deformed, cx, cy, subset_size, search_range)
             sub_u, sub_v = subpixel_refinement(
-                ncc_map, best_u, best_v, search_range)
-            ncc_peak = ncc_map.max()
+                zncc_map, best_u, best_v, search_range)
+            zncc_peak = zncc_map.max()
             results.append({
                 'cx': cx, 'cy': cy,
                 'u': sub_u, 'v': sub_v,
-                'ncc': ncc_peak,
+                'zncc': zncc_peak,
                 'disp': math.hypot(sub_u, sub_v),
             })
 
@@ -1259,16 +1476,16 @@ def prescan(ref, deformed, subset_size, search_range, grid=PRESCAN_GRID):
     disps = [r['disp'] for r in results]
     us    = [r['u']    for r in results]
     vs    = [r['v']    for r in results]
-    nccs  = [r['ncc']  for r in results]
+    znccs  = [r['zncc']  for r in results]
 
     print(f"\n  【事前スキャン結果】")
-    print(f"  {'位置':>14}  {'u [px]':>8}  {'v [px]':>8}  {'変位量':>8}  {'NCC':>6}")
+    print(f"  {'位置':>14}  {'u [px]':>8}  {'v [px]':>8}  {'変位量':>8}  {'ZNCC':>6}")
     print(f"  {'-'*56}")
     for r in results:
         flag = " ← 最大" if r['disp'] == max(disps) else ""
         print(f"  ({r['cx']:4d}, {r['cy']:4d})  "
               f"{r['u']:8.2f}  {r['v']:8.2f}  "
-              f"{r['disp']:8.2f}  {r['ncc']:6.3f}{flag}")
+              f"{r['disp']:8.2f}  {r['zncc']:6.3f}{flag}")
 
     max_u = max(abs(r['u']) for r in results)
     max_v = max(abs(r['v']) for r in results)
@@ -1445,12 +1662,16 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step,
     e2        = e_mean - e_diff
     gamma_max = e1 - e2
     omega_xy  = 0.5 * (dv_dx - du_dy)
+    theta_e1    = np.degrees(0.5 * np.arctan2(2.0 * exy, exx - eyy))
+    theta_gamma = theta_e1 + 45.0
 
     return {
         'exx': exx, 'eyy': eyy, 'exy': exy,
         'e1': e1, 'e2': e2,
         'gamma_max': gamma_max,
         'omega_xy': omega_xy,
+        'theta_e1': theta_e1,
+        'theta_gamma': theta_gamma,
         'extent': extent,
     }
 
@@ -1459,8 +1680,8 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step,
 # =============================================================================
 
 def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
-                            ncc_peak_list, shift_x, shift_y, subset_step,
-                            ncc_threshold=NCC_THRESHOLD, def_stem="",
+                            zncc_peak_list, shift_x, shift_y, subset_step,
+                            zncc_threshold=ZNCC_THRESHOLD, def_stem="",
                             scale_config=None, cmap_sym='RdBu_r', preview=False):
     sc = scale_config or {}
     if not preview:
@@ -1468,7 +1689,7 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
 
     u_grid, extent, _, _ = make_grid_map(cx_list, cy_list, u_corr, subset_step)
     v_grid, _, _, _      = make_grid_map(cx_list, cy_list, v_corr, subset_step)
-    ncc_grid, _, _, _    = make_grid_map(cx_list, cy_list, ncc_peak_list, subset_step)
+    zncc_grid, _, _, _    = make_grid_map(cx_list, cy_list, zncc_peak_list, subset_step)
 
     img_h = extent[2] - extent[3]
     img_w = extent[1] - extent[0]
@@ -1496,11 +1717,11 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     axes[1].set_title(f"v変位マップ\nグローバルシフト: y={shift_y}px")
     axes[1].set_xlabel("X [px]"); axes[1].set_ylabel("Y [px]")
 
-    ncc_vmin = max(ncc_threshold, 0.0)
-    im2 = axes[2].imshow(ncc_grid, cmap='plasma', extent=extent,
-                          vmin=ncc_vmin, vmax=1.0, aspect='equal')
-    plt.colorbar(im2, ax=axes[2], label="NCC peak")
-    axes[2].set_title(f"NCCピーク値マップ\n(下限={ncc_vmin:.2f}=しきい値)")
+    zncc_vmin = max(zncc_threshold, 0.0)
+    im2 = axes[2].imshow(zncc_grid, cmap='plasma', extent=extent,
+                          vmin=zncc_vmin, vmax=1.0, aspect='equal')
+    plt.colorbar(im2, ax=axes[2], label="ZNCC peak")
+    axes[2].set_title(f"ZNCCピーク値マップ\n(下限={zncc_vmin:.2f}=しきい値)")
     axes[2].set_xlabel("X [px]"); axes[2].set_ylabel("Y [px]")
 
     plt.tight_layout()
@@ -1590,17 +1811,20 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
     out_path : Path
         出力Excelファイルパス。
     """
-    PARAMS = ['u', 'v', 'ncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
+    PARAMS = ['u', 'v', 'zncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy',
+              'theta_e1', 'theta_gamma']
     PARAM_LABELS = {
-        'u': 'u', 'v': 'v', 'ncc': 'ncc',
+        'u': 'u', 'v': 'v', 'zncc': 'zncc',
         'exx': 'exx', 'eyy': 'eyy', 'exy': 'exy',
         'e1': 'e1', 'gamma_max': 'gamma_max', 'omega_xy': 'omega_xy',
+        'theta_e1': 'theta_e1', 'theta_gamma': 'theta_gamma',
     }
     # 平均値シートのヘッダー表示用（特殊文字OK）
     PARAM_HEADERS = {
-        'u': 'u [px]', 'v': 'v [px]', 'ncc': 'NCC',
+        'u': 'u [px]', 'v': 'v [px]', 'zncc': 'ZNCC',
         'exx': 'εxx', 'eyy': 'εyy', 'exy': 'εxy',
         'e1': 'ε1', 'gamma_max': 'γmax', 'omega_xy': 'ωxy',
+        'theta_e1': 'θε1 [deg]', 'theta_gamma': 'θγmax [deg]',
     }
 
     wb = openpyxl.Workbook()
@@ -1628,7 +1852,7 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
     for res in results_list:
         row_vals = [res['label']]
         for p in PARAMS:
-            if p in ('u', 'v', 'ncc'):
+            if p in ('u', 'v', 'zncc'):
                 data = np.array(res[p], dtype=float).flatten()
             else:
                 d = res['strain'].get(p)
@@ -1680,7 +1904,7 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
         # 各DEFのデータを1Dフラット配列に統一して収集
         arrays = []
         for res in results_list:
-            if p in ('u', 'v', 'ncc'):
+            if p in ('u', 'v', 'zncc'):
                 arr = np.array(res[p], dtype=float).flatten()
             else:
                 d = res['strain'].get(p)
@@ -1715,7 +1939,7 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
 # =============================================================================
 
 def run_dic_pair(ref_path, def_path, shifts, roi,
-                 ncc_threshold=NCC_THRESHOLD, n_workers=N_WORKERS,
+                 zncc_threshold=ZNCC_THRESHOLD, n_workers=N_WORKERS,
                  prev_cx1=None, prev_cy1=None, prev_u1=None, prev_v1=None,
                  save_png=True):
     """REF・DEF 1ペア分のDIC処理を実行して結果を返す。
@@ -1804,7 +2028,7 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
         subset_size=SUBSET_SIZE, subset_step=STEP_COARSE,
         search_range=stage1_search, label="[Stage 1]",
         init_u_func=_g_init_u, init_v_func=_g_init_v,
-        ncc_threshold=0,  # Stage1はマスクなし（初期値用なのでNaNにしない）
+        zncc_threshold=0,  # Stage1はマスクなし（初期値用なのでNaNにしない）
         n_workers=n_workers
     )
     init_u_func = make_interpolator(cx1, cy1, np.nan_to_num(u1))
@@ -1815,13 +2039,13 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
     _iu = lambda cx, cy: float(init_u_func([[cy, cx]])[0])
     _iv = lambda cx, cy: float(init_v_func([[cy, cx]])[0])
 
-    cx2, cy2, u2, v2, ncc2 = run_dic_stage(
+    cx2, cy2, u2, v2, zncc2 = run_dic_stage(
         ref, deformed,
         subset_size=SUBSET_SIZE, subset_step=STEP_FINE,
         search_range=SEARCH_FINE,
         init_u_func=_iu, init_v_func=_iv,
         label="[Stage 2]",
-        ncc_threshold=ncc_threshold, n_workers=n_workers
+        zncc_threshold=zncc_threshold, n_workers=n_workers
     )
 
     # u_corr補正を削除（Phase Correlationによる全体補正は不均一変形に不適切）
@@ -1836,8 +2060,8 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
     if save_png:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         visualize_displacement(cx2, cy2, u_corr, v_corr,
-                               ncc2, shift_x, shift_y, STEP_FINE,
-                               ncc_threshold=ncc_threshold, def_stem=def_stem,
+                               zncc2, shift_x, shift_y, STEP_FINE,
+                               zncc_threshold=zncc_threshold, def_stem=def_stem,
                                scale_config=SCALE_CONFIG)
         visualize_strain(strain, STEP_FINE, ref_path.name, def_path.name,
                          def_stem=def_stem, scale_config=SCALE_CONFIG)
@@ -1849,7 +2073,7 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
         'label': def_path.stem,
         'cx': cx2, 'cy': cy2,
         'u': u_corr, 'v': v_corr,
-        'ncc': ncc2,
+        'zncc': zncc2,
         'strain': strain,
     }
 
@@ -1866,7 +2090,7 @@ if __name__ == "__main__":
     REF_PATH, DEF_PATHS, ALIGNMENT_JSON, BASE_FOLDER, \
         STEP_COARSE, STAGE1_AUTO, STAGE1_MARGIN, SEARCH_COARSE, \
         STEP_FINE, SEARCH_FINE, SUBSET_SIZE, \
-        NCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, STRAIN_TYPE, \
+        ZNCC_THRESHOLD, N_WORKERS, SCALE_CONFIG, GAUGE_LENGTH, STRAIN_TYPE, \
         USE_PREV_STAGE1, TRIM = interactive_wizard(_initial_dir)
     # TRIM = (top, bottom, left, right)
     TRIM_TOP, TRIM_BOTTOM, TRIM_LEFT, TRIM_RIGHT = TRIM
@@ -1959,7 +2183,7 @@ if __name__ == "__main__":
         'label': REF_PATH.stem,
         'cx': _cx, 'cy': _cy,
         'u': _zeros.copy(), 'v': _zeros.copy(),
-        'ncc': _ones.copy(),
+        'zncc': _ones.copy(),
         'strain': _ref_strain,
     }]
 
@@ -1984,7 +2208,7 @@ if __name__ == "__main__":
         '[共通]',
         f'  subset     : {SUBSET_SIZE} px',
         f'  gauge      : {GAUGE_LENGTH} 倍（Step_fine × {GAUGE_LENGTH} = {GAUGE_LENGTH * STEP_FINE}px）',
-        f'  NCC閾値    : {NCC_THRESHOLD}',
+        f'  ZNCC閾値    : {ZNCC_THRESHOLD}',
         f'  workers    : {N_WORKERS}',
         '',
         '[カラースケール]',
@@ -2009,7 +2233,7 @@ if __name__ == "__main__":
         print(f"\n[{i}/{total}] {def_path.name} を処理中...")
         prev_cx1, prev_cy1, prev_u1, prev_v1, res = run_dic_pair(
             REF_PATH, def_path, shifts, roi,
-            ncc_threshold=NCC_THRESHOLD, n_workers=N_WORKERS,
+            zncc_threshold=ZNCC_THRESHOLD, n_workers=N_WORKERS,
             prev_cx1=prev_cx1, prev_cy1=prev_cy1,
             prev_u1=prev_u1,   prev_v1=prev_v1,
             save_png=False,
@@ -2027,7 +2251,7 @@ if __name__ == "__main__":
         """全results_listから指定キーの有効値を結合して返す。"""
         arrays = []
         for res in results_list:
-            if key in ('u', 'v', 'ncc'):
+            if key in ('u', 'v', 'zncc'):
                 arr = np.array(res[key], dtype=float).flatten()
             else:
                 d = res['strain'].get(key)
@@ -2062,7 +2286,7 @@ if __name__ == "__main__":
             lo = gui_lo if gui_lo is not None else float(np.percentile(vals, 2))
             hi = gui_hi if gui_hi is not None else float(np.percentile(vals, 98))
         unified_scale[k] = (lo, hi)
-    unified_scale['ncc'] = SCALE_CONFIG.get('ncc', (None, None))
+    unified_scale['zncc'] = SCALE_CONFIG.get('zncc', (None, None))
 
     print(f"\n{'─' * 60}")
     print("  【カラースケール（全DEF統一）】")
@@ -2081,7 +2305,7 @@ if __name__ == "__main__":
     # REF（全ゼロ）
     visualize_displacement(_cx, _cy, _zeros, _zeros,
                            _ones, 0, 0, STEP_FINE,
-                           ncc_threshold=NCC_THRESHOLD, def_stem=ref_stem,
+                           zncc_threshold=ZNCC_THRESHOLD, def_stem=ref_stem,
                            scale_config=unified_scale)
     visualize_strain(_ref_strain, STEP_FINE, REF_PATH.name, REF_PATH.name,
                      def_stem=ref_stem, scale_config=unified_scale)
@@ -2095,8 +2319,8 @@ if __name__ == "__main__":
         # （グローバルシフトはタイトル表示用のみでスケールに影響しない）
         _shift_x, _shift_y = 0, 0
         visualize_displacement(res['cx'], res['cy'], res['u'], res['v'],
-                               res['ncc'], _shift_x, _shift_y, STEP_FINE,
-                               ncc_threshold=NCC_THRESHOLD, def_stem=def_stem_i,
+                               res['zncc'], _shift_x, _shift_y, STEP_FINE,
+                               zncc_threshold=ZNCC_THRESHOLD, def_stem=def_stem_i,
                                scale_config=unified_scale)
         visualize_strain(res['strain'], STEP_FINE, REF_PATH.name, def_path.name,
                          def_stem=def_stem_i, scale_config=unified_scale)
