@@ -574,9 +574,25 @@
       </div>
     </div>
 
-    <!-- ⑤ カラースケール -->
+    <!-- ⑤ スペックル品質チェック -->
     <div class="section">
-      <div class="section-title">⑤ カラースケール（空欄 = 自動）</div>
+      <div class="section-title">⑤ スペックル品質チェック</div>
+
+      <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.6;">
+        REF画像のACF・MIG・SSSIGを計算し、DIC解析に十分な品質かを評価します。<br>
+        目安：スペックル半径 2〜5px / MIG &gt; 8 / SSSIG &gt; 5000
+      </div>
+
+      <div class="prescan-result" id="quality-result">（未実行）</div>
+
+      <div style="margin-top:6px;">
+        <button class="btn-sm accent" id="btn-quality" onclick="runSpeckleQuality()">スペックル品質チェック実行</button>
+      </div>
+    </div>
+
+    <!-- ⑥ カラースケール -->
+    <div class="section">
+      <div class="section-title">⑥ カラースケール（空欄 = 自動）</div>
 
       <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.6;">
         事前スキャン後に参考値を確認して入力してください。空欄の場合は自動設定されます。
@@ -611,7 +627,7 @@
   <button class="btn-cancel" onclick="onCancel()">キャンセル</button>
   <button class="btn-sm accent" id="btn-redraw"    onclick="onRedraw()"   disabled style="margin-left:16px;">再描画</button>
   <button class="btn-sm accent" id="btn-recalc"    onclick="onRecalc()"   disabled style="margin-left:4px;">ひずみ再計算・再描画</button>
-  <button class="btn-sm green"  id="btn-save-maps" onclick="onSaveMaps()" disabled>マップ保存</button>
+  <button class="btn-sm green"  id="btn-save-maps" onclick="onSaveMaps()" disabled>マップ・データ保存</button>
   <div class="footer-status" id="footer-status"></div>
 </footer>
 
@@ -800,6 +816,45 @@ function applyRec() {
   resEl.textContent += `\n→ Stage1 search を ${prescanRec}px に更新しました`;
 }
 
+// ---- スペックル品質チェック ----
+async function runSpeckleQuality() {
+  const folder = document.getElementById('folder-path').textContent;
+  if (!folder || folder === '（未選択）') { alert('フォルダを選択してください'); return; }
+  if (refIdx < 0) { alert('REFを選択してください'); return; }
+
+  const resEl = document.getElementById('quality-result');
+  resEl.textContent = '計算中…';
+  resEl.className = 'prescan-result';
+  document.getElementById('btn-quality').disabled = true;
+
+  const params = {
+    ref_path:    images[refIdx].path,
+    subset_size: parseInt(document.getElementById('subset-size').value) || 31,
+    trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
+    trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
+    trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
+    trim_right:  parseInt(document.getElementById('trim-right').value)  || 0,
+  };
+
+  const result = await eel.dic_speckle_quality(params)();
+  document.getElementById('btn-quality').disabled = false;
+
+  if (result.error) {
+    resEl.textContent = 'エラー: ' + result.error;
+    resEl.className = 'prescan-result error';
+    return;
+  }
+
+  const judgeStr = j => j === 'good' ? '良好 ✓' : j === 'warn' ? '要注意 △' : '不適 ✗';
+  resEl.textContent =
+    `スペックル半径: ${result.speckle_radius.toFixed(1)} px [${judgeStr(result.radius_judge)}]  |  ` +
+    `MIG: ${result.mig.toFixed(1)} [${judgeStr(result.mig_judge)}]  |  ` +
+    `SSSIG: ${result.sssig.toFixed(0)} [${judgeStr(result.sssig_judge)}]`;
+  const allGood = [result.radius_judge, result.mig_judge, result.sssig_judge].every(j => j === 'good');
+  const anyBad  = [result.radius_judge, result.mig_judge, result.sssig_judge].some(j => j === 'bad');
+  resEl.className = 'prescan-result ' + (allGood ? 'ok' : anyBad ? 'error' : 'warn');
+}
+
 // ---- config読み込み ----
 async function loadConfig() {
   const folder = document.getElementById('folder-path').textContent;
@@ -887,7 +942,7 @@ async function onRun() {
     s2_step:     parseInt(document.getElementById('s2-step').value),
     s2_search:   parseInt(document.getElementById('s2-search').value),
     subset_size: parseInt(document.getElementById('subset-size').value),
-    ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
+    zncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
     n_workers:   parseInt(document.getElementById('n-workers').value),
     gauge_length: parseInt(document.getElementById('gauge-length').value),
     strain_type:  document.querySelector('input[name="strain-type"]:checked').value,
@@ -961,10 +1016,10 @@ async function onRecalc() {
 async function onSaveMaps() {
   if (!_analysisOutputDir) { alert('先に解析を実行してください'); return; }
   document.getElementById('btn-save-maps').disabled = true;
-  setStatus('マップ保存中...', true);
+  setStatus('マップ・データ保存中...', true);
   await eel.dic_save_maps(_mapParams())();
   document.getElementById('btn-save-maps').disabled = false;
-  setStatus('マップ保存完了', true);
+  setStatus('マップ・データ保存完了', true);
 }
 
 function setStatus(msg, ok) {

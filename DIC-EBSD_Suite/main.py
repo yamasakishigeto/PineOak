@@ -348,6 +348,167 @@ def dic_load_config(folder: str):
 
 
 @eel.expose
+def dic_speckle_quality(params: dict):
+    """REF画像のACF・MIG・SSSIGを計算して品質評価結果を返す"""
+    import json, tempfile
+    result_file = tempfile.mktemp(suffix='.json')
+
+    _script = r"""
+import sys, json
+from pathlib import Path
+import numpy as np
+import cv2
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+param_file  = sys.argv[1]
+result_file = sys.argv[2]
+dic_module  = sys.argv[3]
+
+with open(param_file) as f:
+    p = json.load(f)
+
+import importlib.util
+spec = importlib.util.spec_from_file_location('dic', dic_module)
+mod  = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+trim = (int(p.get('trim_top',0)), int(p.get('trim_bottom',0)),
+        int(p.get('trim_left',0)), int(p.get('trim_right',0)))
+img = mod.load_and_preprocess(Path(p['ref_path']), trim)
+subset_size = int(p.get('subset_size', 31))
+
+# ACF
+acf_map, radial, speckle_r = mod._speckle_acf(img)
+
+# MIG
+_, mig_mean = mod._speckle_mig(img)
+
+# SSSIG
+_, _, sssig_vals = mod._speckle_sssig(img, subset_size)
+sssig_mean = float(sssig_vals.mean())
+
+def judge(val, good_range=None, good_min=None, warn_range=None, warn_min=None):
+    if good_range:
+        if good_range[0] <= val <= good_range[1]: return 'good'
+        if warn_range and warn_range[0] <= val <= warn_range[1]: return 'warn'
+        return 'bad'
+    if good_min is not None:
+        if val >= good_min: return 'good'
+        if warn_min is not None and val >= warn_min: return 'warn'
+        return 'bad'
+
+# 閾値は [0,1] 正規化後の値に基づく（Pan et al. 2009, Meas. Sci. Technol. 20 062001）
+r_judge    = judge(speckle_r, good_range=(2.0, 5.0), warn_range=(1.5, 8.0))
+mig_judge  = judge(mig_mean,  good_min=0.05, warn_min=0.02)
+sssig_judge= judge(sssig_mean,good_min=100.0, warn_min=20.0)
+
+result = {
+    'speckle_radius': float(speckle_r),
+    'mig':            float(mig_mean),
+    'sssig':          float(sssig_mean),
+    'radius_judge':   r_judge,
+    'mig_judge':      mig_judge,
+    'sssig_judge':    sssig_judge,
+}
+with open(result_file, 'w') as f:
+    json.dump(result, f)
+
+# 結果ウィンドウを別プロセスで表示
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+
+fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+fig.patch.set_facecolor('#f4f4f4')
+
+# ACF ラジアルプロファイル
+ax = axes[0, 0]
+r_range = min(30, len(radial))
+ax.plot(np.arange(r_range), radial[:r_range], color='steelblue', lw=2)
+ax.axhline(0.5, color='red', ls='--', lw=1, label='0.5 (HWHM)')
+ax.axvline(speckle_r, color='orange', ls='--', lw=1.5,
+           label=f'speckle radius {speckle_r:.1f} px')
+ax.set_xlabel('distance [px]'); ax.set_ylabel('normalized ACF')
+ax.set_title(f'ACF radial profile  (speckle radius: {speckle_r:.1f} px)')
+ax.legend(fontsize=8); ax.set_ylim(-0.1, 1.05); ax.grid(True, alpha=0.3)
+
+# ACF 2D マップ
+ax = axes[0, 1]
+crop = 40
+cy_c, cx_c = acf_map.shape[0]//2, acf_map.shape[1]//2
+acf_crop = acf_map[cy_c-crop:cy_c+crop, cx_c-crop:cx_c+crop]
+im = ax.imshow(acf_crop, cmap='RdBu_r', vmin=-0.5, vmax=1.0, aspect='equal')
+ticks = np.linspace(0, 2*crop, 5, dtype=int)
+ax.set_xticks(ticks); ax.set_xticklabels(ticks - crop)
+ax.set_yticks(ticks); ax.set_yticklabels(ticks - crop)
+ax.set_title('ACF 2D map (center +/-40px)')
+ax.set_xlabel('dx [px]'); ax.set_ylabel('dy [px]')
+fig.colorbar(im, ax=ax, fraction=0.046)
+
+# MIG マップ（正規化済み画像から計算）
+ax = axes[1, 0]
+g = mod._normalize_img(img)
+gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+mig_map = np.sqrt(gx**2 + gy**2)
+im2 = ax.imshow(mig_map, cmap='hot', vmin=0,
+                vmax=float(np.percentile(mig_map, 99)), aspect='equal')
+ax.set_title(f'MIG map  (mean: {mig_mean:.4f})')
+ax.set_xlabel('X [px]'); ax.set_ylabel('Y [px]')
+fig.colorbar(im2, ax=ax, fraction=0.046)
+
+# SSSIG マップ
+ax = axes[1, 1]
+cx_s, cy_s, sssig_vals2 = mod._speckle_sssig(img, subset_size)
+sssig_grid, _, _, _ = mod.make_grid_map(cx_s, cy_s, sssig_vals2, subset_size//2)
+h_img, w_img = img.shape
+im3 = ax.imshow(sssig_grid, cmap='plasma', aspect='equal',
+                extent=[0, w_img, h_img, 0])
+ax.set_title(f'SSSIG map  (subset={subset_size}px, mean: {sssig_mean:.1f})')
+ax.set_xlabel('X [px]'); ax.set_ylabel('Y [px]')
+fig.colorbar(im3, ax=ax, fraction=0.046)
+
+judge_str = {'good': 'GOOD', 'warn': 'WARN', 'bad': 'BAD'}
+fig.suptitle(
+    f'{Path(p["ref_path"]).name}\n'
+    f'speckle radius: {speckle_r:.1f}px [{judge_str[r_judge]}]  '
+    f'MIG: {mig_mean:.1f} [{judge_str[mig_judge]}]  '
+    f'SSSIG: {sssig_mean:.0f} [{judge_str[sssig_judge]}]',
+    fontsize=10)
+fig.tight_layout()
+plt.show()
+"""
+
+    param_file = tempfile.mktemp(suffix='.json')
+    with open(param_file, 'w') as f:
+        json.dump(params, f)
+
+    script_file = tempfile.mktemp(suffix='.py')
+    with open(script_file, 'w', encoding='utf-8') as f:
+        f.write(_script)
+
+    try:
+        _env = os.environ.copy()
+        _env['MPLBACKEND'] = 'TkAgg'
+        _env['PYTHONIOENCODING'] = 'utf-8'
+        proc = subprocess.run(
+            [PYTHON, script_file, param_file, result_file,
+             os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')],
+            timeout=120, env=_env
+        )
+        if os.path.exists(result_file):
+            with open(result_file) as f:
+                return json.load(f)
+        return {'error': '結果ファイルが生成されませんでした'}
+    except subprocess.TimeoutExpired:
+        return {'error': 'タイムアウト（120秒）'}
+    except Exception as e:
+        return {'error': str(e)}
+
+
+@eel.expose
 def dic_run_prescan(params: dict):
     """事前スキャンを実行して結果を返す"""
     try:
@@ -589,7 +750,7 @@ def make_grid(arr):
 
 u_grid   = make_grid(res['u'])
 v_grid   = make_grid(res['v'])
-ncc_grid = make_grid(res['ncc'])
+ncc_grid = make_grid(res['zncc'])
 _, extent, _, _ = mod.make_grid_map(res['cx'], res['cy'], res['u'], step_fine)
 strain   = res['strain']
 
@@ -843,7 +1004,7 @@ for i, res in enumerate(results_list):
 
     u_grid   = mod.make_grid_map(res['cx'], res['cy'], res['u'],   step_fine)[0]
     v_grid   = mod.make_grid_map(res['cx'], res['cy'], res['v'],   step_fine)[0]
-    ncc_grid = mod.make_grid_map(res['cx'], res['cy'], res['ncc'], step_fine)[0]
+    ncc_grid = mod.make_grid_map(res['cx'], res['cy'], res['zncc'], step_fine)[0]
     _, ext, _, _ = mod.make_grid_map(res['cx'], res['cy'], res['u'], step_fine)
     strain = res['strain']
 
@@ -902,7 +1063,7 @@ print(f"保存完了: {output_dir}")
     params['dic_module'] = os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py')
     env = os.environ.copy()
     env['PYTHONIOENCODING'] = 'utf-8'
-    subprocess.Popen([sys.executable, '-c', _script, json.dumps(params)], env=env)
+    subprocess.run([sys.executable, '-c', _script, json.dumps(params)], env=env)
 
 
 @eel.expose
