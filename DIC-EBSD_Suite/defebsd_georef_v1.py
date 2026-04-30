@@ -981,9 +981,9 @@ def save_integrated_mat(stages_results, georef_xlsx, out_dir):
         IQ_ref_arr[idx]   = _fv('IQ')
         CI_ref_arr[idx]   = _fv('CI')
 
-    # DIC 各シート（ひずみ・変位等）を読み込み
-    DIC_SHEETS = ['u', 'v', 'zncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy',
-                  'theta_e1', 'theta_gamma']
+    # DIC 各シート（ひずみ・変位等）を読み込み — xlsx に存在する全シートを自動検出
+    _SKIP_SHEETS = {'ebsd_georef', '平均値'}
+    DIC_SHEETS = [s for s in wb.sheetnames if s not in _SKIP_SHEETS]
     out = {
         'subset_id': all_subset_ids.astype(np.float64),
         'cx':        cx_ref,
