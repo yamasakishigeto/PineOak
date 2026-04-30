@@ -582,18 +582,32 @@ class StatsWindow(QMainWindow):
                 QMessageBox.warning(self, "未選択", "ステージを1つ以上選択してください")
                 return
 
+            # 全ステージのデータをまとめて共通ビンエッジを決定
+            all_data = []
+            for stage in sel:
+                d = self._get(var, stage)
+                d = d[np.isfinite(d)]
+                if len(d) > 0:
+                    all_data.append(d)
+            if not all_data:
+                QMessageBox.warning(self, "データなし", "有効なデータがありません")
+                return
+            combined = np.concatenate(all_data)
+            # X軸範囲指定があればそれをビン範囲に使う
+            xlo = self._parse_limit(self._hist_xlim[0])
+            xhi = self._parse_limit(self._hist_xlim[1])
+            rng = (xlo if xlo is not None else float(combined.min()),
+                   xhi if xhi is not None else float(combined.max()))
+            bin_edges = np.linspace(rng[0], rng[1], bins + 1)
+
             self._canvas.clear_plot()
             ax = self._canvas.ax
             cmap_f = _plt.get_cmap("plasma")
             colors = [cmap_f(i / max(len(sel) - 1, 1)) for i in range(len(sel))]
 
             lines = []
-            for stage, col in zip(sel, colors):
-                d = self._get(var, stage)
-                d = d[np.isfinite(d)]
-                if len(d) == 0:
-                    continue
-                ax.hist(d, bins=bins, density=density, color=col,
+            for stage, col, d in zip(sel, colors, all_data):
+                ax.hist(d, bins=bin_edges, density=density, color=col,
                         alpha=0.55, label=stage, edgecolor="none")
                 lines.append(
                     f"{stage}: mean={np.mean(d):.4g}  std={np.std(d):.4g}  "
