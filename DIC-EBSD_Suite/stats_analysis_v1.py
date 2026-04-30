@@ -55,12 +55,8 @@ CMAPS = [
     "jet", "turbo", "hot", "Blues", "Reds", "YlOrRd",
 ]
 
-# matファイルに存在しうるステージ非依存変数
-_KNOWN_INDEP = [
-    "cx", "cy", "grain_id",
-    "CI_ref", "IQ_ref", "PHI_ref",
-    "phi1_ref", "phi2_ref", "subset_id",
-]
+# ステージ非依存変数のうち座標・ID系など解析対象外のもの（リストから除外）
+_INDEP_EXCLUDE = {"cx", "cy", "subset_id"}
 
 
 # ============================================================
@@ -97,7 +93,14 @@ def load_mat(path: str):
 
     stages = sorted(stages_set, key=_stage_num)
     prefixes = sorted(prefixes_set)
-    indep_vars = [v for v in _KNOWN_INDEP if v in mat]
+
+    # ステージ非依存変数 = ステージパターンに一致しない数値配列、除外リスト以外
+    indep_vars = sorted(
+        k for k in mat
+        if not re.match(r"^(.+)_s(\d+MPa)$", k)
+        and k not in _INDEP_EXCLUDE
+        and isinstance(mat[k], np.ndarray)
+    )
 
     return mat, prefixes, stages, indep_vars
 
