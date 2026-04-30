@@ -549,8 +549,8 @@ class StatsWindow(QMainWindow):
                 )
 
             ax.set_xlabel(var, fontsize=10)
-            ax.set_ylabel("密度" if density else "度数", fontsize=10)
-            ax.set_title(f"{var}  ヒストグラム", fontsize=11)
+            ax.set_ylabel("Density" if density else "Count", fontsize=10)
+            ax.set_title(f"{var}  Histogram", fontsize=11)
             leg = ax.legend(fontsize=8, facecolor="white", edgecolor="#cccccc",
                             labelcolor="#333333")
             ax.grid(True, alpha=0.4, color="#cccccc", axis="y")
@@ -612,7 +612,7 @@ class StatsWindow(QMainWindow):
                 ax.errorbar(valid_xs, ys, yerr=errs,
                             fmt="o-", color="#00d4ff", ecolor="#ff6b35",
                             capsize=4, linewidth=2, markersize=5,
-                            label="平均 ± std")
+                            label="Mean +/- Std")
                 ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
                           labelcolor="#333333")
 
@@ -624,13 +624,13 @@ class StatsWindow(QMainWindow):
                 ax.errorbar(valid_xs, ys, yerr=[lo_err, hi_err],
                             fmt="o-", color="#00d4ff", ecolor="#ff6b35",
                             capsize=4, linewidth=2, markersize=5,
-                            label="中央値 ± IQR")
+                            label="Median +/- IQR")
                 ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
                           labelcolor="#333333")
 
-            ax.set_xlabel("応力 [MPa]", fontsize=10)
+            ax.set_xlabel("Stress [MPa]", fontsize=10)
             ax.set_ylabel(var, fontsize=10)
-            ax.set_title(f"{var}  のステージ依存性", fontsize=11)
+            ax.set_title(f"{var}  vs Stress Stage", fontsize=11)
             ax.set_xticks(valid_xs)
             ax.set_xticklabels([str(v) for v in valid_xs], rotation=45, fontsize=8)
             ax.grid(True, alpha=0.4, color="#cccccc")
