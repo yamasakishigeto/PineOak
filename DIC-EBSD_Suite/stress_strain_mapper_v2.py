@@ -382,7 +382,6 @@ class StressStrainMapperApp(QMainWindow):
         row5.addStretch()
         g_var.addLayout(row5)
 
-        from PyQt6.QtWidgets import QWidget
         self._map_ps_trace_widget = QWidget()
         row_ps = QHBoxLayout(self._map_ps_trace_widget)
         row_ps.setContentsMargins(0, 0, 0, 0)
