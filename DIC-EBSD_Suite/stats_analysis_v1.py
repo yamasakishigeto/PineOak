@@ -108,7 +108,7 @@ def load_mat(path: str):
 
 class PlotCanvas(FigureCanvasQtAgg):
     def __init__(self, parent=None):
-        self._fig = Figure(facecolor="#1a1d24", tight_layout=True)
+        self._fig = Figure(facecolor="white", tight_layout=True)
         self._ax = self._fig.add_subplot(111)
         self._style_ax(self._ax)
         super().__init__(self._fig)
@@ -120,13 +120,13 @@ class PlotCanvas(FigureCanvasQtAgg):
         return self._ax
 
     def _style_ax(self, ax):
-        ax.set_facecolor("#111318")
-        ax.tick_params(colors="#9ca3af", labelsize=8)
+        ax.set_facecolor("white")
+        ax.tick_params(colors="#333333", labelsize=8)
         for spine in ax.spines.values():
-            spine.set_edgecolor("#2a2d35")
-        ax.xaxis.label.set_color("#9ca3af")
-        ax.yaxis.label.set_color("#9ca3af")
-        ax.title.set_color("#e0e4ec")
+            spine.set_edgecolor("#888888")
+        ax.xaxis.label.set_color("#333333")
+        ax.yaxis.label.set_color("#333333")
+        ax.title.set_color("#111111")
 
     def clear_plot(self):
         if self._colorbar is not None:
@@ -142,7 +142,7 @@ class PlotCanvas(FigureCanvasQtAgg):
         self.draw()
 
     def save_png(self, path: str):
-        self._fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=self._fig.get_facecolor())
+        self._fig.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")
 
 
 # ============================================================
@@ -500,7 +500,7 @@ class StatsWindow(QMainWindow):
             ax.set_xlabel(xp, fontsize=10)
             ax.set_ylabel(yp, fontsize=10)
             ax.set_title(f"{yp}  vs  {xp}   [{stage}]   n={len(x):,}", fontsize=11)
-            ax.grid(True, alpha=0.15, color="#2a2d35")
+            ax.grid(True, alpha=0.4, color="#cccccc")
             self._canvas.finish()
 
             info = (f"n = {len(x):,}\n"
@@ -551,9 +551,9 @@ class StatsWindow(QMainWindow):
             ax.set_xlabel(var, fontsize=10)
             ax.set_ylabel("密度" if density else "度数", fontsize=10)
             ax.set_title(f"{var}  ヒストグラム", fontsize=11)
-            leg = ax.legend(fontsize=8, facecolor="#1a1d24", edgecolor="#2a2d35",
-                            labelcolor="#e0e4ec")
-            ax.grid(True, alpha=0.15, color="#2a2d35", axis="y")
+            leg = ax.legend(fontsize=8, facecolor="white", edgecolor="#cccccc",
+                            labelcolor="#333333")
+            ax.grid(True, alpha=0.4, color="#cccccc", axis="y")
             self._canvas.finish()
 
             self._hist_info.setText("\n".join(lines))
@@ -613,8 +613,8 @@ class StatsWindow(QMainWindow):
                             fmt="o-", color="#00d4ff", ecolor="#ff6b35",
                             capsize=4, linewidth=2, markersize=5,
                             label="平均 ± std")
-                ax.legend(fontsize=9, facecolor="#1a1d24", edgecolor="#2a2d35",
-                          labelcolor="#e0e4ec")
+                ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
+                          labelcolor="#333333")
 
             else:
                 # 中央値 ± IQR
@@ -625,15 +625,15 @@ class StatsWindow(QMainWindow):
                             fmt="o-", color="#00d4ff", ecolor="#ff6b35",
                             capsize=4, linewidth=2, markersize=5,
                             label="中央値 ± IQR")
-                ax.legend(fontsize=9, facecolor="#1a1d24", edgecolor="#2a2d35",
-                          labelcolor="#e0e4ec")
+                ax.legend(fontsize=9, facecolor="white", edgecolor="#cccccc",
+                          labelcolor="#333333")
 
             ax.set_xlabel("応力 [MPa]", fontsize=10)
             ax.set_ylabel(var, fontsize=10)
             ax.set_title(f"{var}  のステージ依存性", fontsize=11)
             ax.set_xticks(valid_xs)
             ax.set_xticklabels([str(v) for v in valid_xs], rotation=45, fontsize=8)
-            ax.grid(True, alpha=0.15, color="#2a2d35")
+            ax.grid(True, alpha=0.4, color="#cccccc")
             self._canvas.finish()
 
             self._sb.showMessage(f"ステージ変化プロット完了 — {var}")
