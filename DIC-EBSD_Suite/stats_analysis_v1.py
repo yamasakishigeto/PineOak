@@ -1,0 +1,693 @@
+"""
+stats_analysis_v1.py
+====================
+integrated_georef_derived.mat を読み込んで統計解析を行うインタラクティブGUIツール。
+PyQt6 + matplotlib Qt6Agg バックエンドで描画。
+
+使用方法:
+    python stats_analysis_v1.py --file path/to/integrated_georef_derived.mat
+    python stats_analysis_v1.py          # ファイルダイアログで選択
+
+モード:
+    散布図       — 任意の2変数の散布図 (相関係数表示、第三変数でカラーリング可)
+    ヒストグラム — 変数の分布を複数ステージ重ねて比較
+    ステージ変化 — 平均±std / 中央値±IQR / 箱ひげ図でステージ依存性を表示
+"""
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+import os
+os.environ.setdefault("QT_API", "PyQt6")
+
+import matplotlib
+matplotlib.use("QtAgg")
+import matplotlib.pyplot as _plt
+import numpy as np
+from matplotlib.backends.backend_qtagg import (
+    FigureCanvasQTAgg as FigureCanvasQtAgg,
+    NavigationToolbar2QT,
+)
+from matplotlib.figure import Figure
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QSplitter,
+    QTabWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QComboBox, QPushButton,
+    QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
+    QMessageBox, QSizePolicy, QCheckBox,
+    QListWidget, QListWidgetItem, QSpinBox,
+    QStatusBar,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+
+
+# ============================================================
+# 定数
+# ============================================================
+
+CMAPS = [
+    "viridis", "plasma", "inferno", "magma",
+    "coolwarm", "RdBu_r", "seismic", "bwr",
+    "jet", "turbo", "hot", "Blues", "Reds", "YlOrRd",
+]
+
+# matファイルに存在しうるステージ非依存変数
+_KNOWN_INDEP = [
+    "cx", "cy", "grain_id",
+    "CI_ref", "IQ_ref", "PHI_ref",
+    "phi1_ref", "phi2_ref", "subset_id",
+]
+
+
+# ============================================================
+# データ読み込み
+# ============================================================
+
+def load_mat(path: str):
+    """
+    matファイルを読み込む。
+
+    Returns
+    -------
+    mat        : dict  キー→ndarray
+    prefixes   : list  ステージ依存変数のプレフィックス一覧（ソート済み）
+    stages     : list  ステージ文字列一覧（MPa昇順）
+    indep_vars : list  ステージ非依存変数のキー一覧
+    """
+    sys.path.insert(0, str(Path(__file__).parent))
+    from preprocessed_loader import smart_loadmat
+
+    mat = {k: v for k, v in smart_loadmat(path).items() if not k.startswith("__")}
+
+    prefixes_set = set()
+    stages_set = set()
+    for k in mat:
+        m = re.match(r"^(.+)_(s\d+MPa)$", k)
+        if m:
+            prefixes_set.add(m.group(1))
+            stages_set.add(m.group(2))
+
+    def _stage_num(s):
+        m = re.search(r"(\d+)", s)
+        return int(m.group(1)) if m else 0
+
+    stages = sorted(stages_set, key=_stage_num)
+    prefixes = sorted(prefixes_set)
+    indep_vars = [v for v in _KNOWN_INDEP if v in mat]
+
+    return mat, prefixes, stages, indep_vars
+
+
+# ============================================================
+# matplotlib キャンバス
+# ============================================================
+
+class PlotCanvas(FigureCanvasQtAgg):
+    def __init__(self, parent=None):
+        self._fig = Figure(facecolor="#1a1d24", tight_layout=True)
+        self._ax = self._fig.add_subplot(111)
+        self._style_ax(self._ax)
+        super().__init__(self._fig)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._colorbar = None
+
+    @property
+    def ax(self):
+        return self._ax
+
+    def _style_ax(self, ax):
+        ax.set_facecolor("#111318")
+        ax.tick_params(colors="#9ca3af", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#2a2d35")
+        ax.xaxis.label.set_color("#9ca3af")
+        ax.yaxis.label.set_color("#9ca3af")
+        ax.title.set_color("#e0e4ec")
+
+    def clear_plot(self):
+        if self._colorbar is not None:
+            self._colorbar.remove()
+            self._colorbar = None
+        self._fig.clear()
+        self._ax = self._fig.add_subplot(111)
+        self._style_ax(self._ax)
+        self.draw()
+
+    def finish(self):
+        self._fig.tight_layout()
+        self.draw()
+
+    def save_png(self, path: str):
+        self._fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=self._fig.get_facecolor())
+
+
+# ============================================================
+# メインウィンドウ
+# ============================================================
+
+class StatsWindow(QMainWindow):
+    def __init__(self, mat_path: str = None):
+        super().__init__()
+        self.setWindowTitle("Statistics Analysis  —  PineOak")
+        self.resize(1280, 820)
+
+        self._mat = None
+        self._prefixes = []
+        self._stages = []
+        self._indep_vars = []
+        self._file_path = ""
+
+        self._build_ui()
+        self._apply_style()
+
+        if mat_path:
+            self._load_file(mat_path)
+
+    # ----------------------------------------------------------
+    # UI 構築
+    # ----------------------------------------------------------
+
+    def _build_ui(self):
+        root = QWidget()
+        self.setCentralWidget(root)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(6)
+
+        # ---- ファイル選択 ----
+        fg = QGroupBox("入力ファイル")
+        fl = QHBoxLayout(fg)
+        self._path_label = QLabel("（未読み込み）")
+        self._path_label.setFont(QFont("Courier New", 9))
+        self._path_label.setWordWrap(True)
+        btn = QPushButton("参照…")
+        btn.setFixedWidth(80)
+        btn.clicked.connect(self._browse)
+        fl.addWidget(self._path_label, 1)
+        fl.addWidget(btn)
+        outer.addWidget(fg)
+
+        # ---- スプリッタ（左：コントロール / 右：キャンバス） ----
+        sp = QSplitter(Qt.Orientation.Horizontal)
+        outer.addWidget(sp, 1)
+
+        # 左タブ
+        self._tabs = QTabWidget()
+        self._tabs.setFixedWidth(310)
+        self._tabs.addTab(self._build_scatter_tab(), "散布図")
+        self._tabs.addTab(self._build_hist_tab(),    "ヒストグラム")
+        self._tabs.addTab(self._build_evol_tab(),    "ステージ変化")
+        sp.addWidget(self._tabs)
+
+        # 右キャンバス
+        cw = QWidget()
+        cl = QVBoxLayout(cw)
+        cl.setContentsMargins(0, 0, 0, 0)
+        self._canvas = PlotCanvas()
+        self._toolbar = NavigationToolbar2QT(self._canvas, cw)
+        cl.addWidget(self._toolbar)
+        cl.addWidget(self._canvas, 1)
+        sp.addWidget(cw)
+        sp.setStretchFactor(0, 0)
+        sp.setStretchFactor(1, 1)
+
+        # ステータスバー
+        self._sb = QStatusBar()
+        self.setStatusBar(self._sb)
+        self._sb.showMessage("ファイルを読み込んでください")
+
+    # ---------- 散布図タブ ----------
+
+    def _build_scatter_tab(self):
+        w = QWidget()
+        L = QVBoxLayout(w)
+        L.setSpacing(6)
+
+        self._sc_x     = QComboBox()
+        self._sc_y     = QComboBox()
+        self._sc_stage = QComboBox()
+        self._sc_color = QComboBox()
+        self._sc_cmap  = QComboBox()
+        self._sc_cmap.addItems(CMAPS)
+        self._sc_cmap.setCurrentText("viridis")
+
+        for lbl, cb in [("X 軸", self._sc_x), ("Y 軸", self._sc_y),
+                        ("ステージ", self._sc_stage), ("カラー変数", self._sc_color),
+                        ("カラーマップ", self._sc_cmap)]:
+            L.addLayout(self._row(lbl, cb))
+
+        self._sc_info = QLabel("")
+        self._sc_info.setWordWrap(True)
+        self._sc_info.setFont(QFont("Courier New", 9))
+        self._sc_info.setStyleSheet("color: #9ca3af;")
+        L.addWidget(self._sc_info)
+
+        L.addStretch()
+        L.addLayout(self._btn_row(self._plot_scatter, "scatter"))
+        return w
+
+    # ---------- ヒストグラムタブ ----------
+
+    def _build_hist_tab(self):
+        w = QWidget()
+        L = QVBoxLayout(w)
+        L.setSpacing(6)
+
+        self._hist_var = QComboBox()
+        L.addLayout(self._row("変数", self._hist_var))
+
+        sg = QGroupBox("ステージ選択（複数可）")
+        sl = QVBoxLayout(sg)
+        self._hist_stages = QListWidget()
+        self._hist_stages.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self._hist_stages.setMaximumHeight(140)
+        sl.addWidget(self._hist_stages)
+        L.addWidget(sg)
+
+        self._hist_bins    = QSpinBox()
+        self._hist_bins.setRange(5, 500)
+        self._hist_bins.setValue(50)
+        self._hist_density = QCheckBox("密度表示（面積 = 1）")
+        L.addLayout(self._row("ビン数", self._hist_bins))
+        L.addWidget(self._hist_density)
+
+        self._hist_info = QLabel("")
+        self._hist_info.setWordWrap(True)
+        self._hist_info.setFont(QFont("Courier New", 9))
+        self._hist_info.setStyleSheet("color: #9ca3af;")
+        L.addWidget(self._hist_info)
+
+        L.addStretch()
+        L.addLayout(self._btn_row(self._plot_hist, "histogram"))
+        return w
+
+    # ---------- ステージ変化タブ ----------
+
+    def _build_evol_tab(self):
+        w = QWidget()
+        L = QVBoxLayout(w)
+        L.setSpacing(6)
+
+        self._evol_var = QComboBox()
+        L.addLayout(self._row("変数", self._evol_var))
+
+        tg = QGroupBox("プロットタイプ")
+        tl = QVBoxLayout(tg)
+        self._evol_type = QButtonGroup()
+        for i, label in enumerate(["平均 ± 標準偏差", "中央値 ± IQR", "箱ひげ図"]):
+            rb = QRadioButton(label)
+            if i == 0:
+                rb.setChecked(True)
+            self._evol_type.addButton(rb, i)
+            tl.addWidget(rb)
+        L.addWidget(tg)
+
+        L.addStretch()
+        L.addLayout(self._btn_row(self._plot_evol, "evolution"))
+        return w
+
+    # ---------- 共通ヘルパー ----------
+
+    @staticmethod
+    def _row(label: str, widget):
+        h = QHBoxLayout()
+        lb = QLabel(label)
+        lb.setFixedWidth(80)
+        h.addWidget(lb)
+        h.addWidget(widget)
+        return h
+
+    def _btn_row(self, plot_fn, tag: str):
+        h = QHBoxLayout()
+        bp = QPushButton("プロット")
+        be = QPushButton("PNG 保存")
+        bp.clicked.connect(plot_fn)
+        be.clicked.connect(lambda: self._save_png(tag))
+        h.addWidget(bp)
+        h.addWidget(be)
+        return h
+
+    # ----------------------------------------------------------
+    # スタイル
+    # ----------------------------------------------------------
+
+    def _apply_style(self):
+        self.setStyleSheet("""
+            QMainWindow, QWidget          { background:#1a1d24; color:#e0e4ec; font-size:12px; }
+            QGroupBox                     { border:1px solid #2a2d35; border-radius:4px;
+                                            margin-top:8px; padding-top:4px; }
+            QGroupBox::title              { color:#00d4ff; font-size:11px; subcontrol-origin:margin;
+                                            left:8px; padding:0 4px; }
+            QComboBox, QSpinBox           { background:#111318; border:1px solid #2a2d35;
+                                            color:#e0e4ec; padding:3px 6px; border-radius:3px; }
+            QComboBox::drop-down          { border:none; }
+            QComboBox QAbstractItemView   { background:#1a1d24; color:#e0e4ec;
+                                            selection-background-color:#00d4ff;
+                                            selection-color:#000; }
+            QPushButton                   { background:#111318; border:1px solid #2a2d35;
+                                            color:#e0e4ec; padding:5px 12px; border-radius:3px; }
+            QPushButton:hover             { border-color:#00d4ff; color:#00d4ff;
+                                            background:rgba(0,212,255,0.07); }
+            QPushButton:disabled          { opacity:0.35; }
+            QTabWidget::pane              { border:1px solid #2a2d35; }
+            QTabBar::tab                  { background:#111318; color:#6b7280;
+                                            padding:6px 14px; border:1px solid #2a2d35; }
+            QTabBar::tab:selected         { background:#1a1d24; color:#00d4ff;
+                                            border-bottom-color:#1a1d24; }
+            QListWidget                   { background:#111318; border:1px solid #2a2d35;
+                                            color:#e0e4ec; }
+            QListWidget::item:selected    { background:rgba(0,212,255,0.2); color:#00d4ff; }
+            QCheckBox, QRadioButton       { color:#e0e4ec; }
+            QStatusBar                    { background:#111318; color:#6b7280; font-size:10px; }
+            QSplitter::handle             { background:#2a2d35; width:2px; }
+            NavigationToolbar2QT          { background:#111318; }
+        """)
+
+    # ----------------------------------------------------------
+    # ファイル操作
+    # ----------------------------------------------------------
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "matファイルを選択",
+            str(Path(self._file_path).parent) if self._file_path else "",
+            "MAT files (*.mat);;All files (*.*)",
+        )
+        if path:
+            self._load_file(path)
+
+    def _load_file(self, path: str):
+        self._sb.showMessage(f"読み込み中: {path}")
+        QApplication.processEvents()
+        try:
+            mat, prefixes, stages, indep_vars = load_mat(path)
+        except Exception as e:
+            QMessageBox.critical(self, "読み込みエラー", str(e))
+            self._sb.showMessage("読み込みエラー")
+            return
+
+        self._mat        = mat
+        self._prefixes   = prefixes
+        self._stages     = stages
+        self._indep_vars = indep_vars
+        self._file_path  = path
+        self._path_label.setText(path)
+
+        self._populate_widgets()
+        n = self._mat[list(self._mat.keys())[0]].size
+        self._sb.showMessage(
+            f"読み込み完了 — 変数 {len(prefixes)} 種, ステージ {len(stages)} 個, "
+            f"点数 {n:,}"
+        )
+
+    def _populate_widgets(self):
+        all_vars   = self._prefixes + self._indep_vars
+        stage_deps = self._prefixes
+
+        # 散布図
+        for cb in (self._sc_x, self._sc_y):
+            cb.clear(); cb.addItems(all_vars)
+        self._sc_color.clear()
+        self._sc_color.addItems(["（なし）"] + all_vars)
+        self._sc_stage.clear()
+        self._sc_stage.addItems(self._stages)
+        if self._stages:
+            self._sc_stage.setCurrentIndex(len(self._stages) // 2)
+
+        # ヒストグラム
+        self._hist_var.clear()
+        self._hist_var.addItems(stage_deps)
+        self._hist_stages.clear()
+        for s in self._stages:
+            self._hist_stages.addItem(QListWidgetItem(s))
+        if self._hist_stages.count() >= 2:
+            self._hist_stages.item(0).setSelected(True)
+            self._hist_stages.item(self._hist_stages.count() - 1).setSelected(True)
+
+        # ステージ変化
+        self._evol_var.clear()
+        self._evol_var.addItems(stage_deps)
+        for prefer in ("gamma_max", "e1", "exx"):
+            if prefer in stage_deps:
+                self._evol_var.setCurrentText(prefer)
+                break
+
+    # ----------------------------------------------------------
+    # データ取得
+    # ----------------------------------------------------------
+
+    def _get(self, prefix: str, stage: str) -> np.ndarray:
+        """prefix + stage から flatten された float64 配列を返す"""
+        if prefix in self._indep_vars:
+            return self._mat[prefix].flatten().astype(float)
+        key = f"{prefix}_{stage}"
+        if key not in self._mat:
+            raise KeyError(f"変数 '{key}' がmatファイルに存在しません")
+        return self._mat[key].flatten().astype(float)
+
+    @staticmethod
+    def _stage_mpa(s: str) -> int:
+        m = re.search(r"(\d+)", s)
+        return int(m.group(1)) if m else 0
+
+    # ----------------------------------------------------------
+    # 散布図プロット
+    # ----------------------------------------------------------
+
+    def _plot_scatter(self):
+        if not self._check_loaded():
+            return
+        try:
+            xp    = self._sc_x.currentText()
+            yp    = self._sc_y.currentText()
+            stage = self._sc_stage.currentText()
+            cp    = self._sc_color.currentText()
+            cmap  = self._sc_cmap.currentText()
+
+            x = self._get(xp, stage)
+            y = self._get(yp, stage)
+            mask = np.isfinite(x) & np.isfinite(y)
+
+            c_arr = None
+            if cp != "（なし）":
+                c_raw = self._get(cp, stage)
+                mask &= np.isfinite(c_raw)
+                c_arr = c_raw[mask]
+
+            x, y = x[mask], y[mask]
+            if len(x) == 0:
+                QMessageBox.warning(self, "データなし", "有効なデータ点がありません")
+                return
+
+            r = float(np.corrcoef(x, y)[0, 1])
+
+            self._canvas.clear_plot()
+            ax = self._canvas.ax
+
+            if c_arr is not None:
+                sc = ax.scatter(x, y, c=c_arr, cmap=cmap, s=4, alpha=0.6, linewidths=0)
+                cb = self._canvas._fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+                cb.set_label(cp, fontsize=8, color="#9ca3af")
+                cb.ax.yaxis.set_tick_params(colors="#9ca3af")
+                self._canvas._colorbar = cb
+            else:
+                ax.scatter(x, y, s=4, alpha=0.45, linewidths=0, color="#00d4ff")
+
+            ax.set_xlabel(xp, fontsize=10)
+            ax.set_ylabel(yp, fontsize=10)
+            ax.set_title(f"{yp}  vs  {xp}   [{stage}]   n={len(x):,}", fontsize=11)
+            ax.grid(True, alpha=0.15, color="#2a2d35")
+            self._canvas.finish()
+
+            info = (f"n = {len(x):,}\n"
+                    f"r = {r:.4f}\n"
+                    f"X  mean={np.nanmean(x):.4g}  std={np.nanstd(x):.4g}\n"
+                    f"Y  mean={np.nanmean(y):.4g}  std={np.nanstd(y):.4g}")
+            self._sc_info.setText(info)
+            self._sb.showMessage(f"散布図完了 — n={len(x):,}  r={r:.4f}")
+
+        except Exception as e:
+            self._err(e)
+
+    # ----------------------------------------------------------
+    # ヒストグラムプロット
+    # ----------------------------------------------------------
+
+    def _plot_hist(self):
+        if not self._check_loaded():
+            return
+        try:
+            var     = self._hist_var.currentText()
+            sel     = [it.text() for it in self._hist_stages.selectedItems()]
+            bins    = self._hist_bins.value()
+            density = self._hist_density.isChecked()
+
+            if not sel:
+                QMessageBox.warning(self, "未選択", "ステージを1つ以上選択してください")
+                return
+
+            self._canvas.clear_plot()
+            ax = self._canvas.ax
+            cmap_f = _plt.get_cmap("plasma")
+            colors = [cmap_f(i / max(len(sel) - 1, 1)) for i in range(len(sel))]
+
+            lines = []
+            for stage, col in zip(sel, colors):
+                d = self._get(var, stage)
+                d = d[np.isfinite(d)]
+                if len(d) == 0:
+                    continue
+                ax.hist(d, bins=bins, density=density, color=col,
+                        alpha=0.55, label=stage, edgecolor="none")
+                lines.append(
+                    f"{stage}: mean={np.mean(d):.4g}  std={np.std(d):.4g}  "
+                    f"med={np.median(d):.4g}  n={len(d):,}"
+                )
+
+            ax.set_xlabel(var, fontsize=10)
+            ax.set_ylabel("密度" if density else "度数", fontsize=10)
+            ax.set_title(f"{var}  ヒストグラム", fontsize=11)
+            leg = ax.legend(fontsize=8, facecolor="#1a1d24", edgecolor="#2a2d35",
+                            labelcolor="#e0e4ec")
+            ax.grid(True, alpha=0.15, color="#2a2d35", axis="y")
+            self._canvas.finish()
+
+            self._hist_info.setText("\n".join(lines))
+            self._sb.showMessage(f"ヒストグラム完了 — {len(sel)} ステージ")
+
+        except Exception as e:
+            self._err(e)
+
+    # ----------------------------------------------------------
+    # ステージ変化プロット
+    # ----------------------------------------------------------
+
+    def _plot_evol(self):
+        if not self._check_loaded():
+            return
+        try:
+            var       = self._evol_var.currentText()
+            plot_type = self._evol_type.checkedId()
+
+            xs = [self._stage_mpa(s) for s in self._stages]
+            data_list = []
+            valid_xs  = []
+            for s, x in zip(self._stages, xs):
+                d = self._get(var, s)
+                d = d[np.isfinite(d)]
+                if len(d) == 0:
+                    continue
+                data_list.append(d)
+                valid_xs.append(x)
+
+            if not data_list:
+                QMessageBox.warning(self, "データなし", "有効なデータがありません")
+                return
+
+            self._canvas.clear_plot()
+            ax = self._canvas.ax
+
+            if plot_type == 2:
+                # 箱ひげ図
+                bp = ax.boxplot(
+                    data_list,
+                    positions=valid_xs,
+                    widths=[max(20, (max(valid_xs) - min(valid_xs)) / (len(valid_xs) * 2))] * len(valid_xs),
+                    patch_artist=True,
+                    showfliers=False,
+                    medianprops=dict(color="#00d4ff", linewidth=2),
+                    whiskerprops=dict(color="#6b7280"),
+                    capprops=dict(color="#6b7280"),
+                    boxprops=dict(facecolor=(0.0, 0.83, 1.0, 0.12), edgecolor="#2a2d35"),
+                )
+
+            elif plot_type == 0:
+                # 平均 ± 標準偏差
+                ys   = [np.mean(d)  for d in data_list]
+                errs = [np.std(d)   for d in data_list]
+                ax.errorbar(valid_xs, ys, yerr=errs,
+                            fmt="o-", color="#00d4ff", ecolor="#ff6b35",
+                            capsize=4, linewidth=2, markersize=5,
+                            label="平均 ± std")
+                ax.legend(fontsize=9, facecolor="#1a1d24", edgecolor="#2a2d35",
+                          labelcolor="#e0e4ec")
+
+            else:
+                # 中央値 ± IQR
+                ys     = [np.median(d)                    for d in data_list]
+                lo_err = [np.median(d) - np.percentile(d, 25) for d in data_list]
+                hi_err = [np.percentile(d, 75) - np.median(d) for d in data_list]
+                ax.errorbar(valid_xs, ys, yerr=[lo_err, hi_err],
+                            fmt="o-", color="#00d4ff", ecolor="#ff6b35",
+                            capsize=4, linewidth=2, markersize=5,
+                            label="中央値 ± IQR")
+                ax.legend(fontsize=9, facecolor="#1a1d24", edgecolor="#2a2d35",
+                          labelcolor="#e0e4ec")
+
+            ax.set_xlabel("応力 [MPa]", fontsize=10)
+            ax.set_ylabel(var, fontsize=10)
+            ax.set_title(f"{var}  のステージ依存性", fontsize=11)
+            ax.set_xticks(valid_xs)
+            ax.set_xticklabels([str(v) for v in valid_xs], rotation=45, fontsize=8)
+            ax.grid(True, alpha=0.15, color="#2a2d35")
+            self._canvas.finish()
+
+            self._sb.showMessage(f"ステージ変化プロット完了 — {var}")
+
+        except Exception as e:
+            self._err(e)
+
+    # ----------------------------------------------------------
+    # PNG 保存
+    # ----------------------------------------------------------
+
+    def _save_png(self, tag: str):
+        default = (Path(self._file_path).parent / f"stats_{tag}.png"
+                   if self._file_path else Path(f"stats_{tag}.png"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "PNG保存", str(default), "PNG files (*.png)"
+        )
+        if path:
+            try:
+                self._canvas.save_png(path)
+                self._sb.showMessage(f"保存完了: {path}")
+            except Exception as e:
+                self._err(e)
+
+    # ----------------------------------------------------------
+    # ユーティリティ
+    # ----------------------------------------------------------
+
+    def _check_loaded(self) -> bool:
+        if self._mat is None:
+            QMessageBox.warning(self, "未読み込み", "先にファイルを読み込んでください")
+            return False
+        return True
+
+    def _err(self, e: Exception):
+        QMessageBox.critical(self, "エラー", str(e))
+        self._sb.showMessage(f"エラー: {e}")
+
+
+# ============================================================
+# エントリポイント
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="PineOak 統計解析モジュール")
+    parser.add_argument("--file", default="", help="matファイルパス")
+    args = parser.parse_args()
+
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    win = StatsWindow(mat_path=args.file or None)
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

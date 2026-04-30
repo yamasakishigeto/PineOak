@@ -403,6 +403,18 @@
       <button class="btn-launch" id="btn-heaviside" onclick="launch('heaviside')">起動</button>
     </div>
 
+    <div class="arrow">↓</div>
+
+    <div class="tool-card" id="card-stats">
+      <div class="step-num">8</div>
+      <div class="tool-info">
+        <div class="tool-name">Statistics Analysis</div>
+        <div class="tool-desc">散布図・ヒストグラム・ステージ変化の統計解析</div>
+      </div>
+      <div class="status-badge" id="badge-stats">IDLE</div>
+      <button class="btn-launch" id="btn-stats" onclick="launch('stats')">起動</button>
+    </div>
+
   </div>
 
   <div class="log-area">
@@ -423,6 +435,7 @@
     heaviside: "Heaviside DIC",
     patrep:    "EBSD PatRep",
     stress_strain: "Stress-Strain Mapper",
+    stats:     "Statistics Analysis",
   };
 
   function addLog(msg, cls = "info") {
@@ -478,6 +491,7 @@
       heaviside: () => eel.launch_heaviside()(),
       patrep:    () => eel.launch_patrep()(),
       stress_strain: () => eel.launch_stress_strain_mapper()(),
+      stats:     () => eel.launch_stats_analysis()(),
     };
 
     fn[toolId]().catch(err => {

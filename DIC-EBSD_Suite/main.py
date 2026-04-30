@@ -295,11 +295,12 @@ def dic_load_config(folder: str):
 
         for line in lines:
             line = line.strip()
-            if line == '[Stage 1]':    in_s1, in_s2, in_scale, in_cmap = True,  False, False, False; continue
-            if line == '[Stage 2]':    in_s1, in_s2, in_scale, in_cmap = False, True,  False, False; continue
-            if line == '[カラースケール]': in_s1, in_s2, in_scale, in_cmap = False, False, True,  False; continue
-            if line == '[カラーマップ]':  in_s1, in_s2, in_scale, in_cmap = False, False, False, True;  continue
-            if line.startswith('['):   in_s1, in_s2, in_scale, in_cmap = False, False, False, False; continue
+            if line == '[Stage 1]':          in_s1, in_s2, in_scale, in_cmap = True,  False, False, False; continue
+            if line == '[Stage 2]':          in_s1, in_s2, in_scale, in_cmap = False, True,  False, False; continue
+            if line == '[カラースケール]':    in_s1, in_s2, in_scale, in_cmap = False, False, True,  False; continue
+            if line in ('[カラーマップ]', '[ひずみ速度カラーマップ]'):
+                                             in_s1, in_s2, in_scale, in_cmap = False, False, False, True;  continue
+            if line.startswith('['):         in_s1, in_s2, in_scale, in_cmap = False, False, False, False; continue
             if ':' not in line: continue
 
             k, _, v = line.partition(':')
@@ -310,6 +311,7 @@ def dic_load_config(folder: str):
                 if k == 'gauge':    result['gauge']    = int(v.split()[0])
                 if k == 'workers':  result['workers']  = int(v.split()[0])
                 if k == 'NCC閾値':  result['ncc_thr']  = float(v.split()[0])
+                if k == 'dt':       result['dt']       = float(v.split()[0])
 
             if in_s1:
                 if k == 'step':   result['s1_step'] = int(v.split()[0])
@@ -329,7 +331,8 @@ def dic_load_config(folder: str):
                 if k == 'search': result['s2_search'] = int(v.split()[0])
 
             if in_scale:
-                scale_keys = {'u','v','exx','eyy','exy','e1','gamma_max','omega_xy'}
+                scale_keys = {'u','v','exx','eyy','exy','e1','gamma_max','omega_xy',
+                              'exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate'}
                 if k in scale_keys:
                     m_min = re.search(r'min=([^\s]+)', v)
                     m_max = re.search(r'max=([^\s]+)', v)
@@ -338,7 +341,8 @@ def dic_load_config(folder: str):
                     result.setdefault('scale', {})[k] = [lo, hi]
 
             if in_cmap:
-                cmap_keys = {'u','v','exx','eyy','exy','e1','gamma_max','omega_xy'}
+                cmap_keys = {'u','v','exx','eyy','exy','e1','gamma_max','omega_xy',
+                             'exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate'}
                 if k in cmap_keys:
                     result.setdefault('cmap', {})[k] = v
 
@@ -676,6 +680,7 @@ def _run_dic_analysis(params: dict):
             'cmap':  params.get('cmap',  {}),
             'ncc_threshold': params.get('ncc_threshold', 0.2),
             'dic_module': os.path.join(TOOLS_DIR, 'dic_sem_strain_v58.py'),
+            'dt': params.get('dt', 1.0),
         }
         _env2 = os.environ.copy()
         _env2['PYTHONIOENCODING'] = 'utf-8'
@@ -718,7 +723,9 @@ dic_module   = p['dic_module']
 ncc_thr      = float(p.get('ncc_threshold', 0.2))
 
 _CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
-             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r',
+             'exx_rate':'RdBu_r','eyy_rate':'RdBu_r','exy_rate':'RdBu_r',
+             'e1_rate':'hot_r','gamma_max_rate':'hot_r'}
 def _cm(key): return cmap_map.get(key) or _CMAP_DEF.get(key, 'RdBu_r')
 
 spec = importlib.util.spec_from_file_location('dic', dic_module)
@@ -796,6 +803,40 @@ fig.suptitle(f'変位・ひずみマップ  {Path(ref_path).name} → {Path(def_
              fontsize=11, y=1.002)
 plt.tight_layout()
 plt.show()
+
+# ---- ひずみ速度マップ（データが存在する場合のみ）----
+dt_val = data.get('dt', 1.0)
+if 'strain_rate' in res:
+    _rate = res['strain_rate']
+    _rkeys  = ['exx_rate', 'eyy_rate', 'exy_rate', 'e1_rate', 'gamma_max_rate']
+    _rlbls  = ['dεxx/dt [/s]', 'dεyy/dt [/s]', 'dεxy/dt [/s]', 'de1/dt [/s]', 'dγmax/dt [/s]']
+    _rcmaps = [_cm(_rk) for _rk in _rkeys]
+    _rsym   = [True, True, True, False, False]
+    fig2, axes2 = plt.subplots(1, 5, figsize=(22, 4 * aspect + 1))
+    for _ax, _rk, _rl, _cm2, _sym in zip(axes2, _rkeys, _rlbls, _rcmaps, _rsym):
+        _arr = _rate.get(_rk)
+        if _arr is None:
+            _ax.axis('off')
+            continue
+        _arr = np.array(_arr, dtype=float)
+        _sc_lo, _sc_hi = unified_scale.get(_rk, (None, None))
+        _valid = _arr[~np.isnan(_arr)]
+        if _sc_lo is not None and _sc_hi is not None:
+            _vmin, _vmax = _sc_lo, _sc_hi
+        elif _sym:
+            _vabs = max(float(np.nanpercentile(np.abs(_arr[~np.isnan(_arr)]), 98)) if np.any(~np.isnan(_arr)) else 1e-6, 1e-6)
+            _vmin, _vmax = -_vabs, _vabs
+        else:
+            _vmin = float(np.percentile(_valid, 2)) if len(_valid) else 0
+            _vmax = float(np.percentile(_valid, 98)) if len(_valid) else 1
+        _im = _ax.imshow(_arr, cmap=_cm2, extent=extent, vmin=_vmin, vmax=_vmax, aspect='equal')
+        plt.colorbar(_im, ax=_ax, fraction=0.046, pad=0.04)
+        _ax.set_title(_rl, fontsize=9, pad=3)
+        _ax.set_xlabel('X [px]', fontsize=7); _ax.set_ylabel('Y [px]', fontsize=7)
+        _ax.tick_params(labelsize=6)
+    fig2.suptitle(f'ひずみ速度マップ [/s]  Δt={dt_val:.3f}s  {Path(ref_path).name} → {Path(def_name).name}', fontsize=10)
+    plt.tight_layout()
+    plt.show()
 """
 
 
@@ -866,6 +907,51 @@ for k in SCALE_KEYS_SYM + SCALE_KEYS_ASYM:
 data['unified_scale'] = unified_scale
 data['gauge_length']  = gauge_length
 data['strain_type']   = strain_type
+
+# ひずみ速度再計算（Δt設定時のみ）
+_dt_raw_r = p.get('dt', data.get('dt'))
+_dt_r = float(_dt_raw_r) if (_dt_raw_r is not None and float(_dt_raw_r) > 0) else None
+if _dt_r is not None:
+    _rates_r = mod.calc_strain_rate(results_list, _dt_r)
+    for _res_r, _rate_r in zip(results_list, _rates_r):
+        _res_r['strain_rate'] = _rate_r
+    data['dt'] = _dt_r
+    # ひずみ速度スケール更新
+    _scale_cfg_r = {k: (v[0], v[1]) for k, v in p.get('scale', {}).items()
+                    if isinstance(v, (list, tuple)) and len(v) == 2}
+    def _rv_vals(rk):
+        arrs = []
+        for _res in results_list:
+            _d = (_res.get('strain_rate') or {}).get(rk)
+            if _d is not None:
+                _v = np.array(_d, dtype=float).flatten()
+                arrs.append(_v[~np.isnan(_v)])
+        return np.concatenate(arrs) if arrs else np.array([])
+    for _rk_r in ['exx_rate', 'eyy_rate', 'exy_rate']:
+        _gl, _gh = _scale_cfg_r.get(_rk_r, (None, None))
+        if _gl is not None and _gh is not None:
+            unified_scale[_rk_r] = (_gl, _gh)
+        else:
+            _rv = _rv_vals(_rk_r)
+            if len(_rv):
+                _va = max(float(np.percentile(np.abs(_rv), 98)), 1e-12)
+                unified_scale[_rk_r] = (_gl if _gl is not None else -_va,
+                                        _gh if _gh is not None else  _va)
+    for _rk_r in ['e1_rate', 'gamma_max_rate']:
+        _gl, _gh = _scale_cfg_r.get(_rk_r, (None, None))
+        if _gl is not None and _gh is not None:
+            unified_scale[_rk_r] = (_gl, _gh)
+        else:
+            _rv = _rv_vals(_rk_r)
+            if len(_rv):
+                unified_scale[_rk_r] = (_gl if _gl is not None else float(np.percentile(_rv, 2)),
+                                        _gh if _gh is not None else float(np.percentile(_rv, 98)))
+    print(f"ひずみ速度再計算完了（Δt={_dt_r:.3f}s）")
+else:
+    for _res_r in results_list:
+        _res_r.pop('strain_rate', None)
+    data.pop('dt', None)
+    print("ひずみ速度計算をスキップ（Δt未設定）")
 
 with open(output_dir / 'dic_results.pkl', 'wb') as f:
     pickle.dump(data, f)
@@ -954,7 +1040,9 @@ dic_module   = p['dic_module']
 ncc_thr      = float(p.get('ncc_threshold', 0.2))
 
 _CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
-             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r',
+             'exx_rate':'RdBu_r','eyy_rate':'RdBu_r','exy_rate':'RdBu_r',
+             'e1_rate':'hot_r','gamma_max_rate':'hot_r'}
 def _cm(key): return cmap_map.get(key) or _CMAP_DEF.get(key, 'RdBu_r')
 
 spec = importlib.util.spec_from_file_location('dic', dic_module)
@@ -1035,6 +1123,41 @@ for i, res in enumerate(results_list):
     suffix = f"_{res['label']}" if res['label'] else ''
     plt.savefig(output_dir / f"map{suffix}.png", dpi=150, bbox_inches='tight')
     plt.close()
+
+    # ---- ひずみ速度マップ（データが存在する場合のみ）----
+    if 'strain_rate' in res:
+        _rate   = res['strain_rate']
+        _dt_val = data.get('dt', 1.0)
+        _rkeys  = ['exx_rate', 'eyy_rate', 'exy_rate', 'e1_rate', 'gamma_max_rate']
+        _rlbls  = ['dεxx/dt [/s]', 'dεyy/dt [/s]', 'dεxy/dt [/s]', 'de1/dt [/s]', 'dγmax/dt [/s]']
+        _rcmaps = [_cm(_rk) for _rk in _rkeys]
+        _rsym   = [True, True, True, False, False]
+        fig3, axes3 = plt.subplots(1, 5, figsize=(22, 4 * aspect + 1))
+        for _ax, _rk, _rl, _cm2, _sym in zip(axes3, _rkeys, _rlbls, _rcmaps, _rsym):
+            _arr = _rate.get(_rk)
+            if _arr is None:
+                _ax.axis('off')
+                continue
+            _arr = np.array(_arr, dtype=float)
+            _sc_lo, _sc_hi = unified_scale.get(_rk, (None, None))
+            _valid = _arr[~np.isnan(_arr)]
+            if _sc_lo is not None and _sc_hi is not None:
+                _vmin, _vmax = _sc_lo, _sc_hi
+            elif _sym:
+                _vabs = max(float(np.nanpercentile(np.abs(_arr[~np.isnan(_arr)]), 98)) if np.any(~np.isnan(_arr)) else 1e-6, 1e-6)
+                _vmin, _vmax = -_vabs, _vabs
+            else:
+                _vmin = float(np.percentile(_valid, 2)) if len(_valid) else 0
+                _vmax = float(np.percentile(_valid, 98)) if len(_valid) else 1
+            _im = _ax.imshow(_arr, cmap=_cm2, extent=ext, vmin=_vmin, vmax=_vmax, aspect='equal')
+            plt.colorbar(_im, ax=_ax, fraction=0.046, pad=0.04)
+            _ax.set_title(_rl, fontsize=9, pad=3)
+            _ax.set_xlabel('X [px]', fontsize=7); _ax.set_ylabel('Y [px]', fontsize=7)
+            _ax.tick_params(labelsize=6)
+        fig3.suptitle(f'ひずみ速度マップ [/s]  Δt={_dt_val:.3f}s  {Path(ref_path).name} → {Path(def_name).name}', fontsize=10)
+        plt.tight_layout()
+        plt.savefig(output_dir / f"rate_map{suffix}.png", dpi=150, bbox_inches='tight')
+        plt.close()
 
 xlsx_path = output_dir / 'dic_results.xlsx'
 print("Excelファイルを出力しています...")
@@ -1159,6 +1282,30 @@ def launch_stress_strain_mapper():
     if not mat_path:
         return
     script = os.path.join(TOOLS_DIR, 'stress_strain_mapper_v2.py')
+    _env = os.environ.copy()
+    _env['QT_API'] = 'PyQt6'
+    _env['PYTHONIOENCODING'] = 'utf-8'
+    threading.Thread(
+        target=lambda: subprocess.Popen(
+            [PYTHON, script, '--file', mat_path],
+            cwd=TOOLS_DIR, env=_env,
+        ).wait(),
+        daemon=True,
+    ).start()
+
+
+@eel.expose
+def launch_stats_analysis():
+    """Statistics Analysis を起動する（matファイルをダイアログで選択）"""
+    mat_path = _tk_filedialog(
+        'file',
+        'integrated_georef_derived.mat を選択',
+        filetypes=[('MAT files', '*.mat'), ('All files', '*.*')],
+        initialdir=_work_dir,
+    )
+    if not mat_path:
+        return
+    script = os.path.join(TOOLS_DIR, 'stats_analysis_v1.py')
     _env = os.environ.copy()
     _env['QT_API'] = 'PyQt6'
     _env['PYTHONIOENCODING'] = 'utf-8'
