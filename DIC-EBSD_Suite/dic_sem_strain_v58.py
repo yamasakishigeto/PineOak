@@ -1675,6 +1675,56 @@ def calc_strain_field(cx_list, cy_list, u_list, v_list, subset_step,
         'extent': extent,
     }
 
+
+def calc_strain_rate(results_list, dt):
+    """
+    フレーム間の中央差分（端点は片側差分）でひずみ速度 [/s] を計算する。
+    results_list : _dic_runner が生成する結果リスト（各要素に 'strain' dict が必要）
+    dt           : フレーム間の時間 [秒]
+    戻り値       : results_list と同じ長さのリスト。各要素は dict
+                   {'exx_rate', 'eyy_rate', 'exy_rate', 'e1_rate', 'gamma_max_rate'}
+                   すべて 2D numpy array（グリッドと同形）。
+    """
+    n = len(results_list)
+    dt = max(float(dt), 1e-12)
+    src_keys  = ['exx', 'eyy', 'exy', 'e1', 'gamma_max']
+    rate_keys = ['exx_rate', 'eyy_rate', 'exy_rate', 'e1_rate', 'gamma_max_rate']
+
+    def _get(i, k):
+        arr = results_list[i]['strain'].get(k)
+        return np.array(arr, dtype=float) if arr is not None else None
+
+    rates = []
+    for i in range(n):
+        r = {}
+        for sk, rk in zip(src_keys, rate_keys):
+            s_c = _get(i, sk)
+            if s_c is None:
+                r[rk] = None
+                continue
+            if n == 1:
+                r[rk] = np.full_like(s_c, np.nan)
+            elif i == 0:
+                s_n = _get(i + 1, sk)
+                r[rk] = (s_n - s_c) / dt if s_n is not None else np.full_like(s_c, np.nan)
+            elif i == n - 1:
+                s_p = _get(i - 1, sk)
+                r[rk] = (s_c - s_p) / dt if s_p is not None else np.full_like(s_c, np.nan)
+            else:
+                s_p = _get(i - 1, sk)
+                s_n = _get(i + 1, sk)
+                if s_p is not None and s_n is not None:
+                    r[rk] = (s_n - s_p) / (2.0 * dt)
+                elif s_p is not None:
+                    r[rk] = (s_c - s_p) / dt
+                elif s_n is not None:
+                    r[rk] = (s_n - s_c) / dt
+                else:
+                    r[rk] = np.full_like(s_c, np.nan)
+        rates.append(r)
+    return rates
+
+
 # =============================================================================
 # 可視化
 # =============================================================================
@@ -1802,6 +1852,7 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
     results_list : list of dict
         各DEFの結果。キー: 'label', 'cx', 'cy', 'u', 'v', 'strain'
         strain は calc_strain_field の戻り値 dict。
+        strain_rate キーが存在する場合はひずみ速度シートも出力する。
         REFを先頭に含むこと（変位・ひずみ全ゼロ）。
     scale_config : dict
         カラースケール設定 {key: (vmin, vmax)}。平均値の除外判定に使用。
@@ -1929,6 +1980,44 @@ def export_xlsx(results_list, scale_config, out_path, roi=None):
         for col in range(4, len(col_headers) + 1):
             ws.column_dimensions[
                 openpyxl.utils.get_column_letter(col)].width = 14
+
+    # =========================================================
+    # ひずみ速度シート（Δt指定時のみ・strain_rate キーが存在する場合）
+    # =========================================================
+    RATE_KEYS = ['exx_rate', 'eyy_rate', 'exy_rate', 'e1_rate', 'gamma_max_rate']
+    has_rate = any('strain_rate' in res for res in results_list)
+
+    if has_rate:
+        for rk in RATE_KEYS:
+            ws = wb.create_sheet(title=rk)
+            col_headers = ['subset_id', 'x [px]', 'y [px]'] + [res['label'] for res in results_list]
+            _write_header(ws, 1, col_headers)
+
+            arrays = []
+            for res in results_list:
+                sr = res.get('strain_rate')
+                d = sr.get(rk) if sr is not None else None
+                arr = np.array(d, dtype=float).flatten() if d is not None else None
+                arrays.append(arr)
+
+            for i, (cx, cy) in enumerate(zip(cx_base, cy_base)):
+                row = [i + 1, int(cx), int(cy)]
+                for arr in arrays:
+                    if arr is None or i >= len(arr):
+                        row.append('')
+                    else:
+                        val = arr[i]
+                        row.append('' if np.isnan(val) else float(val))
+                ws.append(row)
+
+            ws.column_dimensions['A'].width = 12
+            ws.column_dimensions['B'].width = 10
+            ws.column_dimensions['C'].width = 10
+            for col in range(4, len(col_headers) + 1):
+                ws.column_dimensions[
+                    openpyxl.utils.get_column_letter(col)].width = 14
+
+        print(f"  ひずみ速度シート {RATE_KEYS} を追加しました")
 
     wb.save(out_path)
     print(f"  → Excel出力完了: {out_path}")

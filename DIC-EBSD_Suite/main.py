@@ -1589,7 +1589,7 @@ if __name__ == "__main__":
     print("=" * 50)
     eel.start(
         "index.html",
-        size=(820, 1020),
+        size=(820, 1160),
         port=8765,
         host="localhost",
     )

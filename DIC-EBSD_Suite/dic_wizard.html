@@ -526,6 +526,12 @@
         <span class="param-hint">← Step_fine の整数倍（1=隣接差分）</span>
       </div>
 
+      <div class="param-row">
+        <label class="param-label">フレーム間隔 Δt [秒]</label>
+        <input class="param-input" type="number" id="dt" value="" min="0.001" step="0.1" placeholder="省略" oninput="updateDtSection()">
+        <span class="param-hint">← 入力時のみひずみ速度（/sec）を計算</span>
+      </div>
+
       <div class="param-row" style="align-items:center;">
         <label class="param-label">ひずみ種類</label>
         <span style="display:flex; gap:16px; align-items:center;">
@@ -616,6 +622,12 @@
         <!-- JS で生成 -->
       </div>
 
+      <!-- ひずみ速度スケール（Δt入力時のみ表示） -->
+      <div id="rate-scale-section" style="display:none; margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+        <div style="font-family:var(--mono); font-size:10px; color:var(--text-dim); margin-bottom:6px;">ひずみ速度スケール（Δt入力時のみ）</div>
+        <div class="scale-grid" id="rate-scale-grid"><!-- JS で生成 --></div>
+      </div>
+
     </div>
 
   </div>
@@ -642,10 +654,15 @@ const SCALE_KEYS    = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy'];
 const SCALE_LABELS  = ['u [px]','v [px]','εxx','εyy','εxy','e1','γmax','ωxy'];
 const CMAP_OPTIONS  = ['RdBu_r','PiYG','hot_r','viridis','plasma','inferno','magma'];
 const CMAP_DEFAULTS = {u:'RdBu_r',v:'RdBu_r',exx:'RdBu_r',eyy:'RdBu_r',exy:'RdBu_r',e1:'hot_r',gamma_max:'hot_r',omega_xy:'RdBu_r'};
+const RATE_KEYS      = ['exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate'];
+const RATE_LABELS    = ['dεxx/dt [/s]','dεyy/dt [/s]','dεxy/dt [/s]','de1/dt [/s]','dγmax/dt [/s]'];
+const RATE_CMAP_DEFS = {exx_rate:'RdBu_r', eyy_rate:'RdBu_r', exy_rate:'RdBu_r', e1_rate:'hot_r', gamma_max_rate:'hot_r'};
 
 // ---- 初期化 ----
 window.addEventListener('load', () => {
   buildScaleGrid();
+  buildRateScaleGrid();
+  updateDtSection();
   updateS1Mode();
   // ワーカー数の初期値：論理スレッド数-1（1スレッドをOS用に残す）
   const autoWorkers = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
@@ -680,6 +697,34 @@ function buildScaleGrid() {
     `;
     grid.appendChild(div);
   });
+}
+
+// ---- ひずみ速度スケールグリッド生成 ----
+function buildRateScaleGrid() {
+  const grid = document.getElementById('rate-scale-grid');
+  grid.innerHTML = '';
+  RATE_KEYS.forEach((k, i) => {
+    const def  = RATE_CMAP_DEFS[k] || 'RdBu_r';
+    const opts = CMAP_OPTIONS.map(v =>
+      `<option value="${v}"${v === def ? ' selected' : ''}>${v}</option>`
+    ).join('');
+    const div = document.createElement('div');
+    div.className = 'scale-row';
+    div.innerHTML = `
+      <span class="scale-label">${RATE_LABELS[i]}</span>
+      <input class="scale-input" type="text" id="smin-${k}" placeholder="自動" style="width:56px;">
+      <span class="scale-sep">〜</span>
+      <input class="scale-input" type="text" id="smax-${k}" placeholder="自動" style="width:56px;">
+      <select id="cmap-${k}" title="カラーマップ" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px;font-family:var(--mono);font-size:10px;margin-left:2px;">${opts}</select>
+    `;
+    grid.appendChild(div);
+  });
+}
+
+// ---- Δt入力に応じてひずみ速度スケールセクションの表示切替 ----
+function updateDtSection() {
+  const hasDt = document.getElementById('dt').value.trim() !== '';
+  document.getElementById('rate-scale-section').style.display = hasDt ? '' : 'none';
 }
 
 // ---- S1モード切り替え ----
@@ -873,19 +918,22 @@ async function loadConfig() {
   if (result.subset)     document.getElementById('subset-size').value    = result.subset;
   if (result.ncc_thr != null) document.getElementById('ncc-thr').value  = result.ncc_thr;
   if (result.gauge)      document.getElementById('gauge-length').value   = result.gauge;
+  if (result.dt != null) { document.getElementById('dt').value = result.dt; updateDtSection(); }
   if (result.workers != null) document.getElementById('n-workers').value = result.workers;
 
   if (result.scale) {
-    SCALE_KEYS.forEach(k => {
+    [...SCALE_KEYS, ...RATE_KEYS].forEach(k => {
       if (result.scale[k]) {
         const [lo, hi] = result.scale[k];
-        document.getElementById(`smin-${k}`).value = lo !== null ? lo : '';
-        document.getElementById(`smax-${k}`).value = hi !== null ? hi : '';
+        const minEl = document.getElementById(`smin-${k}`);
+        const maxEl = document.getElementById(`smax-${k}`);
+        if (minEl) minEl.value = lo !== null ? lo : '';
+        if (maxEl) maxEl.value = hi !== null ? hi : '';
       }
     });
   }
   if (result.cmap) {
-    SCALE_KEYS.forEach(k => {
+    [...SCALE_KEYS, ...RATE_KEYS].forEach(k => {
       if (result.cmap[k]) {
         const el = document.getElementById(`cmap-${k}`);
         if (el) el.value = result.cmap[k];
@@ -945,10 +993,11 @@ async function onRun() {
     zncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
     n_workers:   parseInt(document.getElementById('n-workers').value),
     gauge_length: parseInt(document.getElementById('gauge-length').value),
+    dt:           document.getElementById('dt').value.trim() ? parseFloat(document.getElementById('dt').value) : null,
     strain_type:  document.querySelector('input[name="strain-type"]:checked').value,
     use_prev_stage1: document.getElementById('use-prev-s1').checked,
-    scale: Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
-    cmap:  Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
+    scale: Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, parseScale(k)])),
+    cmap:  Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, document.getElementById(`cmap-${k}`).value])),
     trim_top:    parseInt(document.getElementById('trim-top').value)    || 0,
     trim_bottom: parseInt(document.getElementById('trim-bottom').value) || 0,
     trim_left:   parseInt(document.getElementById('trim-left').value)   || 0,
@@ -978,8 +1027,8 @@ eel.expose(dic_on_analysis_done);
 function _mapParams() {
   return {
     output_dir:    _analysisOutputDir,
-    scale:         Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
-    cmap:          Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
+    scale:         Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, parseScale(k)])),
+    cmap:          Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, document.getElementById(`cmap-${k}`).value])),
     ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
   };
 }
@@ -1000,8 +1049,9 @@ async function onRecalc() {
     output_dir:    _analysisOutputDir,
     gauge_length:  gauge,
     strain_type:   stype,
-    scale:         Object.fromEntries(SCALE_KEYS.map(k => [k, parseScale(k)])),
-    cmap:          Object.fromEntries(SCALE_KEYS.map(k => [k, document.getElementById(`cmap-${k}`).value])),
+    dt:            document.getElementById('dt').value.trim() ? parseFloat(document.getElementById('dt').value) : null,
+    scale:         Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, parseScale(k)])),
+    cmap:          Object.fromEntries([...SCALE_KEYS, ...RATE_KEYS].map(k => [k, document.getElementById(`cmap-${k}`).value])),
     ncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
   };
   const result = await eel.dic_recalc_strain(params)();

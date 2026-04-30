@@ -1498,7 +1498,7 @@ def show_map_viewer(georef_xlsx_path, sem_img, grain_id_img, pts_sem, pts_ebsd):
 
         if len(all_valid_vals) == 0:
             vmin_use, vmax_use, cmap_use = 0, 1, 'RdBu_r'
-        elif sh == 'ncc':
+        elif sh == 'zncc':
             vmin_use, vmax_use, cmap_use = 0.2, 1.0, 'plasma'
         elif sh == 'omega_xy':
             vabs = max(float(np.percentile(np.abs(all_valid_vals), 98)), 1e-6)

@@ -28,11 +28,13 @@ mod.STAGE1_MARGIN   = p["s1_margin"]
 mod.SEARCH_COARSE   = p["s1_fixed"]
 mod.STEP_FINE       = p["s2_step"]
 mod.SEARCH_FINE     = p["s2_search"]
-mod.NCC_THRESHOLD   = p["ncc_threshold"]
+mod.ZNCC_THRESHOLD   = p["zncc_threshold"]
 mod.N_WORKERS       = p["n_workers"]
 mod.GAUGE_LENGTH    = p["gauge_length"]
 mod.STRAIN_TYPE     = p.get("strain_type", "infinitesimal")
 mod.USE_PREV_STAGE1 = p["use_prev_stage1"]
+_dt_raw = p.get("dt", None)
+DT = float(_dt_raw) if (_dt_raw is not None and float(_dt_raw) > 0) else None
 
 SCALE_CONFIG = {k: (v[0], v[1]) for k, v in p["scale"].items()}
 mod.SCALE_CONFIG = SCALE_CONFIG
@@ -60,7 +62,7 @@ STEP_FINE   = mod.STEP_FINE
 STEP_COARSE = mod.STEP_COARSE
 SEARCH_FINE = mod.SEARCH_FINE
 SUBSET_SIZE = mod.SUBSET_SIZE
-NCC_THRESHOLD = mod.NCC_THRESHOLD
+ZNCC_THRESHOLD = mod.ZNCC_THRESHOLD
 GAUGE_LENGTH  = mod.GAUGE_LENGTH
 STRAIN_TYPE   = mod.STRAIN_TYPE
 STAGE1_AUTO   = mod.STAGE1_AUTO
@@ -116,7 +118,7 @@ results_list = [{
     'label': REF_PATH.stem,
     'cx': _cx, 'cy': _cy,
     'u': _zeros.copy(), 'v': _zeros.copy(),
-    'ncc': _ones.copy(),
+    'zncc': _ones.copy(),
     'strain': _ref_strain,
 }]
 
@@ -137,20 +139,28 @@ config_lines = [
     '[共通]',
     f'  subset     : {SUBSET_SIZE} px',
     f'  gauge      : {GAUGE_LENGTH} 倍',
-    f'  NCC閾値    : {NCC_THRESHOLD}',
-    f'  workers    : {mod.N_WORKERS}', '',
+    f'  ZNCC閾値    : {ZNCC_THRESHOLD}',
+    f'  workers    : {mod.N_WORKERS}',
+    f'  dt         : {f"{DT:.3f} 秒/フレーム" if DT else "（未設定）"}', '',
     '[カラースケール]',
 ]
 for k, (lo, hi) in SCALE_CONFIG.items():
     config_lines.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
 
 _CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
-             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r',
+             'exx_rate':'RdBu_r','eyy_rate':'RdBu_r','exy_rate':'RdBu_r',
+             'e1_rate':'hot_r','gamma_max_rate':'hot_r'}
 _cmap_cfg = p.get('cmap', {})
 config_lines.append('')
 config_lines.append('[カラーマップ]')
 for k in ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']:
     config_lines.append(f'  {k:<12}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
+if DT is not None:
+    config_lines.append('')
+    config_lines.append('[ひずみ速度カラーマップ]')
+    for k in ['exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate']:
+        config_lines.append(f'  {k:<16}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
 
 config_path = OUTPUT_DIR / 'dic_config.txt'
 with open(config_path, 'w', encoding='utf-8') as f:
@@ -166,7 +176,7 @@ for i, def_path in enumerate(DEF_PATHS, 1):
     print(f"\n[{i}/{total}] {def_path.name} を処理中...")
     prev_cx1, prev_cy1, prev_u1, prev_v1, res = mod.run_dic_pair(
         REF_PATH, def_path, shifts, roi,
-        ncc_threshold=NCC_THRESHOLD, n_workers=mod.N_WORKERS,
+        zncc_threshold=ZNCC_THRESHOLD, n_workers=mod.N_WORKERS,
         prev_cx1=prev_cx1, prev_cy1=prev_cy1,
         prev_u1=prev_u1,   prev_v1=prev_v1,
         save_png=False,
@@ -181,7 +191,7 @@ SCALE_KEYS_ASYM = ['e1', 'gamma_max']
 def _collect(key):
     arrays = []
     for res in results_list:
-        if key in ('u', 'v', 'ncc'):
+        if key in ('u', 'v', 'zncc'):
             arr = np.array(res[key], dtype=float).flatten()
         else:
             d = res['strain'].get(key)
@@ -212,7 +222,51 @@ for k in SCALE_KEYS_DISP + SCALE_KEYS_SYM + SCALE_KEYS_ASYM:
     else:
         unified_scale[k] = (gui_lo if gui_lo is not None else float(np.percentile(vals, 2)),
                             gui_hi if gui_hi is not None else float(np.percentile(vals, 98)))
-unified_scale['ncc'] = SCALE_CONFIG.get('ncc', (None, None))
+unified_scale['zncc'] = SCALE_CONFIG.get('zncc', (None, None))
+
+# ---- ひずみ速度スケール（Δt設定時のみ）----
+if DT is not None:
+    _rate_sym  = ['exx_rate', 'eyy_rate', 'exy_rate']
+    _rate_asym = ['e1_rate', 'gamma_max_rate']
+    def _rate_vals(rk):
+        arrs = []
+        for _res in results_list:
+            _d = (_res.get('strain_rate') or {}).get(rk)
+            if _d is not None:
+                _v = np.array(_d, dtype=float).flatten()
+                arrs.append(_v[~np.isnan(_v)])
+        return np.concatenate(arrs) if arrs else np.array([])
+    for _rk in _rate_sym:
+        _gl, _gh = SCALE_CONFIG.get(_rk, (None, None))
+        if _gl is not None and _gh is not None:
+            unified_scale[_rk] = (_gl, _gh)
+        else:
+            _rv = _rate_vals(_rk)
+            if len(_rv):
+                _va = max(float(np.percentile(np.abs(_rv), 98)), 1e-12)
+                unified_scale[_rk] = (_gl if _gl is not None else -_va,
+                                      _gh if _gh is not None else  _va)
+    for _rk in _rate_asym:
+        _gl, _gh = SCALE_CONFIG.get(_rk, (None, None))
+        if _gl is not None and _gh is not None:
+            unified_scale[_rk] = (_gl, _gh)
+        else:
+            _rv = _rate_vals(_rk)
+            if len(_rv):
+                unified_scale[_rk] = (_gl if _gl is not None else float(np.percentile(_rv, 2)),
+                                      _gh if _gh is not None else float(np.percentile(_rv, 98)))
+
+# ---- パス2: ひずみ速度計算（Δt指定時のみ）----
+if DT is not None:
+    print(f"\n{'─' * 60}")
+    print(f"  [パス2] ひずみ速度計算（Δt={DT:.3f} 秒/フレーム）")
+    print(f"{'─' * 60}")
+    _strain_rates = mod.calc_strain_rate(results_list, DT)
+    for _res, _rate in zip(results_list, _strain_rates):
+        _res['strain_rate'] = _rate
+    print(f"  ひずみ速度を全{len(results_list)}フレームに設定しました")
+else:
+    print("\n  [パス2] Δt未設定 → ひずみ速度計算をスキップ")
 
 # ---- 計算結果をpickleに保存（再描画・マップ保存ボタン用） ----
 import pickle
@@ -224,10 +278,11 @@ pickle_data = {
     'ref_path':      str(REF_PATH),
     'def_paths':     [str(p) for p in DEF_PATHS],
     'output_dir':    str(OUTPUT_DIR),
-    'ncc_threshold': NCC_THRESHOLD,
+    'zncc_threshold': ZNCC_THRESHOLD,
     'roi':           roi,
     'gauge_length':  GAUGE_LENGTH,
     'strain_type':   STRAIN_TYPE,
+    'dt':            DT,
 }
 with open(pickle_path, 'wb') as f:
     pickle.dump(pickle_data, f)

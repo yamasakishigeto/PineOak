@@ -1958,7 +1958,7 @@ if __name__ == '__main__':
 
     # 選択ラベルのひずみデータ読み込み（全シートを事前ロード）
     print(f"ひずみデータ読み込み中: {label}")
-    MAP_SHEETS = ['u', 'v', 'ncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
+    MAP_SHEETS = ['u', 'v', 'zncc', 'exx', 'eyy', 'exy', 'e1', 'gamma_max', 'omega_xy']
     _wb2 = openpyxl.load_workbook(georef_xlsx, read_only=True)
     x_arr, y_arr, u_cols    = load_sheet(_wb2['u'])
     _,     _,     v_cols    = load_sheet(_wb2['v'])
