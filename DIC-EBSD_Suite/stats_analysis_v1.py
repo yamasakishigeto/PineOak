@@ -86,7 +86,7 @@ def load_mat(path: str):
     prefixes_set = set()
     stages_set = set()
     for k in mat:
-        m = re.match(r"^(.+)_(s\d+MPa)$", k)
+        m = re.match(r"^(.+)_s(\d+MPa)$", k)
         if m:
             prefixes_set.add(m.group(1))
             stages_set.add(m.group(2))
@@ -444,7 +444,7 @@ class StatsWindow(QMainWindow):
         """prefix + stage から flatten された float64 配列を返す"""
         if prefix in self._indep_vars:
             return self._mat[prefix].flatten().astype(float)
-        key = f"{prefix}_{stage}"
+        key = f"{prefix}_s{stage}"
         if key not in self._mat:
             raise KeyError(f"変数 '{key}' がmatファイルに存在しません")
         return self._mat[key].flatten().astype(float)
