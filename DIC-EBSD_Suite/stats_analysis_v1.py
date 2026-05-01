@@ -155,7 +155,7 @@ class PlotCanvas(FigureCanvasQtAgg):
 class StatsWindow(QMainWindow):
     def __init__(self, mat_path: str = None):
         super().__init__()
-        self.setWindowTitle("Statistics Analysis  —  PineOak")
+        self.setWindowTitle("Statistical Analysis  —  PineOak")
         self.resize(1280, 820)
 
         self._mat = None

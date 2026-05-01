@@ -1296,7 +1296,7 @@ def launch_stress_strain_mapper():
 
 @eel.expose
 def launch_stats_analysis():
-    """Statistics Analysis を起動する（matファイルをダイアログで選択）"""
+    """Statistical Analysis を起動する（matファイルをダイアログで選択）"""
     mat_path = _tk_filedialog(
         'file',
         'integrated_georef_derived.mat を選択',
