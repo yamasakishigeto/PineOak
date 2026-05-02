@@ -26,6 +26,7 @@ import matplotlib
 matplotlib.use("QtAgg")
 import matplotlib.pyplot as _plt
 import numpy as np
+from scipy.ndimage import distance_transform_edt
 from matplotlib.backends.backend_qtagg import (
     FigureCanvasQTAgg as FigureCanvasQtAgg,
     NavigationToolbar2QT,
@@ -57,6 +58,13 @@ CMAPS = [
 
 # ステージ非依存変数のうち座標・ID系など解析対象外のもの（リストから除外）
 _INDEP_EXCLUDE = {"cx", "cy", "subset_id"}
+
+# 粒界定義一覧 (label, key)。新しい定義を追加するには：
+#   1. ここにエントリを追加する
+#   2. _compute_gb_dist() に対応する elif ブランチを実装する
+_GB_DEFINITIONS = [
+    ("grain_id — 隣接粒IDが異なる境界", "grain_id"),
+]
 
 
 # ============================================================
@@ -163,6 +171,7 @@ class StatsWindow(QMainWindow):
         self._stages = []
         self._indep_vars = []
         self._file_path = ""
+        self._gb_dist_cache: dict = {}   # def_key -> np.ndarray（ファイル切替時にクリア）
 
         self._build_ui()
         self._apply_style()
@@ -245,6 +254,7 @@ class StatsWindow(QMainWindow):
 
         self._sc_xlim, self._sc_ylim = [], []
         L.addWidget(self._axis_range_group(self._sc_xlim, self._sc_ylim))
+        L.addWidget(self._build_region_filter_group("sc"))
 
         self._sc_info = QLabel("")
         self._sc_info.setWordWrap(True)
@@ -283,6 +293,7 @@ class StatsWindow(QMainWindow):
 
         self._hist_xlim, self._hist_ylim = [], []
         L.addWidget(self._axis_range_group(self._hist_xlim, self._hist_ylim))
+        L.addWidget(self._build_region_filter_group("hist"))
 
         self._hist_info = QLabel("")
         self._hist_info.setWordWrap(True)
@@ -317,6 +328,7 @@ class StatsWindow(QMainWindow):
 
         self._evol_xlim, self._evol_ylim = [], []
         L.addWidget(self._axis_range_group(self._evol_xlim, self._evol_ylim))
+        L.addWidget(self._build_region_filter_group("evol"))
 
         L.addStretch()
         L.addLayout(self._btn_row(self._plot_evol, "evolution"))
@@ -332,6 +344,65 @@ class StatsWindow(QMainWindow):
         h.addWidget(lb)
         h.addWidget(widget)
         return h
+
+    def _build_region_filter_group(self, prefix: str) -> QGroupBox:
+        """Region Filter グループを構築し self._{prefix}_rf_* にウィジェットを登録する。"""
+        grp = QGroupBox("Region Filter")
+        gl = QVBoxLayout(grp)
+        gl.setSpacing(3)
+
+        # ---- 相フィルタ ----
+        phase_en = QCheckBox("相フィルタ (phase_index)")
+        phase_list = QListWidget()
+        phase_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        phase_list.setMaximumHeight(58)
+        phase_list.setEnabled(False)
+        phase_en.toggled.connect(phase_list.setEnabled)
+        gl.addWidget(phase_en)
+        gl.addWidget(phase_list)
+
+        # ---- 粒界近傍フィルタ ----
+        gb_en = QCheckBox("粒界近傍フィルタ")
+        gl.addWidget(gb_en)
+
+        def_row = QHBoxLayout()
+        def_lbl = QLabel("定義:")
+        def_lbl.setFixedWidth(32)
+        gb_def = QComboBox()
+        for label, _ in _GB_DEFINITIONS:
+            gb_def.addItem(label)
+        gb_def.setEnabled(False)
+        def_row.addWidget(def_lbl)
+        def_row.addWidget(gb_def, 1)
+        gl.addLayout(def_row)
+
+        dist_row = QHBoxLayout()
+        gb_op = QComboBox()
+        gb_op.addItems(["≦ (近傍)", "≧ (粒内部)"])
+        gb_op.setFixedWidth(100)
+        gb_op.setEnabled(False)
+        gb_dist = QSpinBox()
+        gb_dist.setRange(1, 999)
+        gb_dist.setValue(5)
+        gb_dist.setSuffix(" px")
+        gb_dist.setEnabled(False)
+        dist_row.addWidget(gb_op)
+        dist_row.addWidget(gb_dist)
+        dist_row.addStretch()
+        gl.addLayout(dist_row)
+
+        gb_en.toggled.connect(gb_def.setEnabled)
+        gb_en.toggled.connect(gb_op.setEnabled)
+        gb_en.toggled.connect(gb_dist.setEnabled)
+
+        # ウィジェットをインスタンス属性として保持
+        setattr(self, f"_{prefix}_rf_phase_en",   phase_en)
+        setattr(self, f"_{prefix}_rf_phase_list",  phase_list)
+        setattr(self, f"_{prefix}_rf_gb_en",       gb_en)
+        setattr(self, f"_{prefix}_rf_gb_def",      gb_def)
+        setattr(self, f"_{prefix}_rf_gb_op",       gb_op)
+        setattr(self, f"_{prefix}_rf_gb_dist",     gb_dist)
+        return grp
 
     def _axis_range_group(self, x_edits: list, y_edits: list) -> QGroupBox:
         """X/Y軸のMin/Max入力欄グループを返す。editsリストに [min_edit, max_edit] を追加する。"""
@@ -449,6 +520,7 @@ class StatsWindow(QMainWindow):
         self._stages     = stages
         self._indep_vars = indep_vars
         self._file_path  = path
+        self._gb_dist_cache = {}          # ファイル切替でキャッシュ無効化
         self._path_label.setText(path)
 
         self._populate_widgets()
@@ -490,6 +562,127 @@ class StatsWindow(QMainWindow):
                 self._evol_var.setCurrentText(prefer)
                 break
 
+        self._populate_phase_opts(["sc", "hist", "evol"])
+
+    # ----------------------------------------------------------
+    # Region Filter サポート
+    # ----------------------------------------------------------
+
+    def _populate_phase_opts(self, prefixes: list):
+        """全ステージの phase_index をスキャンして各タブの相リストを更新する。"""
+        phase_vals: set = set()
+        for s in self._stages:
+            key = f"phase_index_s{s}"
+            if key in self._mat:
+                arr = self._mat[key].flatten()
+                phase_vals |= {int(v) for v in np.unique(arr[np.isfinite(arr)])}
+
+        has_phase = bool(phase_vals)
+        has_gb = "grain_id" in self._mat and "cx" in self._mat and "cy" in self._mat
+
+        for p in prefixes:
+            # 相リスト更新
+            plist: QListWidget = getattr(self, f"_{p}_rf_phase_list")
+            plist.clear()
+            for ph in sorted(phase_vals):
+                item = QListWidgetItem(str(ph))
+                item.setSelected(True)   # デフォルト全選択
+                plist.addItem(item)
+            getattr(self, f"_{p}_rf_phase_en").setEnabled(has_phase)
+
+            # 粒界フィルタの有効化
+            getattr(self, f"_{p}_rf_gb_en").setEnabled(has_gb)
+
+    def _compute_gb_dist(self, definition: str) -> np.ndarray:
+        """粒界からの距離マップを計算してキャッシュする（フラット配列, px）。
+
+        新しい粒界定義を追加するには _GB_DEFINITIONS にエントリを追加し、
+        ここに elif ブランチを実装する。
+        """
+        if definition in self._gb_dist_cache:
+            return self._gb_dist_cache[definition]
+
+        if definition == "grain_id":
+            cx  = self._mat["cx"].flatten()
+            cy  = self._mat["cy"].flatten()
+            gid = self._mat["grain_id"].flatten()
+
+            xs = np.unique(cx);  ys = np.unique(cy)
+            step_x = float(np.min(np.diff(np.sort(xs)))) if len(xs) > 1 else 1.0
+            step_y = float(np.min(np.diff(np.sort(ys)))) if len(ys) > 1 else 1.0
+            nx = len(xs);  ny = len(ys)
+
+            ix = np.round((cx - xs.min()) / step_x).astype(int)
+            iy = np.round((cy - ys.min()) / step_y).astype(int)
+
+            # グリッド再構築 (-2 = データなし)
+            gid_grid = np.full((ny, nx), -2.0)
+            gid_grid[iy, ix] = gid
+
+            # 粒界点: 水平/垂直方向の隣接画素でgrain_idが異なる点
+            is_gb = np.zeros((ny, nx), bool)
+            for axis, sl_a, sl_b in [
+                (None, (slice(None), slice(None, -1)), (slice(None), slice(1, None))),
+                (None, (slice(None, -1), slice(None)), (slice(1, None), slice(None))),
+            ]:
+                g_a = gid_grid[sl_a];  g_b = gid_grid[sl_b]
+                valid = (g_a != -2) & (g_b != -2)
+                diff  = valid & (g_a != g_b)
+                is_gb[sl_a] |= diff
+                is_gb[sl_b] |= diff
+
+            # grain_id == -1 (非indexing点) も粒界扱い
+            is_gb |= (gid_grid == -1)
+
+            # 距離変換: 各点から最近傍の粒界点までの距離（粒界点自身 = 0）
+            dist_grid = distance_transform_edt(~is_gb)
+            dist_flat = dist_grid[iy, ix]
+
+        # ── 将来の定義はここに elif で追加 ──────────────────────────
+        # elif definition == "misorientation":
+        #     ...
+        # ────────────────────────────────────────────────────────────
+        else:
+            raise ValueError(f"未対応の粒界定義: {definition}")
+
+        self._gb_dist_cache[definition] = dist_flat
+        return dist_flat
+
+    def _get_region_mask(self, stage: str, prefix: str) -> np.ndarray:
+        """Region Filter の設定に基づいてブール配列マスクを返す（True = 含む）。"""
+        n    = next(iter(self._mat.values())).size
+        mask = np.ones(n, dtype=bool)
+
+        # ---- 相フィルタ ----
+        if getattr(self, f"_{prefix}_rf_phase_en").isChecked():
+            plist: QListWidget = getattr(self, f"_{prefix}_rf_phase_list")
+            selected = {int(it.text()) for it in plist.selectedItems()}
+            if selected:
+                key = f"phase_index_s{stage}"
+                if key in self._mat:
+                    pi = self._mat[key].flatten().astype(float)
+                    pm = np.zeros(n, dtype=bool)
+                    for ph in selected:
+                        pm |= (pi == ph)
+                    mask &= pm
+
+        # ---- 粒界近傍フィルタ ----
+        if getattr(self, f"_{prefix}_rf_gb_en").isChecked():
+            gb_def  = getattr(self, f"_{prefix}_rf_gb_def")
+            gb_op   = getattr(self, f"_{prefix}_rf_gb_op")
+            gb_dist = getattr(self, f"_{prefix}_rf_gb_dist")
+
+            def_key   = _GB_DEFINITIONS[gb_def.currentIndex()][1]
+            threshold = gb_dist.value()
+            dist      = self._compute_gb_dist(def_key)
+
+            if gb_op.currentIndex() == 0:   # ≦ (近傍)
+                mask &= dist <= threshold
+            else:                            # ≧ (粒内部)
+                mask &= dist >= threshold
+
+        return mask
+
     # ----------------------------------------------------------
     # データ取得
     # ----------------------------------------------------------
@@ -530,6 +723,10 @@ class StatsWindow(QMainWindow):
             if cp != "（なし）":
                 c_raw = self._get(cp, stage)
                 mask &= np.isfinite(c_raw)
+
+            mask &= self._get_region_mask(stage, "sc")
+
+            if cp != "（なし）":
                 c_arr = c_raw[mask]
 
             x, y = x[mask], y[mask]
@@ -593,7 +790,8 @@ class StatsWindow(QMainWindow):
             all_data = []
             for stage in plot_stages:
                 d = self._get(var, stage)
-                d = d[np.isfinite(d)]
+                region_stage = plot_stages[0] if is_indep else stage
+                d = d[np.isfinite(d) & self._get_region_mask(region_stage, "hist")]
                 if len(d) > 0:
                     all_data.append(d)
             if not all_data:
@@ -654,7 +852,7 @@ class StatsWindow(QMainWindow):
             valid_stages = []
             for s, x in zip(self._stages, xs):
                 d = self._get(var, s)
-                d = d[np.isfinite(d)]
+                d = d[np.isfinite(d) & self._get_region_mask(s, "evol")]
                 if len(d) == 0:
                     continue
                 data_list.append(d)
