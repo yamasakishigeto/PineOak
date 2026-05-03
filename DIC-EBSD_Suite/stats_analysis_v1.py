@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
     QMessageBox, QSizePolicy, QCheckBox,
-    QListWidget, QListWidgetItem, QSpinBox,
+    QListWidget, QListWidgetItem, QSpinBox, QDoubleSpinBox,
     QStatusBar,
 )
 from PyQt6.QtCore import Qt
@@ -58,6 +58,18 @@ CMAPS = [
 
 # ステージ非依存変数のうち座標・ID系など解析対象外のもの（リストから除外）
 _INDEP_EXCLUDE = {"cx", "cy", "subset_id"}
+
+# 品質フィルタ定義: (表示名, 変数プレフィックス, 演算子, min, max, step, decimals, default)
+# 演算子は "≥"（下限）または "≤"（上限）のみ。matにない変数は自動でグレーアウト。
+_QUALITY_FILTERS = [
+    ("CI",            "confidence_index",  "≥",   0.0, 1.0,    0.01,  3, 0.0   ),
+    ("IQ",            "image_quality",     "≥",   0.0, 200000, 100.0, 0, 0.0   ),
+    ("ZNCC",          "zncc",              "≥",  -1.0, 1.0,    0.001, 3, 0.0   ),
+    ("PK hgt (map)",  "map_geompkhgt",     "≥",   0.0, 10.0,   0.01,  3, 0.0   ),
+    ("PK hgt (rmap)", "rmap_geompkhgt",    "≥",   0.0, 10.0,   0.01,  3, 0.0   ),
+    ("MAE (map)",     "map_mae",           "≤",   0.0, 9999.0, 0.01,  3, 9999.0),
+    ("MAE (rmap)",    "rmap_mae",          "≤",   0.0, 9999.0, 0.01,  3, 9999.0),
+]
 
 # 粒界定義一覧 (label, key)。新しい定義を追加するには：
 #   1. ここにエントリを追加する
@@ -255,6 +267,7 @@ class StatsWindow(QMainWindow):
         self._sc_xlim, self._sc_ylim = [], []
         L.addWidget(self._axis_range_group(self._sc_xlim, self._sc_ylim))
         L.addWidget(self._build_region_filter_group("sc"))
+        L.addWidget(self._build_quality_filter_group("sc"))
 
         self._sc_info = QLabel("")
         self._sc_info.setWordWrap(True)
@@ -294,6 +307,7 @@ class StatsWindow(QMainWindow):
         self._hist_xlim, self._hist_ylim = [], []
         L.addWidget(self._axis_range_group(self._hist_xlim, self._hist_ylim))
         L.addWidget(self._build_region_filter_group("hist"))
+        L.addWidget(self._build_quality_filter_group("hist"))
 
         self._hist_info = QLabel("")
         self._hist_info.setWordWrap(True)
@@ -329,6 +343,7 @@ class StatsWindow(QMainWindow):
         self._evol_xlim, self._evol_ylim = [], []
         L.addWidget(self._axis_range_group(self._evol_xlim, self._evol_ylim))
         L.addWidget(self._build_region_filter_group("evol"))
+        L.addWidget(self._build_quality_filter_group("evol"))
 
         L.addStretch()
         L.addLayout(self._btn_row(self._plot_evol, "evolution"))
@@ -405,6 +420,35 @@ class StatsWindow(QMainWindow):
         setattr(self, f"_{prefix}_rf_gb_def",      gb_def)
         setattr(self, f"_{prefix}_rf_gb_op",       gb_op)
         setattr(self, f"_{prefix}_rf_gb_dist",     gb_dist)
+        return grp
+
+    def _build_quality_filter_group(self, prefix: str) -> QGroupBox:
+        """Quality Filter グループを構築し self._{prefix}_qf_rows にウィジェットを登録する。"""
+        grp = QGroupBox("Quality Filter")
+        gl = QVBoxLayout(grp)
+        gl.setSpacing(2)
+
+        rows = []
+        for label, var_prefix, op, vmin, vmax, step, dec, default in _QUALITY_FILTERS:
+            h = QHBoxLayout()
+            cb = QCheckBox(label)
+            cb.setFixedWidth(112)
+            op_lbl = QLabel(op)
+            op_lbl.setFixedWidth(14)
+            sp = QDoubleSpinBox()
+            sp.setRange(vmin, vmax)
+            sp.setSingleStep(step)
+            sp.setDecimals(dec)
+            sp.setValue(default)
+            sp.setEnabled(False)
+            cb.toggled.connect(sp.setEnabled)
+            h.addWidget(cb)
+            h.addWidget(op_lbl)
+            h.addWidget(sp, 1)
+            gl.addLayout(h)
+            rows.append((var_prefix, op, cb, sp))
+
+        setattr(self, f"_{prefix}_qf_rows", rows)
         return grp
 
     def _axis_range_group(self, x_edits: list, y_edits: list) -> QGroupBox:
@@ -566,10 +610,22 @@ class StatsWindow(QMainWindow):
                 break
 
         self._populate_phase_opts(["sc", "hist", "evol"])
+        self._update_quality_availability(["sc", "hist", "evol"])
 
     # ----------------------------------------------------------
     # Region Filter サポート
     # ----------------------------------------------------------
+
+    def _update_quality_availability(self, prefixes: list):
+        """matに存在しない品質変数の行をグレーアウトする。"""
+        first = self._stages[0] if self._stages else None
+        for p in prefixes:
+            rows: list = getattr(self, f"_{p}_qf_rows", [])
+            for var_prefix, op, cb, sp in rows:
+                available = bool(first and f"{var_prefix}_s{first}" in self._mat)
+                cb.setEnabled(available)
+                if not available:
+                    cb.setChecked(False)
 
     def _populate_phase_opts(self, prefixes: list):
         """全ステージの phase_index をスキャンして各タブの相リストを更新する。"""
@@ -695,6 +751,28 @@ class StatsWindow(QMainWindow):
 
         return mask
 
+    def _get_quality_mask(self, stage: str, prefix: str) -> np.ndarray:
+        """Quality Filter の設定に基づいてブール配列マスクを返す（True = 含む）。"""
+        n    = next(iter(self._mat.values())).size
+        mask = np.ones(n, dtype=bool)
+
+        rows: list = getattr(self, f"_{prefix}_qf_rows", [])
+        for var_prefix, op, cb, sp in rows:
+            if not cb.isChecked():
+                continue
+            key = f"{var_prefix}_s{stage}"
+            if key not in self._mat:
+                continue
+            arr       = self._mat[key].flatten().astype(float)
+            threshold = sp.value()
+            finite    = np.isfinite(arr)
+            if op == "≥":
+                mask &= finite & (arr >= threshold)
+            else:   # ≤
+                mask &= finite & (arr <= threshold)
+
+        return mask
+
     # ----------------------------------------------------------
     # データ取得
     # ----------------------------------------------------------
@@ -736,7 +814,7 @@ class StatsWindow(QMainWindow):
                 c_raw = self._get(cp, stage)
                 mask &= np.isfinite(c_raw)
 
-            mask &= self._get_region_mask(stage, "sc")
+            mask &= self._get_region_mask(stage, "sc") & self._get_quality_mask(stage, "sc")
 
             if cp != "（なし）":
                 c_arr = c_raw[mask]
@@ -803,7 +881,7 @@ class StatsWindow(QMainWindow):
             for stage in plot_stages:
                 d = self._get(var, stage)
                 region_stage = plot_stages[0] if is_indep else stage
-                d = d[np.isfinite(d) & self._get_region_mask(region_stage, "hist")]
+                d = d[np.isfinite(d) & self._get_region_mask(region_stage, "hist") & self._get_quality_mask(region_stage, "hist")]
                 if len(d) > 0:
                     all_data.append(d)
             if not all_data:
@@ -864,7 +942,7 @@ class StatsWindow(QMainWindow):
             valid_stages = []
             for s, x in zip(self._stages, xs):
                 d = self._get(var, s)
-                d = d[np.isfinite(d) & self._get_region_mask(s, "evol")]
+                d = d[np.isfinite(d) & self._get_region_mask(s, "evol") & self._get_quality_mask(s, "evol")]
                 if len(d) == 0:
                     continue
                 data_list.append(d)
