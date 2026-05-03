@@ -353,13 +353,15 @@ class StatsWindow(QMainWindow):
 
         # ---- 相フィルタ ----
         phase_en = QCheckBox("相フィルタ (phase_index)")
-        phase_list = QListWidget()
-        phase_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        phase_list.setMaximumHeight(58)
-        phase_list.setEnabled(False)
-        phase_en.toggled.connect(phase_list.setEnabled)
+        # チェックボックスを動的に並べるコンテナ（_populate_phase_opts で中身を生成）
+        phase_cb_area = QWidget()
+        phase_cb_layout = QVBoxLayout(phase_cb_area)
+        phase_cb_layout.setContentsMargins(16, 0, 0, 0)
+        phase_cb_layout.setSpacing(2)
+        phase_cb_area.setEnabled(False)
+        phase_en.toggled.connect(phase_cb_area.setEnabled)
         gl.addWidget(phase_en)
-        gl.addWidget(phase_list)
+        gl.addWidget(phase_cb_area)
 
         # ---- 粒界近傍フィルタ ----
         gb_en = QCheckBox("粒界近傍フィルタ")
@@ -396,9 +398,10 @@ class StatsWindow(QMainWindow):
         gb_en.toggled.connect(gb_dist.setEnabled)
 
         # ウィジェットをインスタンス属性として保持
-        setattr(self, f"_{prefix}_rf_phase_en",   phase_en)
-        setattr(self, f"_{prefix}_rf_phase_list",  phase_list)
-        setattr(self, f"_{prefix}_rf_gb_en",       gb_en)
+        setattr(self, f"_{prefix}_rf_phase_en",      phase_en)
+        setattr(self, f"_{prefix}_rf_phase_cb_area", phase_cb_area)
+        setattr(self, f"_{prefix}_rf_phase_cbs",     [])   # (phase_val, QCheckBox) のリスト
+        setattr(self, f"_{prefix}_rf_gb_en",         gb_en)
         setattr(self, f"_{prefix}_rf_gb_def",      gb_def)
         setattr(self, f"_{prefix}_rf_gb_op",       gb_op)
         setattr(self, f"_{prefix}_rf_gb_dist",     gb_dist)
@@ -581,13 +584,22 @@ class StatsWindow(QMainWindow):
         has_gb = "grain_id" in self._mat and "cx" in self._mat and "cy" in self._mat
 
         for p in prefixes:
-            # 相リスト更新
-            plist: QListWidget = getattr(self, f"_{p}_rf_phase_list")
-            plist.clear()
+            # チェックボックスを再生成
+            area: QWidget = getattr(self, f"_{p}_rf_phase_cb_area")
+            layout = area.layout()
+            while layout.count():
+                item = layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            cbs = []
             for ph in sorted(phase_vals):
-                item = QListWidgetItem(str(ph))
-                item.setSelected(True)   # デフォルト全選択
-                plist.addItem(item)
+                cb = QCheckBox(f"phase {ph}")
+                cb.setChecked(True)      # デフォルト全チェック
+                layout.addWidget(cb)
+                cbs.append((ph, cb))
+            setattr(self, f"_{p}_rf_phase_cbs", cbs)
+
             getattr(self, f"_{p}_rf_phase_en").setEnabled(has_phase)
 
             # 粒界フィルタの有効化
@@ -655,8 +667,8 @@ class StatsWindow(QMainWindow):
 
         # ---- 相フィルタ ----
         if getattr(self, f"_{prefix}_rf_phase_en").isChecked():
-            plist: QListWidget = getattr(self, f"_{prefix}_rf_phase_list")
-            selected = {int(it.text()) for it in plist.selectedItems()}
+            cbs: list = getattr(self, f"_{prefix}_rf_phase_cbs")
+            selected = {ph for ph, cb in cbs if cb.isChecked()}
             if selected:
                 key = f"phase_index_s{stage}"
                 if key in self._mat:
