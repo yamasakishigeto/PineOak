@@ -345,6 +345,12 @@ class StatsWindow(QMainWindow):
         L.addWidget(self._build_region_filter_group("evol"))
         L.addWidget(self._build_quality_filter_group("evol"))
 
+        self._evol_info = QLabel("")
+        self._evol_info.setWordWrap(True)
+        self._evol_info.setFont(QFont("Courier New", 9))
+        self._evol_info.setStyleSheet("color: #9ca3af;")
+        L.addWidget(self._evol_info)
+
         L.addStretch()
         L.addLayout(self._btn_row(self._plot_evol, "evolution"))
         return w
@@ -807,19 +813,19 @@ class StatsWindow(QMainWindow):
 
             x = self._get(xp, stage)
             y = self._get(yp, stage)
-            mask = np.isfinite(x) & np.isfinite(y)
+            finite_mask = np.isfinite(x) & np.isfinite(y)
 
-            c_arr = None
+            c_raw = None
             if cp != "（なし）":
                 c_raw = self._get(cp, stage)
-                mask &= np.isfinite(c_raw)
+                finite_mask &= np.isfinite(c_raw)
 
-            mask &= self._get_region_mask(stage, "sc") & self._get_quality_mask(stage, "sc")
+            n_total = int(np.sum(finite_mask))
+            mask    = finite_mask & self._get_region_mask(stage, "sc") & self._get_quality_mask(stage, "sc")
+            n_kept  = int(np.sum(mask))
 
-            if cp != "（なし）":
-                c_arr = c_raw[mask]
-
-            x, y = x[mask], y[mask]
+            c_arr = c_raw[mask] if c_raw is not None else None
+            x, y  = x[mask], y[mask]
             if len(x) == 0:
                 QMessageBox.warning(self, "データなし", "有効なデータ点がありません")
                 return
@@ -845,12 +851,13 @@ class StatsWindow(QMainWindow):
             self._apply_lim(ax, self._sc_xlim, self._sc_ylim)
             self._canvas.finish()
 
-            info = (f"n = {len(x):,}\n"
+            pct  = 100 * n_kept / n_total if n_total > 0 else 0.0
+            info = (f"n = {n_kept:,} / {n_total:,} ({pct:.1f}%)\n"
                     f"r = {r:.4f}\n"
                     f"X  mean={np.nanmean(x):.4g}  std={np.nanstd(x):.4g}\n"
                     f"Y  mean={np.nanmean(y):.4g}  std={np.nanstd(y):.4g}")
             self._sc_info.setText(info)
-            self._sb.showMessage(f"散布図完了 — n={len(x):,}  r={r:.4f}")
+            self._sb.showMessage(f"散布図完了 — n={n_kept:,}/{n_total:,} ({pct:.1f}%)  r={r:.4f}")
 
         except Exception as e:
             self._err(e)
@@ -877,13 +884,18 @@ class StatsWindow(QMainWindow):
             plot_stages = [sel[0]] if is_indep else sel
 
             # 全ステージのデータをまとめて共通ビンエッジを決定
-            all_data = []
+            all_data   = []
+            all_counts = []   # (n_kept, n_total) per stage
             for stage in plot_stages:
-                d = self._get(var, stage)
+                d_full = self._get(var, stage)
+                finite = np.isfinite(d_full)
+                n_total = int(np.sum(finite))
                 region_stage = plot_stages[0] if is_indep else stage
-                d = d[np.isfinite(d) & self._get_region_mask(region_stage, "hist") & self._get_quality_mask(region_stage, "hist")]
+                filt   = self._get_region_mask(region_stage, "hist") & self._get_quality_mask(region_stage, "hist")
+                d = d_full[finite & filt]
                 if len(d) > 0:
                     all_data.append(d)
+                    all_counts.append((len(d), n_total))
             if not all_data:
                 QMessageBox.warning(self, "データなし", "有効なデータがありません")
                 return
@@ -901,13 +913,14 @@ class StatsWindow(QMainWindow):
             colors = [cmap_f(i / max(len(plot_stages) - 1, 1)) for i in range(len(plot_stages))]
 
             lines = []
-            for stage, col, d in zip(plot_stages, colors, all_data):
+            for stage, col, d, (nk, nt) in zip(plot_stages, colors, all_data, all_counts):
                 lbl = var if is_indep else stage
                 ax.hist(d, bins=bin_edges, density=density, color=col,
                         alpha=0.55, label=lbl, edgecolor="none")
+                pct = 100 * nk / nt if nt > 0 else 0.0
                 lines.append(
                     f"{lbl}: mean={np.mean(d):.4g}  std={np.std(d):.4g}  "
-                    f"med={np.median(d):.4g}  n={len(d):,}"
+                    f"med={np.median(d):.4g}  n={nk:,}/{nt:,} ({pct:.1f}%)"
                 )
 
             ax.set_xlabel(var, fontsize=10)
@@ -937,17 +950,22 @@ class StatsWindow(QMainWindow):
             plot_type = self._evol_type.checkedId()
 
             xs = list(range(len(self._stages)))
-            data_list = []
+            data_list    = []
             valid_xs     = []
             valid_stages = []
+            count_info   = []   # (stage, n_kept, n_total)
             for s, x in zip(self._stages, xs):
-                d = self._get(var, s)
-                d = d[np.isfinite(d) & self._get_region_mask(s, "evol") & self._get_quality_mask(s, "evol")]
+                d_full  = self._get(var, s)
+                finite  = np.isfinite(d_full)
+                n_total = int(np.sum(finite))
+                filt    = self._get_region_mask(s, "evol") & self._get_quality_mask(s, "evol")
+                d       = d_full[finite & filt]
                 if len(d) == 0:
                     continue
                 data_list.append(d)
                 valid_xs.append(x)
                 valid_stages.append(s)
+                count_info.append((s, len(d), n_total))
 
             if not data_list:
                 QMessageBox.warning(self, "データなし", "有効なデータがありません")
@@ -1002,7 +1020,15 @@ class StatsWindow(QMainWindow):
             self._apply_lim(ax, self._evol_xlim, self._evol_ylim)
             self._canvas.finish()
 
-            self._sb.showMessage(f"ステージ変化プロット完了 — {var}")
+            # ステージごとの残存点数テーブル
+            w = max(len(s) for s, _, _ in count_info)
+            evol_lines = [f"{'Stage':{w}s}  Retained"]
+            for s, nk, nt in count_info:
+                pct = 100 * nk / nt if nt > 0 else 0.0
+                evol_lines.append(f"{s:{w}s}  {nk:>6,}/{nt:,} ({pct:.1f}%)")
+            self._evol_info.setText("\n".join(evol_lines))
+
+            self._sb.showMessage(f"ステージ変化プロット完了 — {var}  ({len(count_info)} stages)")
 
         except Exception as e:
             self._err(e)
