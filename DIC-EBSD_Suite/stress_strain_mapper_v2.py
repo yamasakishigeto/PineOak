@@ -635,6 +635,7 @@ class StressStrainMapperApp(QMainWindow):
         row_gb = QHBoxLayout()
         self._map_show_gb_cb = QCheckBox("Grain boundaries")
         self._map_show_gb_cb.setChecked(True)
+        self._map_show_gb_cb.toggled.connect(lambda _: self._redraw_current_map())
         row_gb.addWidget(self._map_show_gb_cb)
         self._map_gb_def_cb = QComboBox()
         for _defn in ALL_DEFINITIONS:
@@ -651,6 +652,7 @@ class StressStrainMapperApp(QMainWindow):
             defn = DEFINITION_MAP.get(key)
             self._map_gb_settings_btn.setEnabled(bool(defn and defn.has_settings))
             self._gb_seg_cache.clear()
+            self._redraw_current_map()
         self._map_gb_def_cb.currentIndexChanged.connect(_upd_map_gb_btn)
         _upd_map_gb_btn(0)
         def _open_map_gb_settings():
@@ -662,6 +664,7 @@ class StressStrainMapperApp(QMainWindow):
             if dlg.exec():
                 self._map_gb_params_store[key] = dlg.get_params()
                 self._gb_seg_cache.clear()
+                self._redraw_current_map()
         self._map_gb_settings_btn.clicked.connect(_open_map_gb_settings)
         row_gb.addWidget(self._map_gb_settings_btn)
         # 対称性（ミスオリエンテーション計算用）
@@ -670,7 +673,8 @@ class StressStrainMapperApp(QMainWindow):
         self._map_gb_sym_cb.addItems(list(SYM_GROUPS.keys()))
         self._map_gb_sym_cb.setCurrentText("Cubic")
         self._map_gb_sym_cb.setFixedWidth(80)
-        self._map_gb_sym_cb.currentIndexChanged.connect(lambda _: self._gb_seg_cache.clear())
+        self._map_gb_sym_cb.currentIndexChanged.connect(
+            lambda _: (self._gb_seg_cache.clear(), self._redraw_current_map()))
         row_gb.addWidget(self._map_gb_sym_cb)
         row_gb.addStretch()
         layout.addLayout(row_gb)
@@ -894,6 +898,29 @@ class StressStrainMapperApp(QMainWindow):
         data, _, _, _ = self._get_map_data(base, self._map_stage_slider.value())
         self._map_min_edit.setText(f"{np.nanmin(data):.6g}")
         self._map_max_edit.setText(f"{np.nanmax(data):.6g}")
+
+    def _redraw_current_map(self):
+        """現在のマップモードに応じて描画メソッドを呼ぶ。
+        GB定義・設定・表示ON/OFFの変更後に呼ばれる。
+        データ未ロード時・UI未初期化・描画失敗は無視する。
+        """
+        if not len(self.cx):
+            return
+        # UI構築中（canvas_map や _map_var_cb がまだない）は何もしない
+        if not hasattr(self, 'canvas_map') or not hasattr(self, '_map_var_cb'):
+            return
+        try:
+            mode = getattr(self, '_map_mode', 'var')
+            if mode == 'var':
+                self._draw_map_current()
+            elif mode == 'grod':
+                self._draw_grod_stage()
+            elif mode == 'sf':
+                self._draw_sf_stage()
+            elif mode == 'rss':
+                self._draw_rss_stage()
+        except Exception:
+            pass
 
     def _draw_map_current(self):
         base = self._map_var_cb.currentText()
