@@ -315,7 +315,8 @@ class MisorientationDef(GBDefinition):
         # 相情報（なければ全点を同一相として扱う）
         phase_key = f'phase_index_s{stage}'
         if phase_key in mat:
-            phase_arr = mat[phase_key].flatten().astype(int)
+            _pa = mat[phase_key].flatten().astype(float)
+            phase_arr = np.where(np.isfinite(_pa), _pa, -1).astype(int)
         else:
             phase_arr = np.zeros(len(cx), int)
 
@@ -413,7 +414,11 @@ class SpecialBoundaryDef(GBDefinition):
             eulers = _load_euler(mat, stage, 'ref')
 
         phase_key = f'phase_index_s{stage}'
-        phase_arr = mat[phase_key].flatten().astype(int) if phase_key in mat else np.zeros(len(cx), int)
+        if phase_key in mat:
+            _pa = mat[phase_key].flatten().astype(float)
+            phase_arr = np.where(np.isfinite(_pa), _pa, -1).astype(int)
+        else:
+            phase_arr = np.zeros(len(cx), int)
 
         valid = (
             (gid != -1)
