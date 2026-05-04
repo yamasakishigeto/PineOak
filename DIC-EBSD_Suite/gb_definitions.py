@@ -521,16 +521,17 @@ class SpecialBoundaryDef(GBDefinition):
             # M^T も同時にチェック（i/j 割り当て曖昧さへの対処）
             M_both = np.concatenate([M, M.transpose(0, 2, 1)], axis=0)  # (2C, 3, 3)
 
-            # P_p = M_p @ target_R^T: (2C, 3, 3)
-            P = np.einsum('pij,jk->pik', M_both, target_R.T)
+            # N_{s,c} = sym[s] @ M_c: (S, 2C, 3, 3)
+            N = np.einsum('sij,cjk->scik', sym, M_both)
 
-            # Q_{s,p} = sym[s]^T @ P_p: (S, 2C, 3, 3)
-            Q = np.einsum('sji,pjk->spik', sym, P)
+            # Z_{s,c} = target_R^T @ N_{s,c}: (S, 2C, 3, 3)
+            # → tr(Z @ sym[t]) = tr(target_R^T @ sym[s] @ M @ sym[t])
+            #                   = tr(sym[s] @ M @ sym[t] @ target_R^T)  [cyclic]
+            Z      = np.einsum('ij,scjk->scik', target_R.T, N)
 
-            # tr(Q_{s,p} @ sym[t]) = <Q_flat[s,p], sym[t]^T_flat>
-            # cross_{s,p,t}: (S, 2C, S)
-            Q_flat = Q.reshape(S, 2 * C, 9)
-            cross  = np.einsum('scn,tn->sct', Q_flat, sym_T_flat)
+            # cross_{s,c,t} = tr(Z_{s,c} @ sym[t]): (S, 2C, S)
+            Z_flat = Z.reshape(S, 2 * C, 9)
+            cross  = np.einsum('scn,tn->sct', Z_flat, sym_T_flat)
 
             # ペアごとに (si, sj) の全組合せ中の最大トレースを取得: (2C,)
             max_tr = np.max(cross, axis=(0, 2))
