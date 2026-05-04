@@ -390,6 +390,9 @@ class SpecialBoundaryDef(GBDefinition):
         'same_phase_only': True,
     }
 
+    # チャンクサイズ: メモリ使用量を ~40 MB 程度に抑える
+    _CHUNK = 2000
+
     def compute_pairs(self, mat, stage, phase_sym_map, params):
         axis_uvw    = np.asarray(params.get('axis_uvw',   self.default_params['axis_uvw']),  float)
         angle_tgt   = float(params.get('angle_deg',       self.default_params['angle_deg']))
@@ -398,8 +401,7 @@ class SpecialBoundaryDef(GBDefinition):
         euler_source = str(params.get('euler_source',     self.default_params['euler_source']))
         same_phase  = bool(params.get('same_phase_only',  self.default_params['same_phase_only']))
 
-        # 回転軸を正規化
-        axis_ref = axis_uvw / np.linalg.norm(axis_uvw)
+        axis_ref = axis_uvw / (np.linalg.norm(axis_uvw) + 1e-12)
 
         cx  = mat['cx'].flatten()
         cy  = mat['cy'].flatten()
@@ -427,7 +429,10 @@ class SpecialBoundaryDef(GBDefinition):
         adj_pairs = get_adjacent_pairs(cx, cy)
         fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
 
+        from collections import defaultdict
+        phase_pair_groups: dict = defaultdict(list)
         boundary = []
+
         for i, j in adj_pairs:
             pi, pj = int(phase_arr[i]), int(phase_arr[j])
             if pi != pj:
@@ -436,44 +441,89 @@ class SpecialBoundaryDef(GBDefinition):
                 continue
             if not (valid[i] and valid[j]):
                 continue
+            phase_pair_groups[pi].append((i, j))
 
-            sym = phase_sym_map.get(pi, fallback_sym)
-            Ri = rotmats[i:i+1]
-            Rj = rotmats[j:j+1]
-            deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)[0]   # (3,3)
-            deltaR_T = deltaR.T
-
-            # 全対称操作を試してターゲットに最も近い軸・角度を探す
-            matched = False
-            for dR in [deltaR, deltaR_T]:
-                for s in sym:
-                    sdR = s @ dR
-                    tr  = np.clip((sdR[0, 0] + sdR[1, 1] + sdR[2, 2] - 1.0) / 2.0, -1.0, 1.0)
-                    angle = np.degrees(np.arccos(tr))
-                    if abs(angle - angle_tgt) > ang_tol:
-                        continue
-                    # 回転軸を抽出（Rodrigues 公式）
-                    if abs(angle) < 1e-6:
-                        continue
-                    sin_a = np.sin(np.radians(angle))
-                    axis  = np.array([
-                        sdR[2, 1] - sdR[1, 2],
-                        sdR[0, 2] - sdR[2, 0],
-                        sdR[1, 0] - sdR[0, 1],
-                    ]) / (2.0 * sin_a)
-                    axis /= np.linalg.norm(axis) + 1e-12
-                    # 軸の符号は任意なので絶対値で比較
-                    ax_angle = np.degrees(np.arccos(
-                        np.clip(abs(np.dot(axis, axis_ref)), 0.0, 1.0)))
-                    if ax_angle <= ax_tol:
-                        matched = True
-                        break
-                if matched:
-                    break
-            if matched:
-                boundary.append((i, j))
+        for ph, group in phase_pair_groups.items():
+            sym = phase_sym_map.get(ph, fallback_sym)   # (S, 3, 3)
+            matched = self._check_special_vectorized(
+                group, rotmats, sym, axis_ref, angle_tgt, ang_tol, ax_tol)
+            for k, m in enumerate(matched):
+                if m:
+                    boundary.append(group[k])
 
         return boundary
+
+    @staticmethod
+    def _check_special_vectorized(group, rotmats, sym, axis_ref,
+                                  angle_tgt, ang_tol, ax_tol):
+        """特殊粒界判定をベクトル化して実行する。
+
+        Parameters
+        ----------
+        group   : list of (i, j)  判定対象ペアリスト
+        rotmats : (N, 3, 3)       全点の回転行列
+        sym     : (S, 3, 3)       対称操作
+        axis_ref: (3,)            ターゲット回転軸（正規化済み）
+        angle_tgt, ang_tol, ax_tol : float  角度・軸トレランス [degrees]
+
+        Returns
+        -------
+        matched : list of bool  group と同長
+        """
+        CHUNK = SpecialBoundaryDef._CHUNK
+        matched_all = []
+
+        for start in range(0, len(group), CHUNK):
+            chunk = group[start:start + CHUNK]
+            arr   = np.array(chunk, int)           # (C, 2)
+            Ri    = rotmats[arr[:, 0]]             # (C, 3, 3)
+            Rj    = rotmats[arr[:, 1]]             # (C, 3, 3)
+
+            deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)       # Ri.T @ Rj  (C,3,3)
+            deltaR_T = deltaR.transpose(0, 2, 1)                 # (C,3,3)
+
+            # 対称操作を左から適用: (S,C,3,3) × 2
+            sdR   = np.einsum('sij,pjk->spik', sym, deltaR)
+            sdR_T = np.einsum('sij,pjk->spik', sym, deltaR_T)
+            all_dR = np.concatenate([sdR, sdR_T], axis=0)       # (2S,C,3,3)
+
+            # トレース → 角度 (2S,C)
+            traces    = all_dR[:,:,0,0] + all_dR[:,:,1,1] + all_dR[:,:,2,2]
+            cos_t     = np.clip((traces - 1.0) / 2.0, -1.0, 1.0)
+            angles_sc = np.degrees(np.arccos(cos_t))            # (2S,C)
+
+            # 角度フィルタ
+            angle_ok = np.abs(angles_sc - angle_tgt) <= ang_tol  # (2S,C)
+            sin_ok   = np.abs(np.sin(np.radians(angles_sc))) > 1e-6
+            check    = angle_ok & sin_ok                          # (2S,C)
+
+            if not np.any(check):
+                matched_all.extend([False] * len(chunk))
+                continue
+
+            # Rodrigues 公式で回転軸抽出 (2S,C,3)
+            ax = np.stack([
+                all_dR[:,:,2,1] - all_dR[:,:,1,2],
+                all_dR[:,:,0,2] - all_dR[:,:,2,0],
+                all_dR[:,:,1,0] - all_dR[:,:,0,1],
+            ], axis=-1)
+
+            sin_t  = np.sin(np.radians(angles_sc))              # (2S,C)
+            denom  = np.where(sin_ok, 2.0 * sin_t, 1.0)        # (2S,C) safe denominator
+            ax_n   = ax / denom[:, :, None]                     # (2S,C,3)
+            norms  = np.linalg.norm(ax_n, axis=-1, keepdims=True) + 1e-12
+            ax_u   = ax_n / norms                               # (2S,C,3) 正規化済み
+
+            # ターゲット軸との角度（軸の符号は任意なので abs）
+            dot    = np.clip(np.abs(np.einsum('scx,x->sc', ax_u, axis_ref)), 0.0, 1.0)
+            ax_ok  = np.degrees(np.arccos(dot)) <= ax_tol       # (2S,C)
+
+            # ペアごとに「いずれかの対称等価で両条件を満たすか」
+            both       = check & ax_ok                           # (2S,C)
+            pair_match = np.any(both, axis=0)                    # (C,)
+            matched_all.extend(pair_match.tolist())
+
+        return matched_all
 
 
 # ============================================================
