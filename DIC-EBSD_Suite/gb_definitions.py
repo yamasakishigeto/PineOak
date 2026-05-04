@@ -1,0 +1,531 @@
+"""
+gb_definitions.py
+=================
+粒界定義の共有モジュール。stress_strain_mapper と stats_analysis の両方から使用。
+
+各定義クラスは compute_pairs() → list of (i, j) を実装する。
+返り値の (i, j) は「この2点の間に境界が存在する」ことを意味する隣接点ペア。
+
+新しい定義の追加方法:
+  1. GBDefinition を継承したクラスを実装し、compute_pairs() をオーバーライドする
+  2. ALL_DEFINITIONS リストに追加する
+  3. has_settings=True の場合は gb_settings_dialog.py に対応フォームを追加する
+
+pairs_to_distance_map() → stats_analysis の距離フィルタに使用
+pairs_to_segments()     → stress_strain_mapper の境界線描画に使用
+"""
+
+from __future__ import annotations
+import numpy as np
+from scipy.ndimage import distance_transform_edt
+
+# stress_strain_calc から対称性演算をインポート
+from stress_strain_calc import SYM_GROUPS, _get_sym_ops
+
+
+# ============================================================
+# 対称性ユーティリティ（公開ラッパー）
+# ============================================================
+
+def get_sym_ops(sym_name: str) -> np.ndarray:
+    """対称群名 → (S, 3, 3) 回転行列配列。
+    SYM_GROUPS と同じキー（Cubic / Hexagonal / ... / Triclinic）を受け付ける。
+    """
+    return _get_sym_ops(sym_name)
+
+
+# ============================================================
+# グリッド・隣接ペア
+# ============================================================
+
+def build_grid(cx: np.ndarray, cy: np.ndarray):
+    """cx, cy から2Dグリッド情報を構築する。
+
+    Returns
+    -------
+    ix, iy  : グリッドインデックス配列（各点のグリッド上の位置）
+    step_x, step_y : グリッド間隔 [px]
+    nx, ny  : グリッドサイズ
+    """
+    xs = np.unique(cx); ys = np.unique(cy)
+    step_x = float(np.min(np.diff(np.sort(xs)))) if len(xs) > 1 else 1.0
+    step_y = float(np.min(np.diff(np.sort(ys)))) if len(ys) > 1 else 1.0
+    ix = np.round((cx - xs.min()) / step_x).astype(int)
+    iy = np.round((cy - ys.min()) / step_y).astype(int)
+    return ix, iy, step_x, step_y, len(xs), len(ys)
+
+
+def get_adjacent_pairs(cx: np.ndarray, cy: np.ndarray) -> list[tuple[int, int]]:
+    """水平・垂直に隣接する点ペアのリストを返す（i < j を保証）。"""
+    ix, iy, *_ = build_grid(cx, cy)
+    grid_to_idx: dict[tuple[int, int], int] = {}
+    for k, (gx, gy) in enumerate(zip(ix, iy)):
+        grid_to_idx[(int(gx), int(gy))] = k
+
+    pairs: list[tuple[int, int]] = []
+    for k, (gx, gy) in enumerate(zip(ix, iy)):
+        for dgx, dgy in [(1, 0), (0, 1)]:   # 右・下
+            nb = grid_to_idx.get((int(gx) + dgx, int(gy) + dgy))
+            if nb is not None:
+                pairs.append((k, nb) if k < nb else (nb, k))
+    return pairs
+
+
+# ============================================================
+# オイラー角 → 回転行列
+# ============================================================
+
+def euler_to_rotmats(phi1_deg, PHI_deg, phi2_deg) -> np.ndarray:
+    """Bunge ZXZ オイラー角（degrees）→ 回転行列配列 (N, 3, 3)。"""
+    phi1 = np.radians(np.asarray(phi1_deg, float))
+    PHI  = np.radians(np.asarray(PHI_deg,  float))
+    phi2 = np.radians(np.asarray(phi2_deg, float))
+    c1, c, c2 = np.cos(phi1), np.cos(PHI), np.cos(phi2)
+    s1, s, s2 = np.sin(phi1), np.sin(PHI), np.sin(phi2)
+    N = len(phi1)
+    g = np.zeros((N, 3, 3))
+    g[:, 0, 0] =  c1*c2 - s1*s2*c;  g[:, 0, 1] =  s1*c2 + c1*s2*c;  g[:, 0, 2] = s2*s
+    g[:, 1, 0] = -c1*s2 - s1*c2*c;  g[:, 1, 1] = -s1*s2 + c1*c2*c;  g[:, 1, 2] = c2*s
+    g[:, 2, 0] =  s1*s;              g[:, 2, 1] = -c1*s;              g[:, 2, 2] = c
+    return g
+
+
+def _load_euler(mat: dict, stage: str, source: str) -> np.ndarray:
+    """オイラー角配列 (N, 3) を degrees で返す。
+
+    source : 'ref'   → phi1_ref / PHI_ref / phi2_ref（ステージ非依存）
+             'stage' → euler_phi1_sXXX / euler_phi_sXXX / euler_phi2_sXXX
+    """
+    if source == 'ref':
+        p1  = mat.get('phi1_ref',  mat.get('PHI_ref',  None))
+        PHI = mat.get('PHI_ref',   None)
+        p2  = mat.get('phi2_ref',  None)
+        # 変数名を正確に取得
+        p1  = mat['phi1_ref'].flatten()
+        PHI = mat['PHI_ref'].flatten()
+        p2  = mat['phi2_ref'].flatten()
+    else:
+        p1  = mat[f'euler_phi1_s{stage}'].flatten()
+        PHI = mat[f'euler_phi_s{stage}'].flatten()
+        p2  = mat[f'euler_phi2_s{stage}'].flatten()
+    return np.column_stack([np.degrees(p1), np.degrees(PHI), np.degrees(p2)])
+
+
+def disorientation_angles_batch(
+        pairs: np.ndarray,
+        rotmats: np.ndarray,
+        sym_ops: np.ndarray,
+) -> np.ndarray:
+    """隣接ペアのディスオリエンテーション角（degrees）を一括計算する。
+
+    Parameters
+    ----------
+    pairs   : (P, 2) int   各行が [i, j] の点インデックスペア
+    rotmats : (N, 3, 3)    各点の回転行列
+    sym_ops : (S, 3, 3)    対称操作行列群（点群）
+
+    Returns
+    -------
+    angles : (P,) float [degrees]  対称性を考慮した最小ミスオリエンテーション角
+    """
+    if len(pairs) == 0:
+        return np.array([])
+    pairs = np.asarray(pairs, int)
+    Ri = rotmats[pairs[:, 0]]                            # (P, 3, 3)
+    Rj = rotmats[pairs[:, 1]]                            # (P, 3, 3)
+    deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)        # Ri.T @ Rj  (P,3,3)
+    deltaR_T = deltaR.transpose(0, 2, 1)                 # (deltaR).T (P,3,3)
+
+    # 各対称操作を左から掛けてトレース（= 2cosθ + 1）の最大値を探す
+    sdR   = np.einsum('sij,pjk->spik', sym_ops, deltaR)    # (S,P,3,3)
+    sdR_T = np.einsum('sij,pjk->spik', sym_ops, deltaR_T)  # (S,P,3,3)
+
+    def _traces(arr):
+        return arr[:, :, 0, 0] + arr[:, :, 1, 1] + arr[:, :, 2, 2]  # (S,P)
+
+    all_traces = np.concatenate([_traces(sdR), _traces(sdR_T)], axis=0)  # (2S,P)
+    max_trace  = np.max(all_traces, axis=0)                              # (P,)
+    cos_half   = np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_half))
+
+
+# ============================================================
+# ペア → 描画・フィルタ用変換
+# ============================================================
+
+def pairs_to_distance_map(pairs, cx: np.ndarray, cy: np.ndarray) -> np.ndarray:
+    """境界ペアから各点の「粒界までの距離」配列（px, フラット）を計算する。
+    stats_analysis の距離フィルタに使用。
+    """
+    n = len(cx)
+    ix, iy, _, _, nx, ny = build_grid(cx, cy)
+
+    is_gb_grid = np.zeros((ny, nx), bool)
+    for i, j in pairs:
+        is_gb_grid[iy[i], ix[i]] = True
+        is_gb_grid[iy[j], ix[j]] = True
+
+    dist_grid = distance_transform_edt(~is_gb_grid)
+    return dist_grid[iy, ix].astype(float)
+
+
+def pairs_to_segments(
+        pairs,
+        cx: np.ndarray,
+        cy: np.ndarray,
+        x_draw=None,
+        y_draw=None,
+) -> list:
+    """境界ペアから線分リストを生成する（stress_strain_mapper の LineCollection 用）。
+
+    x_draw, y_draw を指定すると変形後座標で描画する。
+    """
+    cx = np.asarray(cx, float)
+    cy = np.asarray(cy, float)
+    xd = cx if x_draw is None else np.asarray(x_draw, float)
+    yd = cy if y_draw is None else np.asarray(y_draw, float)
+
+    ix, iy, step_x, step_y, *_ = build_grid(cx, cy)
+    dx, dy = step_x, step_y
+
+    segments = []
+    for i, j in pairs:
+        mx = (xd[i] + xd[j]) / 2
+        my = (yd[i] + yd[j]) / 2
+        if iy[i] == iy[j]:          # 水平隣接 → 垂直線分
+            segments.append([(mx, my - dy / 2), (mx, my + dy / 2)])
+        else:                        # 垂直隣接 → 水平線分
+            segments.append([(mx - dx / 2, my), (mx + dx / 2, my)])
+    return segments
+
+
+def pairs_to_segments_valued(
+        pairs,
+        pair_values: np.ndarray,
+        cx: np.ndarray,
+        cy: np.ndarray,
+        x_draw=None,
+        y_draw=None,
+) -> tuple[list, np.ndarray]:
+    """値付き境界ペアから (線分リスト, 値配列) を返す（m' カラー描画用）。
+
+    Returns
+    -------
+    segments   : list of [(x0,y0),(x1,y1)]
+    values     : np.ndarray shape (P,) — LineCollection の array= に渡す値
+    """
+    segs = pairs_to_segments(pairs, cx, cy, x_draw, y_draw)
+    return segs, np.asarray(pair_values, float)
+
+
+# ============================================================
+# 粒界定義基底クラス
+# ============================================================
+
+class GBDefinition:
+    """粒界定義の基底クラス。すべての定義はこれを継承する。"""
+
+    key:          str  = ""     # 内部識別キー
+    label:        str  = ""     # UIに表示する名前
+    has_settings: bool = False  # True → 「設定…」ボタンでダイアログを開く
+    default_params: dict = {}   # gb_settings_dialog に渡すデフォルト値
+
+    def compute_pairs(
+            self,
+            mat:           dict,
+            stage:         str,
+            phase_sym_map: dict,      # {phase_int: sym_ops (S,3,3)}
+            params:        dict,
+    ) -> list[tuple[int, int]]:
+        """境界ペアのリストを返す。
+
+        Parameters
+        ----------
+        mat           : matファイルの変数辞書
+        stage         : ステージ文字列（例: "750MPa"）
+        phase_sym_map : 相ごとの対称操作行列
+        params        : has_settings=True のとき gb_settings_dialog から渡される
+
+        Returns
+        -------
+        list of (i, j) — 境界が存在する隣接点ペア
+        """
+        raise NotImplementedError
+
+
+# ============================================================
+# 定義① grain_id が異なる境界（既存・後方互換）
+# ============================================================
+
+class GrainIDDef(GBDefinition):
+    key           = "grain_id"
+    label         = "grain_id — 隣接粒IDが異なる境界"
+    has_settings  = False
+    default_params = {}
+
+    def compute_pairs(self, mat, stage, phase_sym_map, params):
+        cx  = mat['cx'].flatten()
+        cy  = mat['cy'].flatten()
+        gid = mat['grain_id'].flatten()
+
+        boundary = []
+        for i, j in get_adjacent_pairs(cx, cy):
+            if gid[i] != gid[j]:
+                boundary.append((i, j))
+        return boundary
+
+
+# ============================================================
+# 定義② ミスオリエンテーション ≥ θ°
+# ============================================================
+
+class MisorientationDef(GBDefinition):
+    key          = "misorientation"
+    label        = "ミスオリエンテーション ≥ θ°"
+    has_settings = True
+    default_params = {
+        'theta_deg':       15.0,   # 閾値角度 [degrees]
+        'euler_source':   'ref',   # 'ref' or 'stage'
+        'same_phase_only': False,  # True → 同じ相間のみ評価
+    }
+
+    def compute_pairs(self, mat, stage, phase_sym_map, params):
+        theta        = float(params.get('theta_deg',       self.default_params['theta_deg']))
+        euler_source = str(params.get('euler_source',      self.default_params['euler_source']))
+        same_phase   = bool(params.get('same_phase_only',  self.default_params['same_phase_only']))
+
+        cx  = mat['cx'].flatten()
+        cy  = mat['cy'].flatten()
+        gid = mat['grain_id'].flatten()
+
+        # オイラー角取得
+        try:
+            eulers = _load_euler(mat, stage, euler_source)  # (N, 3) in degrees
+        except KeyError:
+            # ステージのオイラー角がなければ参照ステージにフォールバック
+            eulers = _load_euler(mat, stage, 'ref')
+
+        # 相情報（なければ全点を同一相として扱う）
+        phase_key = f'phase_index_s{stage}'
+        if phase_key in mat:
+            phase_arr = mat[phase_key].flatten().astype(int)
+        else:
+            phase_arr = np.zeros(len(cx), int)
+
+        # 有効点マスク（grain_id != -1 かつ全有限）
+        valid = (
+            (gid != -1)
+            & np.isfinite(eulers[:, 0])
+            & np.isfinite(eulers[:, 1])
+            & np.isfinite(eulers[:, 2])
+        )
+
+        # 全有効点の回転行列を一括計算
+        rotmats = np.full((len(cx), 3, 3), np.nan)
+        if np.any(valid):
+            rotmats[valid] = euler_to_rotmats(
+                eulers[valid, 0], eulers[valid, 1], eulers[valid, 2])
+
+        adj_pairs = get_adjacent_pairs(cx, cy)
+
+        # 相ごとに隣接ペアを分類して一括計算
+        # phase_sym_map に登録されていない相は cubic として扱う
+        fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
+
+        # (phase_i, phase_j) ごとにペアをグループ化
+        from collections import defaultdict
+        phase_pair_groups: dict[tuple, list] = defaultdict(list)
+        phase_pair_idx:    dict[tuple, list] = defaultdict(list)
+
+        boundary = []
+
+        for idx, (i, j) in enumerate(adj_pairs):
+            pi, pj = int(phase_arr[i]), int(phase_arr[j])
+
+            # 異相 → 常に境界（same_phase_only でなければ追加）
+            if pi != pj:
+                if not same_phase:
+                    boundary.append((i, j))
+                continue
+
+            # 非有効点はスキップ
+            if not (valid[i] and valid[j]):
+                continue
+
+            phase_pair_groups[(pi, pj)].append((i, j))
+            phase_pair_idx[(pi, pj)].append(idx)
+
+        for (ph, _), group in phase_pair_groups.items():
+            sym = phase_sym_map.get(ph, fallback_sym)
+            pairs_np = np.array(group, int)
+            angles = disorientation_angles_batch(pairs_np, rotmats, sym)
+            for k, angle in enumerate(angles):
+                if angle >= theta:
+                    boundary.append(group[k])
+
+        return boundary
+
+
+# ============================================================
+# 定義③ 特殊粒界（任意CSL・双晶）— 回転軸・角度で定義
+# ============================================================
+
+class SpecialBoundaryDef(GBDefinition):
+    key          = "special"
+    label        = "特殊粒界（任意 CSL / 双晶）"
+    has_settings = True
+    default_params = {
+        'axis_uvw':    [1, 1, 1],  # 回転軸 Miller 指数
+        'angle_deg':   60.0,       # 回転角 [degrees]
+        'axis_tol':    5.0,        # 軸 Tolerance [degrees]
+        'angle_tol':   5.0,        # 角度 Tolerance [degrees]
+        'euler_source': 'ref',
+        'same_phase_only': True,
+    }
+
+    def compute_pairs(self, mat, stage, phase_sym_map, params):
+        axis_uvw    = np.asarray(params.get('axis_uvw',   self.default_params['axis_uvw']),  float)
+        angle_tgt   = float(params.get('angle_deg',       self.default_params['angle_deg']))
+        ax_tol      = float(params.get('axis_tol',        self.default_params['axis_tol']))
+        ang_tol     = float(params.get('angle_tol',       self.default_params['angle_tol']))
+        euler_source = str(params.get('euler_source',     self.default_params['euler_source']))
+        same_phase  = bool(params.get('same_phase_only',  self.default_params['same_phase_only']))
+
+        # 回転軸を正規化
+        axis_ref = axis_uvw / np.linalg.norm(axis_uvw)
+
+        cx  = mat['cx'].flatten()
+        cy  = mat['cy'].flatten()
+        gid = mat['grain_id'].flatten()
+
+        try:
+            eulers = _load_euler(mat, stage, euler_source)
+        except KeyError:
+            eulers = _load_euler(mat, stage, 'ref')
+
+        phase_key = f'phase_index_s{stage}'
+        phase_arr = mat[phase_key].flatten().astype(int) if phase_key in mat else np.zeros(len(cx), int)
+
+        valid = (
+            (gid != -1)
+            & np.isfinite(eulers[:, 0])
+            & np.isfinite(eulers[:, 1])
+            & np.isfinite(eulers[:, 2])
+        )
+        rotmats = np.full((len(cx), 3, 3), np.nan)
+        if np.any(valid):
+            rotmats[valid] = euler_to_rotmats(
+                eulers[valid, 0], eulers[valid, 1], eulers[valid, 2])
+
+        adj_pairs = get_adjacent_pairs(cx, cy)
+        fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
+
+        boundary = []
+        for i, j in adj_pairs:
+            pi, pj = int(phase_arr[i]), int(phase_arr[j])
+            if pi != pj:
+                if not same_phase:
+                    boundary.append((i, j))
+                continue
+            if not (valid[i] and valid[j]):
+                continue
+
+            sym = phase_sym_map.get(pi, fallback_sym)
+            Ri = rotmats[i:i+1]
+            Rj = rotmats[j:j+1]
+            deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)[0]   # (3,3)
+            deltaR_T = deltaR.T
+
+            # 全対称操作を試してターゲットに最も近い軸・角度を探す
+            matched = False
+            for dR in [deltaR, deltaR_T]:
+                for s in sym:
+                    sdR = s @ dR
+                    tr  = np.clip((sdR[0, 0] + sdR[1, 1] + sdR[2, 2] - 1.0) / 2.0, -1.0, 1.0)
+                    angle = np.degrees(np.arccos(tr))
+                    if abs(angle - angle_tgt) > ang_tol:
+                        continue
+                    # 回転軸を抽出（Rodrigues 公式）
+                    if abs(angle) < 1e-6:
+                        continue
+                    sin_a = np.sin(np.radians(angle))
+                    axis  = np.array([
+                        sdR[2, 1] - sdR[1, 2],
+                        sdR[0, 2] - sdR[2, 0],
+                        sdR[1, 0] - sdR[0, 1],
+                    ]) / (2.0 * sin_a)
+                    axis /= np.linalg.norm(axis) + 1e-12
+                    # 軸の符号は任意なので絶対値で比較
+                    ax_angle = np.degrees(np.arccos(
+                        np.clip(abs(np.dot(axis, axis_ref)), 0.0, 1.0)))
+                    if ax_angle <= ax_tol:
+                        matched = True
+                        break
+                if matched:
+                    break
+            if matched:
+                boundary.append((i, j))
+
+        return boundary
+
+
+# ============================================================
+# 定義④ Luster-Morris m'（スタブ — 将来実装）
+# ============================================================
+
+class MPrimeDef(GBDefinition):
+    key          = "m_prime"
+    label        = "Luster-Morris m'（準備中）"
+    has_settings = True
+    default_params = {
+        'threshold':    0.5,
+        'loading_mode': 'single',    # 'single' or 'local_stress'
+        'load_x':  0.0,
+        'load_y':  1.0,
+        'load_z':  0.0,
+        'euler_source': 'ref',
+    }
+
+    def compute_pairs(self, mat, stage, phase_sym_map, params):
+        # TODO: 実装予定
+        raise NotImplementedError(
+            "Luster-Morris m' はまだ実装されていません。"
+            "将来のバージョンで追加予定です。"
+        )
+
+
+# ============================================================
+# 全定義リスト（UIのドロップダウン順）
+# ============================================================
+
+ALL_DEFINITIONS: list[GBDefinition] = [
+    GrainIDDef(),
+    MisorientationDef(),
+    SpecialBoundaryDef(),
+    MPrimeDef(),
+]
+
+# key → 定義オブジェクトのマッピング
+DEFINITION_MAP: dict[str, GBDefinition] = {d.key: d for d in ALL_DEFINITIONS}
+
+
+def get_definition(key: str) -> GBDefinition:
+    """キーから定義オブジェクトを取得する。"""
+    if key not in DEFINITION_MAP:
+        raise KeyError(f"未知の粒界定義キー: {key!r}. 使用可能: {list(DEFINITION_MAP)}")
+    return DEFINITION_MAP[key]
+
+
+def build_phase_sym_map(phase_sym_names: dict) -> dict:
+    """phase_index → sym_name の辞書から phase_index → sym_ops の辞書を生成する。
+
+    Parameters
+    ----------
+    phase_sym_names : {phase_int: sym_name_str}
+        例: {0: "Cubic", 1: "Hexagonal"}
+
+    Returns
+    -------
+    {phase_int: np.ndarray (S,3,3)}
+    """
+    return {ph: get_sym_ops(name) for ph, name in phase_sym_names.items()}

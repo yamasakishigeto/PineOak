@@ -27,6 +27,12 @@ matplotlib.use("QtAgg")
 import matplotlib.pyplot as _plt
 import numpy as np
 from scipy.ndimage import distance_transform_edt
+from gb_definitions import (
+    ALL_DEFINITIONS, DEFINITION_MAP, SYM_GROUPS,
+    get_definition, build_phase_sym_map,
+    pairs_to_distance_map,
+)
+from gb_settings_dialog import GBSettingsDialog
 from matplotlib.backends.backend_qtagg import (
     FigureCanvasQTAgg as FigureCanvasQtAgg,
     NavigationToolbar2QT,
@@ -71,12 +77,6 @@ _QUALITY_FILTERS = [
     ("MAE (rmap)",    "rmap_mae",          "≤",   0.0, 9999.0, 0.01,  3, 9999.0),
 ]
 
-# 粒界定義一覧 (label, key)。新しい定義を追加するには：
-#   1. ここにエントリを追加する
-#   2. _compute_gb_dist() に対応する elif ブランチを実装する
-_GB_DEFINITIONS = [
-    ("grain_id — 隣接粒IDが異なる境界", "grain_id"),
-]
 
 
 # ============================================================
@@ -388,17 +388,31 @@ class StatsWindow(QMainWindow):
         gb_en = QCheckBox("粒界近傍フィルタ")
         gl.addWidget(gb_en)
 
+        # 定義ドロップダウン ＋ 設定ボタン
         def_row = QHBoxLayout()
         def_lbl = QLabel("定義:")
         def_lbl.setFixedWidth(32)
         gb_def = QComboBox()
-        for label, _ in _GB_DEFINITIONS:
-            gb_def.addItem(label)
+        for defn in ALL_DEFINITIONS:
+            gb_def.addItem(defn.label, defn.key)
         gb_def.setEnabled(False)
+
+        gb_settings_btn = QPushButton("設定…")
+        gb_settings_btn.setFixedWidth(52)
+        gb_settings_btn.setEnabled(False)
+        # has_settings=False の定義ではボタンを無効化
+        def _update_settings_btn(idx, _btn=gb_settings_btn, _cb=gb_def, _en=gb_en):
+            key = _cb.currentData()
+            defn = DEFINITION_MAP.get(key)
+            _btn.setEnabled(_en.isChecked() and bool(defn and defn.has_settings))
+        gb_def.currentIndexChanged.connect(_update_settings_btn)
+
         def_row.addWidget(def_lbl)
         def_row.addWidget(gb_def, 1)
+        def_row.addWidget(gb_settings_btn)
         gl.addLayout(def_row)
 
+        # 距離フィルタ行
         dist_row = QHBoxLayout()
         gb_op = QComboBox()
         gb_op.addItems(["≦ (近傍)", "≧ (粒内部)"])
@@ -414,18 +428,48 @@ class StatsWindow(QMainWindow):
         dist_row.addStretch()
         gl.addLayout(dist_row)
 
-        gb_en.toggled.connect(gb_def.setEnabled)
-        gb_en.toggled.connect(gb_op.setEnabled)
-        gb_en.toggled.connect(gb_dist.setEnabled)
+        # 粒界定義ごとのパラメータ保存辞書（key → params dict）
+        gb_params_store: dict = {}
+
+        # gb_en トグル時の有効化制御
+        def _on_gb_en_toggled(checked, _def=gb_def, _op=gb_op, _dist=gb_dist,
+                               _btn=gb_settings_btn):
+            _def.setEnabled(checked)
+            _op.setEnabled(checked)
+            _dist.setEnabled(checked)
+            key = _def.currentData()
+            defn = DEFINITION_MAP.get(key)
+            _btn.setEnabled(checked and bool(defn and defn.has_settings))
+        gb_en.toggled.connect(_on_gb_en_toggled)
+
+        # 定義変更時にキャッシュをクリア
+        def _on_gb_def_changed(_idx, _store=gb_params_store):
+            self._gb_dist_cache.clear()
+            _update_settings_btn(_idx)
+        gb_def.currentIndexChanged.connect(_on_gb_def_changed)
+
+        # 設定ボタン → GBSettingsDialog
+        def _open_gb_settings(_checked=False, _def=gb_def, _store=gb_params_store):
+            key = _def.currentData()
+            defn = DEFINITION_MAP.get(key)
+            if defn is None or not defn.has_settings:
+                return
+            current = _store.get(key, {})
+            dlg = GBSettingsDialog(key, current, parent=self)
+            if dlg.exec():
+                _store[key] = dlg.get_params()
+                self._gb_dist_cache.clear()
+        gb_settings_btn.clicked.connect(_open_gb_settings)
 
         # ウィジェットをインスタンス属性として保持
-        setattr(self, f"_{prefix}_rf_phase_en",      phase_en)
-        setattr(self, f"_{prefix}_rf_phase_cb_area", phase_cb_area)
-        setattr(self, f"_{prefix}_rf_phase_cbs",     [])   # (phase_val, QCheckBox) のリスト
-        setattr(self, f"_{prefix}_rf_gb_en",         gb_en)
-        setattr(self, f"_{prefix}_rf_gb_def",      gb_def)
-        setattr(self, f"_{prefix}_rf_gb_op",       gb_op)
-        setattr(self, f"_{prefix}_rf_gb_dist",     gb_dist)
+        setattr(self, f"_{prefix}_rf_phase_en",       phase_en)
+        setattr(self, f"_{prefix}_rf_phase_cb_area",  phase_cb_area)
+        setattr(self, f"_{prefix}_rf_phase_cbs",      [])   # (phase_val, QCheckBox) のリスト
+        setattr(self, f"_{prefix}_rf_gb_en",          gb_en)
+        setattr(self, f"_{prefix}_rf_gb_def",         gb_def)
+        setattr(self, f"_{prefix}_rf_gb_op",          gb_op)
+        setattr(self, f"_{prefix}_rf_gb_dist",        gb_dist)
+        setattr(self, f"_{prefix}_rf_gb_params_store", gb_params_store)
         return grp
 
     def _build_quality_filter_group(self, prefix: str) -> QGroupBox:
@@ -654,12 +698,29 @@ class StatsWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
 
-            cbs = []
+            cbs = []   # (phase_int, QCheckBox, QComboBox[sym])
+            sym_keys = list(SYM_GROUPS.keys())
             for ph in sorted(phase_vals):
+                row_w = QWidget()
+                row_h = QHBoxLayout(row_w)
+                row_h.setContentsMargins(0, 0, 0, 0)
+                row_h.setSpacing(4)
+
                 cb = QCheckBox(f"phase {ph}")
                 cb.setChecked(True)      # デフォルト全チェック
-                layout.addWidget(cb)
-                cbs.append((ph, cb))
+                row_h.addWidget(cb)
+
+                sym_combo = QComboBox()
+                sym_combo.addItems(sym_keys)
+                # デフォルト: Cubic (SYM_GROUPS のキーは先頭大文字)
+                default_sym = "Cubic" if "Cubic" in sym_keys else sym_keys[0]
+                sym_combo.setCurrentText(default_sym)
+                sym_combo.setFixedWidth(90)
+                row_h.addWidget(sym_combo)
+                row_h.addStretch()
+
+                layout.addWidget(row_w)
+                cbs.append((ph, cb, sym_combo))
             setattr(self, f"_{p}_rf_phase_cbs", cbs)
 
             getattr(self, f"_{p}_rf_phase_en").setEnabled(has_phase)
@@ -667,59 +728,34 @@ class StatsWindow(QMainWindow):
             # 粒界フィルタの有効化
             getattr(self, f"_{p}_rf_gb_en").setEnabled(has_gb)
 
-    def _compute_gb_dist(self, definition: str) -> np.ndarray:
+    def _compute_gb_dist(self, def_key: str, params: dict,
+                          stage: str, phase_sym_map: dict) -> np.ndarray:
         """粒界からの距離マップを計算してキャッシュする（フラット配列, px）。
 
-        新しい粒界定義を追加するには _GB_DEFINITIONS にエントリを追加し、
-        ここに elif ブランチを実装する。
+        def_key       : DEFINITION_MAP のキー
+        params        : 定義ごとのパラメータ辞書
+        stage         : ステージ文字列（"0MPa" など）
+        phase_sym_map : {phase_int: sym_ops ndarray}
         """
-        if definition in self._gb_dist_cache:
-            return self._gb_dist_cache[definition]
+        # キャッシュキー: 定義キー + パラメータの文字列化
+        import hashlib, json
+        params_hash = hashlib.md5(
+            json.dumps(params, sort_keys=True, default=str).encode()
+        ).hexdigest()[:8]
+        cache_key = f"{def_key}_{stage}_{params_hash}"
 
-        if definition == "grain_id":
-            cx  = self._mat["cx"].flatten()
-            cy  = self._mat["cy"].flatten()
-            gid = self._mat["grain_id"].flatten()
+        if cache_key in self._gb_dist_cache:
+            return self._gb_dist_cache[cache_key]
 
-            xs = np.unique(cx);  ys = np.unique(cy)
-            step_x = float(np.min(np.diff(np.sort(xs)))) if len(xs) > 1 else 1.0
-            step_y = float(np.min(np.diff(np.sort(ys)))) if len(ys) > 1 else 1.0
-            nx = len(xs);  ny = len(ys)
+        defn = DEFINITION_MAP[def_key]
+        pairs = defn.compute_pairs(self._mat, stage, phase_sym_map, params)
+        dist_flat = pairs_to_distance_map(
+            pairs,
+            self._mat["cx"].flatten(),
+            self._mat["cy"].flatten(),
+        )
 
-            ix = np.round((cx - xs.min()) / step_x).astype(int)
-            iy = np.round((cy - ys.min()) / step_y).astype(int)
-
-            # グリッド再構築 (-2 = データなし)
-            gid_grid = np.full((ny, nx), -2.0)
-            gid_grid[iy, ix] = gid
-
-            # 粒界点: 水平/垂直方向の隣接画素でgrain_idが異なる点
-            is_gb = np.zeros((ny, nx), bool)
-            for axis, sl_a, sl_b in [
-                (None, (slice(None), slice(None, -1)), (slice(None), slice(1, None))),
-                (None, (slice(None, -1), slice(None)), (slice(1, None), slice(None))),
-            ]:
-                g_a = gid_grid[sl_a];  g_b = gid_grid[sl_b]
-                valid = (g_a != -2) & (g_b != -2)
-                diff  = valid & (g_a != g_b)
-                is_gb[sl_a] |= diff
-                is_gb[sl_b] |= diff
-
-            # grain_id == -1 (非indexing点) も粒界扱い
-            is_gb |= (gid_grid == -1)
-
-            # 距離変換: 各点から最近傍の粒界点までの距離（粒界点自身 = 0）
-            dist_grid = distance_transform_edt(~is_gb)
-            dist_flat = dist_grid[iy, ix]
-
-        # ── 将来の定義はここに elif で追加 ──────────────────────────
-        # elif definition == "misorientation":
-        #     ...
-        # ────────────────────────────────────────────────────────────
-        else:
-            raise ValueError(f"未対応の粒界定義: {definition}")
-
-        self._gb_dist_cache[definition] = dist_flat
+        self._gb_dist_cache[cache_key] = dist_flat
         return dist_flat
 
     def _get_region_mask(self, stage: str, prefix: str) -> np.ndarray:
@@ -727,10 +763,12 @@ class StatsWindow(QMainWindow):
         n    = next(iter(self._mat.values())).size
         mask = np.ones(n, dtype=bool)
 
+        # cbs は (phase_int, QCheckBox, QComboBox[sym]) のリスト
+        cbs: list = getattr(self, f"_{prefix}_rf_phase_cbs")
+
         # ---- 相フィルタ ----
         if getattr(self, f"_{prefix}_rf_phase_en").isChecked():
-            cbs: list = getattr(self, f"_{prefix}_rf_phase_cbs")
-            selected = {ph for ph, cb in cbs if cb.isChecked()}
+            selected = {ph for ph, cb, _sym in cbs if cb.isChecked()}
             if selected:
                 key = f"phase_index_s{stage}"
                 if key in self._mat:
@@ -742,13 +780,25 @@ class StatsWindow(QMainWindow):
 
         # ---- 粒界近傍フィルタ ----
         if getattr(self, f"_{prefix}_rf_gb_en").isChecked():
-            gb_def  = getattr(self, f"_{prefix}_rf_gb_def")
-            gb_op   = getattr(self, f"_{prefix}_rf_gb_op")
-            gb_dist = getattr(self, f"_{prefix}_rf_gb_dist")
+            gb_def_cb    = getattr(self, f"_{prefix}_rf_gb_def")
+            gb_op        = getattr(self, f"_{prefix}_rf_gb_op")
+            gb_dist      = getattr(self, f"_{prefix}_rf_gb_dist")
+            params_store = getattr(self, f"_{prefix}_rf_gb_params_store")
 
-            def_key   = _GB_DEFINITIONS[gb_def.currentIndex()][1]
+            def_key = gb_def_cb.currentData()
+            defn    = DEFINITION_MAP.get(def_key)
+            if defn is None:
+                return mask
+
+            # 定義のデフォルトパラメータに保存済みパラメータを上書きマージ
+            params = {**defn.default_params, **params_store.get(def_key, {})}
+
+            # 相ごとの対称操作マップを構築（各相の対称性コンボから取得）
+            phase_sym_names = {ph: sym_combo.currentText() for ph, _cb, sym_combo in cbs}
+            phase_sym_map   = build_phase_sym_map(phase_sym_names)
+
             threshold = gb_dist.value()
-            dist      = self._compute_gb_dist(def_key)
+            dist      = self._compute_gb_dist(def_key, params, stage, phase_sym_map)
 
             if gb_op.currentIndex() == 0:   # ≦ (近傍)
                 mask &= dist <= threshold
