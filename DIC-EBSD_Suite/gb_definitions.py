@@ -375,7 +375,7 @@ class MisorientationDef(GBDefinition):
 
 
 # ============================================================
-# 定義③ 特殊粒界（任意CSL・双晶）— 回転軸・角度で定義
+# 定義③ 特殊粒界（任意CSL・双晶）— 将来実装予定（現在無効）
 # ============================================================
 
 class SpecialBoundaryDef(GBDefinition):
@@ -580,8 +580,6 @@ class MPrimeDef(GBDefinition):
 ALL_DEFINITIONS: list[GBDefinition] = [
     GrainIDDef(),
     MisorientationDef(),
-    SpecialBoundaryDef(),
-    MPrimeDef(),
 ]
 
 # key → 定義オブジェクトのマッピング
