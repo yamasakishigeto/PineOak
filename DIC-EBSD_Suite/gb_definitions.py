@@ -390,7 +390,7 @@ class SpecialBoundaryDef(GBDefinition):
         'same_phase_only': True,
     }
 
-    # チャンクサイズ: メモリ使用量を ~40 MB 程度に抑える
+    # チャンクサイズ: メモリ使用量を ~70 MB 程度に抑える
     _CHUNK = 2000
 
     def compute_pairs(self, mat, stage, phase_sym_map, params):
@@ -454,73 +454,89 @@ class SpecialBoundaryDef(GBDefinition):
         return boundary
 
     @staticmethod
+    def _axis_angle_to_rotmat(axis: np.ndarray, angle_deg: float) -> np.ndarray:
+        """回転軸（正規化済み）と回転角（degrees）から回転行列を生成する（Rodriguez公式）。"""
+        a = np.radians(angle_deg)
+        c, s = np.cos(a), np.sin(a)
+        t    = 1.0 - c
+        x, y, z = axis
+        return np.array([
+            [t*x*x + c,   t*x*y - s*z, t*x*z + s*y],
+            [t*x*y + s*z, t*y*y + c,   t*y*z - s*x],
+            [t*x*z - s*y, t*y*z + s*x, t*z*z + c  ],
+        ], dtype=float)
+
+    @staticmethod
     def _check_special_vectorized(group, rotmats, sym, axis_ref,
                                   angle_tgt, ang_tol, ax_tol):
-        """特殊粒界判定をベクトル化して実行する。
+        """特殊粒界判定: 両側対称操作を使いベクトル化して実行する。
+
+        正しい判定式: ∃ si, sj ∈ G: si @ M @ sj ≈ target_R
+          ⟺ max_{si,sj} tr(si @ M @ sj @ target_R^T) ≥ thresh
+
+        左側のみ (si @ M) ではΣ3等で粒界が検出漏れするため
+        両側対称操作が必須。
 
         Parameters
         ----------
-        group   : list of (i, j)  判定対象ペアリスト
-        rotmats : (N, 3, 3)       全点の回転行列
-        sym     : (S, 3, 3)       対称操作
-        axis_ref: (3,)            ターゲット回転軸（正規化済み）
-        angle_tgt, ang_tol, ax_tol : float  角度・軸トレランス [degrees]
+        group   : list of (i, j)
+        rotmats : (N, 3, 3)
+        sym     : (S, 3, 3)   対称操作群
+        axis_ref: (3,)         ターゲット回転軸（正規化済み）
+        angle_tgt, ang_tol, ax_tol : float [degrees]
 
         Returns
         -------
-        matched : list of bool  group と同長
+        matched : list of bool
         """
         CHUNK = SpecialBoundaryDef._CHUNK
+        S     = len(sym)
+
+        target_R = SpecialBoundaryDef._axis_angle_to_rotmat(axis_ref, angle_tgt)  # (3,3)
+
+        # 許容トレース閾値
+        # tr(R) = 1 + 2cos(θ) なので θ = combined_tol のとき threshold を計算
+        # combined_tol: 角度偏差 ang_tol と軸偏差による回転距離 ax_tol*sin(angle_tgt/2)*2 の二乗和
+        combined_tol_rad = np.sqrt(
+            np.radians(ang_tol)**2
+            + (2.0 * np.sin(np.radians(angle_tgt) / 2.0) * np.radians(ax_tol))**2
+        )
+        thresh = 1.0 + 2.0 * np.cos(combined_tol_rad)
+
+        # sym[t]^T をフラット化: tr(A @ sym[t]) = <A_flat, sym[t]^T_flat>
+        sym_T_flat = sym.transpose(0, 2, 1).reshape(S, 9)  # (S, 9)
+
         matched_all = []
 
         for start in range(0, len(group), CHUNK):
             chunk = group[start:start + CHUNK]
-            arr   = np.array(chunk, int)           # (C, 2)
-            Ri    = rotmats[arr[:, 0]]             # (C, 3, 3)
-            Rj    = rotmats[arr[:, 1]]             # (C, 3, 3)
+            C     = len(chunk)
+            arr   = np.array(chunk, int)
+            Ri    = rotmats[arr[:, 0]]   # (C, 3, 3)
+            Rj    = rotmats[arr[:, 1]]
 
-            deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)       # Ri.T @ Rj  (C,3,3)
-            deltaR_T = deltaR.transpose(0, 2, 1)                 # (C,3,3)
+            # M = Ri^T @ Rj  (C, 3, 3)
+            M = np.einsum('pji,pjk->pik', Ri, Rj)
 
-            # 対称操作を左から適用: (S,C,3,3) × 2
-            sdR   = np.einsum('sij,pjk->spik', sym, deltaR)
-            sdR_T = np.einsum('sij,pjk->spik', sym, deltaR_T)
-            all_dR = np.concatenate([sdR, sdR_T], axis=0)       # (2S,C,3,3)
+            # M^T も同時にチェック（i/j 割り当て曖昧さへの対処）
+            M_both = np.concatenate([M, M.transpose(0, 2, 1)], axis=0)  # (2C, 3, 3)
 
-            # トレース → 角度 (2S,C)
-            traces    = all_dR[:,:,0,0] + all_dR[:,:,1,1] + all_dR[:,:,2,2]
-            cos_t     = np.clip((traces - 1.0) / 2.0, -1.0, 1.0)
-            angles_sc = np.degrees(np.arccos(cos_t))            # (2S,C)
+            # P_p = M_p @ target_R^T: (2C, 3, 3)
+            P = np.einsum('pij,jk->pik', M_both, target_R.T)
 
-            # 角度フィルタ
-            angle_ok = np.abs(angles_sc - angle_tgt) <= ang_tol  # (2S,C)
-            sin_ok   = np.abs(np.sin(np.radians(angles_sc))) > 1e-6
-            check    = angle_ok & sin_ok                          # (2S,C)
+            # Q_{s,p} = sym[s]^T @ P_p: (S, 2C, 3, 3)
+            Q = np.einsum('sji,pjk->spik', sym, P)
 
-            if not np.any(check):
-                matched_all.extend([False] * len(chunk))
-                continue
+            # tr(Q_{s,p} @ sym[t]) = <Q_flat[s,p], sym[t]^T_flat>
+            # cross_{s,p,t}: (S, 2C, S)
+            Q_flat = Q.reshape(S, 2 * C, 9)
+            cross  = np.einsum('scn,tn->sct', Q_flat, sym_T_flat)
 
-            # Rodrigues 公式で回転軸抽出 (2S,C,3)
-            ax = np.stack([
-                all_dR[:,:,2,1] - all_dR[:,:,1,2],
-                all_dR[:,:,0,2] - all_dR[:,:,2,0],
-                all_dR[:,:,1,0] - all_dR[:,:,0,1],
-            ], axis=-1)
+            # ペアごとに (si, sj) の全組合せ中の最大トレースを取得: (2C,)
+            max_tr = np.max(cross, axis=(0, 2))
 
-            sin_t  = np.sin(np.radians(angles_sc))              # (2S,C)
-            denom  = np.where(sin_ok, 2.0 * sin_t, 1.0)        # (2S,C) safe denominator
-            ax_n   = ax / denom[:, :, None]                     # (2S,C,3)
-            norms  = np.linalg.norm(ax_n, axis=-1, keepdims=True) + 1e-12
-            ax_u   = ax_n / norms                               # (2S,C,3) 正規化済み
-
-            # ターゲット軸との角度（軸の符号は任意なので abs）
-            dot    = np.clip(np.abs(np.einsum('scx,x->sc', ax_u, axis_ref)), 0.0, 1.0)
-            ax_ok  = np.degrees(np.arccos(dot)) <= ax_tol       # (2S,C)
-
-            # ペアごとに「いずれかの対称等価で両条件を満たすか」
-            both       = check & ax_ok                           # (2S,C)
-            pair_match = np.any(both, axis=0)                    # (C,)
+            # M と M^T の結果を合算: (C,)
+            pair_match = np.maximum(max_tr[:C], max_tr[C:]) >= thresh
             matched_all.extend(pair_match.tolist())
 
         return matched_all
