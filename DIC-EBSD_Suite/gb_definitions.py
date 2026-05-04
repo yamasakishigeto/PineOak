@@ -91,7 +91,10 @@ def euler_to_rotmats(phi1_deg, PHI_deg, phi2_deg) -> np.ndarray:
 
 
 def _load_euler(mat: dict, stage: str, source: str) -> np.ndarray:
-    """オイラー角配列 (N, 3) を degrees で返す（入力は radians）。
+    """オイラー角配列 (N, 3) を degrees で返す。
+
+    matファイルはCrossCourtの慣例に従いEuler角を degrees で格納している。
+    compute_schmid_factor 内で np.radians() が呼ばれていることで確認済み。
 
     source : 'ref'   → phi1_ref / PHI_ref / phi2_ref を優先、
                         なければ euler_phi1 / euler_phi / euler_phi2 にフォールバック
@@ -100,7 +103,7 @@ def _load_euler(mat: dict, stage: str, source: str) -> np.ndarray:
     def _get(keys):
         for k in keys:
             if k in mat:
-                return mat[k].flatten()
+                return mat[k].flatten().astype(float)
         raise KeyError(f"オイラー角変数が見つかりません: {keys}")
 
     if source == 'ref':
@@ -111,7 +114,8 @@ def _load_euler(mat: dict, stage: str, source: str) -> np.ndarray:
         p1  = _get([f'euler_phi1_s{stage}'])
         PHI = _get([f'euler_phi_s{stage}'])
         p2  = _get([f'euler_phi2_s{stage}'])
-    return np.column_stack([np.degrees(p1), np.degrees(PHI), np.degrees(p2)])
+    # matはすでにdegrees → np.degrees()は不要（radians→degreesの誤変換を防ぐ）
+    return np.column_stack([p1, PHI, p2])
 
 
 def disorientation_angles_batch(
