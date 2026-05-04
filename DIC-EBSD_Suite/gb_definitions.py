@@ -91,23 +91,26 @@ def euler_to_rotmats(phi1_deg, PHI_deg, phi2_deg) -> np.ndarray:
 
 
 def _load_euler(mat: dict, stage: str, source: str) -> np.ndarray:
-    """オイラー角配列 (N, 3) を degrees で返す。
+    """オイラー角配列 (N, 3) を degrees で返す（入力は radians）。
 
-    source : 'ref'   → phi1_ref / PHI_ref / phi2_ref（ステージ非依存）
+    source : 'ref'   → phi1_ref / PHI_ref / phi2_ref を優先、
+                        なければ euler_phi1 / euler_phi / euler_phi2 にフォールバック
              'stage' → euler_phi1_sXXX / euler_phi_sXXX / euler_phi2_sXXX
     """
+    def _get(keys):
+        for k in keys:
+            if k in mat:
+                return mat[k].flatten()
+        raise KeyError(f"オイラー角変数が見つかりません: {keys}")
+
     if source == 'ref':
-        p1  = mat.get('phi1_ref',  mat.get('PHI_ref',  None))
-        PHI = mat.get('PHI_ref',   None)
-        p2  = mat.get('phi2_ref',  None)
-        # 変数名を正確に取得
-        p1  = mat['phi1_ref'].flatten()
-        PHI = mat['PHI_ref'].flatten()
-        p2  = mat['phi2_ref'].flatten()
+        p1  = _get(['phi1_ref', 'euler_phi1'])
+        PHI = _get(['PHI_ref',  'euler_phi'])
+        p2  = _get(['phi2_ref', 'euler_phi2'])
     else:
-        p1  = mat[f'euler_phi1_s{stage}'].flatten()
-        PHI = mat[f'euler_phi_s{stage}'].flatten()
-        p2  = mat[f'euler_phi2_s{stage}'].flatten()
+        p1  = _get([f'euler_phi1_s{stage}'])
+        PHI = _get([f'euler_phi_s{stage}'])
+        p2  = _get([f'euler_phi2_s{stage}'])
     return np.column_stack([np.degrees(p1), np.degrees(PHI), np.degrees(p2)])
 
 

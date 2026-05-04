@@ -225,7 +225,12 @@ class StressStrainMapperApp(QMainWindow):
         for base, stg_dict in self.per_stage.items():
             for stg, arr in stg_dict.items():
                 self._mat_flat[f"{base}_s{stg}"] = arr
-        self._gb_seg_cache: dict = {}  # (def_key, params_hash, stage) -> segments
+        # _load_base_arrays で解決済みのオイラー角を正規化キーで注入
+        # （matファイルの変数名が euler_phi1 等でも gb_definitions._load_euler が確実に見つけられるよう）
+        self._mat_flat['phi1_ref'] = self.phi1_deg
+        self._mat_flat['PHI_ref']  = self.PHI_deg
+        self._mat_flat['phi2_ref'] = self.phi2_deg
+        self._gb_seg_cache: dict = {}  # (def_key, params_hash, stage) -> pairs
 
     # ----------------------------------------------------------
     # UI 構築（2×2 グリッド）
@@ -2072,7 +2077,10 @@ class StressStrainMapperApp(QMainWindow):
             try:
                 self._gb_seg_cache[cache_key] = defn.compute_pairs(
                     self._mat_flat, stage, phase_sym_map, params)
-            except Exception:
+            except Exception as e:
+                import traceback
+                print(f"[GB] compute_pairs エラー ({def_key}, {stage}): {e}")
+                traceback.print_exc()
                 self._gb_seg_cache[cache_key] = []
 
         pairs = self._gb_seg_cache[cache_key]
