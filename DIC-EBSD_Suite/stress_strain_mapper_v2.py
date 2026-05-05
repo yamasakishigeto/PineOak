@@ -919,8 +919,10 @@ class StressStrainMapperApp(QMainWindow):
                 self._draw_sf_stage()
             elif mode == 'rss':
                 self._draw_rss_stage()
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            print(f"[redraw] エラー (mode={mode}): {e}")
+            traceback.print_exc()
 
     def _draw_map_current(self):
         base = self._map_var_cb.currentText()
@@ -2102,8 +2104,10 @@ class StressStrainMapperApp(QMainWindow):
 
         if cache_key not in self._gb_seg_cache:
             try:
-                self._gb_seg_cache[cache_key] = defn.compute_pairs(
+                result_pairs = defn.compute_pairs(
                     self._mat_flat, stage, phase_sym_map, params)
+                print(f"[GB] {def_key} ({stage}): {len(result_pairs)} pairs found")
+                self._gb_seg_cache[cache_key] = result_pairs
             except Exception as e:
                 import traceback
                 print(f"[GB] compute_pairs エラー ({def_key}, {stage}): {e}")
@@ -2111,7 +2115,15 @@ class StressStrainMapperApp(QMainWindow):
                 self._gb_seg_cache[cache_key] = []
 
         pairs = self._gb_seg_cache[cache_key]
-        return pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
+        try:
+            segs = pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
+            print(f"[GB] {def_key}: {len(segs)} segments generated")
+            return segs
+        except Exception as e:
+            import traceback
+            print(f"[GB] pairs_to_segments エラー ({def_key}): {e}")
+            traceback.print_exc()
+            return []
 
     def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):
         self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
