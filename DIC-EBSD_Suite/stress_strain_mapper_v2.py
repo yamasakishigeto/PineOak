@@ -2081,6 +2081,9 @@ class StressStrainMapperApp(QMainWindow):
         stage   : ステージ文字列（"0MPa" など）。None の場合は先頭ステージを使用。
         x_draw, y_draw : 描画用座標フィルタ（None = 全点）
         """
+        # UI 構築中（_map_gb_sym_cb がまだ存在しない）は安全に抜ける
+        if not hasattr(self, '_map_gb_sym_cb'):
+            return []
         import hashlib, json as _json
         if not len(self.cx):
             return []
