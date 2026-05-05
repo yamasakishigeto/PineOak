@@ -690,6 +690,8 @@ class MPrimeDef(GBDefinition):
             pi, pj = int(phase_arr[i]), int(phase_arr[j])
             if pi != pj or not (valid[i] and valid[j]):
                 continue
+            if gid[i] == gid[j]:   # 同一粒内はスキップ（m'は粒界専用）
+                continue
             phase_pair_groups[pi].append((i, j))
 
         boundary_pairs: list[tuple[int, int]] = []
