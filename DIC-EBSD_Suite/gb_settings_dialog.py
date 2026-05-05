@@ -93,8 +93,8 @@ class GBSettingsDialog(QDialog):
         self._mp_threshold.setRange(0.0, 1.0)
         self._mp_threshold.setSingleStep(0.05)
         self._mp_threshold.setDecimals(2)
-        self._mp_threshold.setValue(float(self._params.get('threshold', 0.8)))
-        fl.addRow("m' 閾値（≤ threshold → 境界）\n※FCC: min≈0.72、0.80=最困難4%、0.90=約半数:", self._mp_threshold)
+        self._mp_threshold.setValue(float(self._params.get('threshold', 0.3)))
+        fl.addRow("m' 閾値（≤ threshold → 境界）:", self._mp_threshold)
 
         self._mp_plane = QLineEdit(str(self._params.get('slip_plane', '1 1 1')))
         self._mp_plane.setPlaceholderText("例: 1 1 1（FCC）/ 0 0 0 1（HCP）")
@@ -103,6 +103,13 @@ class GBSettingsDialog(QDialog):
         self._mp_dir = QLineEdit(str(self._params.get('slip_dir', '1 -1 0')))
         self._mp_dir.setPlaceholderText("例: 1 -1 0（FCC）/ 1 1 -2 0（HCP）")
         fl.addRow("すべり方向（Miller 指数）:", self._mp_dir)
+
+        lx = float(self._params.get('load_x', 0.0))
+        ly = float(self._params.get('load_y', 1.0))
+        lz = float(self._params.get('load_z', 0.0))
+        self._mp_load = QLineEdit(f"{lx} {ly} {lz}")
+        self._mp_load.setPlaceholderText("x y z（試料座標系・正規化不要）")
+        fl.addRow("荷重方向（x y z）:", self._mp_load)
 
         self._mp_src = QComboBox()
         self._mp_src.addItem("参照ステージ（phi1_ref / PHI_ref / phi2_ref）", "ref")
@@ -150,10 +157,18 @@ class GBSettingsDialog(QDialog):
             self._params['euler_source']    = self._mis_src.currentData()
             self._params['same_phase_only'] = self._mis_same.isChecked()
         elif self._key == "m_prime":
-            self._params['threshold']   = self._mp_threshold.value()
-            self._params['slip_plane']  = self._mp_plane.text().strip()
-            self._params['slip_dir']    = self._mp_dir.text().strip()
+            self._params['threshold']    = self._mp_threshold.value()
+            self._params['slip_plane']   = self._mp_plane.text().strip()
+            self._params['slip_dir']     = self._mp_dir.text().strip()
             self._params['euler_source'] = self._mp_src.currentData()
+            try:
+                nums = [float(v) for v in self._mp_load.text().split()]
+                if len(nums) >= 3:
+                    self._params['load_x'] = nums[0]
+                    self._params['load_y'] = nums[1]
+                    self._params['load_z'] = nums[2]
+            except ValueError:
+                pass
         self.accept()
 
     def get_params(self) -> dict:
