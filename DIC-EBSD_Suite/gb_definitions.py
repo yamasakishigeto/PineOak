@@ -275,6 +275,22 @@ class GBDefinition:
         """
         return []
 
+    def classify_pairs_valued(
+            self,
+            base_pairs:    list,
+            mat:           dict,
+            stage:         str,
+            phase_sym_map: dict,
+            params:        dict,
+    ) -> tuple[list, np.ndarray]:
+        """全ベースペアに値（m' 等）を付けて返す。グラデーション描画用。
+
+        デフォルトは ([], array([])) — 未対応定義は空を返す。
+        サブクラスでオーバーライドして (pairs, values) を返す。
+        values は 0〜1 の float 配列。
+        """
+        return [], np.array([])
+
 
 # ============================================================
 # 定義① grain_id が異なる境界（既存・後方互換）
@@ -603,7 +619,6 @@ class MPrimeDef(GBDefinition):
             return []
         rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
             self._prepare(mat, stage, phase_sym_map, params)
-        gid = mat['grain_id'].flatten()
 
         # 同一相かつ両点有効なペアを相ごとにグループ化
         from collections import defaultdict
@@ -619,8 +634,7 @@ class MPrimeDef(GBDefinition):
         threshold = float(params.get('threshold', self.default_params['threshold']))
         for ph, group in phase_groups.items():
             sym = phase_sym_map.get(ph, fallback_sym)
-            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip,
-                                       load_vec, gid)
+            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
             for pair, mp in zip(group, mp_arr):
                 if mp <= threshold:
                     highlighted.append(pair)
@@ -629,6 +643,32 @@ class MPrimeDef(GBDefinition):
     def compute_pairs_valued(self, mat, stage, phase_sym_map, params):
         """境界ペアとそのm'値を返す。カラー描画用。"""
         return self._compute(mat, stage, phase_sym_map, params)
+
+    def classify_pairs_valued(self, base_pairs, mat, stage, phase_sym_map, params):
+        """全ベースペアの m' 値を返す（閾値フィルタなし）。グラデーション描画用。"""
+        if not base_pairs:
+            return [], np.array([])
+        rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
+            self._prepare(mat, stage, phase_sym_map, params)
+
+        from collections import defaultdict
+        phase_groups: dict = defaultdict(list)
+        for pair in base_pairs:
+            i, j = int(pair[0]), int(pair[1])
+            pi, pj = int(phase_arr[i]), int(phase_arr[j])
+            if pi != pj or not (valid[i] and valid[j]):
+                continue
+            phase_groups[pi].append((i, j))
+
+        all_pairs: list[tuple[int, int]] = []
+        all_vals:  list[float]           = []
+        for ph, group in phase_groups.items():
+            sym = phase_sym_map.get(ph, fallback_sym)
+            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
+            all_pairs.extend(group)
+            all_vals.extend(mp_arr.tolist())
+
+        return all_pairs, np.array(all_vals)
 
     def _prepare(self, mat, stage, phase_sym_map, params):
         """共通前処理: rotmats, valid, phase_arr, slip系ベクトル, 荷重軸を返す。"""
@@ -700,8 +740,7 @@ class MPrimeDef(GBDefinition):
 
         for ph, group in phase_pair_groups.items():
             sym    = phase_sym_map.get(ph, fallback_sym)
-            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip,
-                                       load_vec, gid)
+            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
             for pair, mp in zip(group, mp_arr):
                 if mp <= threshold:
                     boundary_pairs.append(pair)
@@ -710,65 +749,39 @@ class MPrimeDef(GBDefinition):
         return boundary_pairs, np.array(boundary_vals)
 
     @staticmethod
-    def _calc_mprime(group, rotmats, n_equivs, b_equivs, load_vec, grain_id_arr=None):
-        """grain ごとにシュミット因子最大の活性すべり系を選び、その系同士の m' を返す。
+    def _calc_mprime(group, rotmats, n_equivs, b_equivs, load_vec):
+        """測定点ごとにシュミット因子最大の活性すべり系を選び、m' を返す。
 
-        grain_id_arr を渡すと「粒ごとに代表点を1点選んで活性系を決定」する。
-        これにより同一粒の全境界セグメントで一貫した m' 値になる。
-        grain_id_arr が None の場合は測定点ごとに活性系を決定する（不安定）。
-
-        stress_strain_calc.compute_schmid_factor と同じ手順:
-          1. g.T @ lv で荷重軸を結晶座標系へ変換
-          2. argmax(Schmid) で活性系インデックスを決定
-          3. g @ n_equivs[max_idx] で活性系を試料座標系へ変換
-          4. 隣接粒 i, j の活性系の m' = |n_i · n_j| × |b_i · b_j|
+        compute_schmid_factor と同じ手順で各点の活性系を独立に決定する:
+          1. g.T @ load_sample で荷重軸を結晶座標系へ変換
+          2. argmax(|cos φ| × |cos λ|) で活性系インデックスを決定
+          3. g @ n_crystal で活性系を試料座標系へ変換
+          4. 隣接点ペア (i, j) の m' = |n_i · n_j| × |b_i · b_j|
         """
         if not group:
             return np.array([])
 
-        arr = np.array(group, int)   # (P, 2)
+        arr     = np.array(group, int)   # (P, 2)
+        all_pts = np.unique(arr)         # 全登場点のインデックス
+        g_pts   = rotmats[all_pts]       # (num_pts, 3, 3)
 
-        if grain_id_arr is not None:
-            # 粒ごとに代表点（最初に現れた有効点）を選ぶ
-            grain_to_rep: dict = {}
-            for i, j in group:
-                gi, gj = int(grain_id_arr[i]), int(grain_id_arr[j])
-                if gi not in grain_to_rep:
-                    grain_to_rep[gi] = i
-                if gj not in grain_to_rep:
-                    grain_to_rep[gj] = j
-            unique_grains = list(grain_to_rep.keys())
-            rep_pts       = np.array([grain_to_rep[g] for g in unique_grains])
-            g_reps        = rotmats[rep_pts]                              # (G, 3, 3)
+        # 荷重軸を各点の結晶座標系へ変換: g.T @ load_sample
+        load_crys = np.einsum('nji,j->ni', g_pts, load_vec)   # (num_pts, 3)
 
-            load_crys = np.einsum('nji,j->ni', g_reps, load_vec)         # (G, 3)
-            cos_phi   = np.abs(load_crys @ n_equivs.T)                   # (G, S)
-            cos_lam   = np.abs(load_crys @ b_equivs.T)                   # (G, S)
-            max_idx   = (cos_phi * cos_lam).argmax(axis=1)               # (G,)
+        # シュミット因子を結晶座標系で計算して最大系を選ぶ
+        cos_phi = np.abs(load_crys @ n_equivs.T)              # (num_pts, S)
+        cos_lam = np.abs(load_crys @ b_equivs.T)              # (num_pts, S)
+        max_idx = (cos_phi * cos_lam).argmax(axis=1)          # (num_pts,)
 
-            n_active_g = np.einsum('nij,nj->ni', g_reps, n_equivs[max_idx])  # (G, 3)
-            b_active_g = np.einsum('nij,nj->ni', g_reps, b_equivs[max_idx])  # (G, 3)
+        # 活性系を試料座標系へ変換: g @ n_crystal
+        n_active = np.einsum('nij,nj->ni', g_pts, n_equivs[max_idx])  # (num_pts, 3)
+        b_active = np.einsum('nij,nj->ni', g_pts, b_equivs[max_idx])  # (num_pts, 3)
 
-            grain_to_u = {g: u for u, g in enumerate(unique_grains)}
-            ui = np.array([grain_to_u[int(grain_id_arr[i])] for i, _ in group])
-            uj = np.array([grain_to_u[int(grain_id_arr[j])] for _, j in group])
-            n_i, n_j = n_active_g[ui], n_active_g[uj]
-            b_i, b_j = b_active_g[ui], b_active_g[uj]
-        else:
-            # 測定点ごとに活性系を決定（粒界をまたぐ比較には不安定）
-            all_pts  = np.unique(arr)
-            g_pts    = rotmats[all_pts]
-            load_crys = np.einsum('nji,j->ni', g_pts, load_vec)
-            cos_phi   = np.abs(load_crys @ n_equivs.T)
-            cos_lam   = np.abs(load_crys @ b_equivs.T)
-            max_idx   = (cos_phi * cos_lam).argmax(axis=1)
-            n_active  = np.einsum('nij,nj->ni', g_pts, n_equivs[max_idx])
-            b_active  = np.einsum('nij,nj->ni', g_pts, b_equivs[max_idx])
-            pt_to_u   = {pt: u for u, pt in enumerate(all_pts)}
-            ui = np.array([pt_to_u[i] for i, _ in group])
-            uj = np.array([pt_to_u[j] for _, j in group])
-            n_i, n_j = n_active[ui], n_active[uj]
-            b_i, b_j = b_active[ui], b_active[uj]
+        pt_to_u = {pt: u for u, pt in enumerate(all_pts)}
+        ui = np.array([pt_to_u[i] for i, _ in group])
+        uj = np.array([pt_to_u[j] for _, j in group])
+        n_i, n_j = n_active[ui], n_active[uj]
+        b_i, b_j = b_active[ui], b_active[uj]
 
         # m' = |n_i · n_j| × |b_i · b_j|
         return np.clip(

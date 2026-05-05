@@ -230,8 +230,9 @@ class StressStrainMapperApp(QMainWindow):
         self._mat_flat['phi1_ref'] = self.phi1_deg
         self._mat_flat['PHI_ref']  = self.PHI_deg
         self._mat_flat['phi2_ref'] = self.phi2_deg
-        self._gb_seg_cache: dict = {}   # (def_key, params_hash, stage) -> pairs
-        self._gb_cls_cache: dict = {}   # (cls_key, cls_hash, base_key, base_hash, stage) -> pairs
+        self._gb_seg_cache: dict = {}     # (def_key, params_hash, stage) -> pairs
+        self._gb_cls_cache: dict = {}     # (cls_key, cls_hash, base_key, base_hash, stage) -> pairs
+        self._gb_cls_val_cache: dict = {} # same key -> (pairs, vals)
 
     # ----------------------------------------------------------
     # UI 構築（2×2 グリッド）
@@ -653,7 +654,7 @@ class StressStrainMapperApp(QMainWindow):
             defn = DEFINITION_MAP.get(key)
             self._map_gb_settings_btn.setEnabled(bool(defn and defn.has_settings))
             self._gb_seg_cache.clear()
-            self._gb_cls_cache.clear()
+            self._gb_cls_cache.clear(); self._gb_cls_val_cache.clear()
             self._redraw_current_map()
         self._map_gb_def_cb.currentIndexChanged.connect(_upd_map_gb_btn)
         _upd_map_gb_btn(0)
@@ -666,7 +667,7 @@ class StressStrainMapperApp(QMainWindow):
             if dlg.exec():
                 self._map_gb_params_store[key] = dlg.get_params()
                 self._gb_seg_cache.clear()
-                self._gb_cls_cache.clear()
+                self._gb_cls_cache.clear(); self._gb_cls_val_cache.clear()
                 self._redraw_current_map()
         self._map_gb_settings_btn.clicked.connect(_open_map_gb_settings)
         row_gb.addWidget(self._map_gb_settings_btn)
@@ -677,7 +678,7 @@ class StressStrainMapperApp(QMainWindow):
         self._map_gb_sym_cb.setCurrentText("Cubic")
         self._map_gb_sym_cb.setFixedWidth(80)
         self._map_gb_sym_cb.currentIndexChanged.connect(
-            lambda _: (self._gb_seg_cache.clear(), self._gb_cls_cache.clear(), self._redraw_current_map()))
+            lambda _: (self._gb_seg_cache.clear(), self._gb_cls_cache.clear(), self._gb_cls_val_cache.clear(), self._redraw_current_map()))
         row_gb.addWidget(self._map_gb_sym_cb)
         row_gb.addStretch()
         layout.addLayout(row_gb)
@@ -697,7 +698,7 @@ class StressStrainMapperApp(QMainWindow):
             key  = self._map_gb_cls_cb.currentData()
             defn = DEFINITION_MAP.get(key)
             self._map_gb_cls_settings_btn.setEnabled(bool(defn and defn.has_settings))
-            self._gb_cls_cache.clear()
+            self._gb_cls_cache.clear(); self._gb_cls_val_cache.clear()
             self._redraw_current_map()
 
         self._map_gb_cls_cb.currentIndexChanged.connect(_upd_cls_btn)
@@ -715,7 +716,7 @@ class StressStrainMapperApp(QMainWindow):
             dlg = GBSettingsDialog(key, self._map_gb_cls_params_store.get(key, {}), parent=self)
             if dlg.exec():
                 self._map_gb_cls_params_store[key] = dlg.get_params()
-                self._gb_cls_cache.clear()
+                self._gb_cls_cache.clear(); self._gb_cls_val_cache.clear()
                 self._redraw_current_map()
 
         self._map_gb_cls_settings_btn.clicked.connect(_open_cls_settings)
@@ -2180,12 +2181,82 @@ class StressStrainMapperApp(QMainWindow):
         except Exception:
             return []
 
-    def _draw_gb_on(self, ax, stage=None, x_draw=None, y_draw=None) -> bool:
-        """粒界セグメント（ベース + 色分け）を ax に描画。何か描いた場合 True を返す。
+    def _get_gb_cls_valued(self, stage=None, x_draw=None, y_draw=None):
+        """m' 等の値付きセグメントを返す。未対応または未選択なら ([], None)。"""
+        if not hasattr(self, '_map_gb_cls_cb'):
+            return [], None
+        cls_key = self._map_gb_cls_cb.currentData()
+        if cls_key == "none":
+            return [], None
+        cls_defn = DEFINITION_MAP.get(cls_key)
+        if cls_defn is None or not len(self.cx):
+            return [], None
+        if stage is None:
+            stage = self.stages[0] if self.stages else "0MPa"
 
-        色分けなし: 全境界を白（"w"）で描画。
-        色分けあり: 非ハイライトを白、ハイライトを赤（#ff4444）で描画。
+        base_pairs = self._get_raw_gb_pairs(stage)
+        if not base_pairs:
+            return [], None
+
+        import hashlib, json as _json
+        sym_name      = self._map_gb_sym_cb.currentText()
+        sym_ops       = get_sym_ops(sym_name)
+        phase_sym_map = {ph: sym_ops for ph in range(256)}
+        cls_params    = {**cls_defn.default_params, **self._map_gb_cls_params_store.get(cls_key, {})}
+        cls_hash      = hashlib.md5(
+            _json.dumps(cls_params, sort_keys=True, default=str).encode()
+        ).hexdigest()[:8]
+        base_key    = self._map_gb_def_cb.currentData()
+        base_params = {**DEFINITION_MAP[base_key].default_params,
+                       **self._map_gb_params_store.get(base_key, {})}
+        base_hash   = hashlib.md5(
+            _json.dumps(base_params, sort_keys=True, default=str).encode()
+        ).hexdigest()[:8]
+        cache_key = (cls_key, cls_hash, base_key, base_hash, stage)
+
+        if cache_key not in self._gb_cls_val_cache:
+            try:
+                pairs, vals = cls_defn.classify_pairs_valued(
+                    base_pairs, self._mat_flat, stage, phase_sym_map, cls_params)
+                self._gb_cls_val_cache[cache_key] = (pairs, vals if len(vals) else None)
+            except Exception:
+                self._gb_cls_val_cache[cache_key] = ([], None)
+
+        pairs, vals = self._gb_cls_val_cache[cache_key]
+        if not pairs or vals is None:
+            return [], None
+        try:
+            segs = pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
+        except Exception:
+            return [], None
+        return segs, vals
+
+    def _draw_gb_on(self, ax, stage=None, x_draw=None, y_draw=None) -> bool:
+        """粒界セグメントを ax に描画。何か描いた場合 True を返す。
+
+        m' グラデーション: 全境界を RdYlGn カラーマップで色付け + インセットカラーバー。
+        バイナリ色分け: ベース白 + ハイライト赤（#ff4444）。
+        色分けなし: 全境界を白で描画。
         """
+        val_segs, vals = self._get_gb_cls_valued(stage, x_draw=x_draw, y_draw=y_draw)
+
+        if val_segs and vals is not None:
+            # m' グラデーション描画（カラーマップ）
+            from matplotlib.colors import Normalize
+            lc = LineCollection(val_segs, cmap="RdYlGn",
+                                norm=Normalize(vmin=0.0, vmax=1.0),
+                                linewidths=1.2, alpha=0.95, zorder=4)
+            lc.set_array(vals)
+            ax.add_collection(lc)
+            # インセットカラーバー（右端に小型）
+            try:
+                cbar_ax = ax.inset_axes([1.01, 0.0, 0.03, 1.0])
+                ax.get_figure().colorbar(lc, cax=cbar_ax, label="m'")
+                cbar_ax.tick_params(labelsize=8)
+            except Exception:
+                pass
+            return True
+
         segs     = self._get_gb_segs(stage, x_draw=x_draw, y_draw=y_draw)
         cls_segs = self._get_gb_cls_segs(stage, x_draw=x_draw, y_draw=y_draw)
         if not segs and not cls_segs:
