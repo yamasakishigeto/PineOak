@@ -919,10 +919,8 @@ class StressStrainMapperApp(QMainWindow):
                 self._draw_sf_stage()
             elif mode == 'rss':
                 self._draw_rss_stage()
-        except Exception as e:
-            import traceback
-            print(f"[redraw] エラー (mode={mode}): {e}")
-            traceback.print_exc()
+        except Exception:
+            pass
 
     def _draw_map_current(self):
         base = self._map_var_cb.currentText()
@@ -2109,23 +2107,14 @@ class StressStrainMapperApp(QMainWindow):
             try:
                 result_pairs = defn.compute_pairs(
                     self._mat_flat, stage, phase_sym_map, params)
-                print(f"[GB] {def_key} ({stage}): {len(result_pairs)} pairs found")
                 self._gb_seg_cache[cache_key] = result_pairs
-            except Exception as e:
-                import traceback
-                print(f"[GB] compute_pairs エラー ({def_key}, {stage}): {e}")
-                traceback.print_exc()
+            except Exception:
                 self._gb_seg_cache[cache_key] = []
 
         pairs = self._gb_seg_cache[cache_key]
         try:
-            segs = pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
-            print(f"[GB] {def_key}: {len(segs)} segments generated")
-            return segs
-        except Exception as e:
-            import traceback
-            print(f"[GB] pairs_to_segments エラー ({def_key}): {e}")
-            traceback.print_exc()
+            return pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
+        except Exception:
             return []
 
     def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):

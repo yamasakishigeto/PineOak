@@ -567,7 +567,7 @@ class MPrimeDef(GBDefinition):
     label        = "Luster-Morris m'"
     has_settings = True
     default_params = {
-        'threshold':   0.1,      # m' ≤ threshold → 境界（FCC Ni は 0.05〜0.2 が目安）
+        'threshold':   0.8,      # m' ≤ threshold → 境界（FCC: min~0.72, 0.80=最困難4%）
         'euler_source': 'ref',
         'slip_plane':  '1 1 1',  # すべり面 Miller 指数（スペース区切り）
         'slip_dir':    '1 -1 0', # すべり方向 Miller 指数

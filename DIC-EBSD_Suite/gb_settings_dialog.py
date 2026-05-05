@@ -93,8 +93,8 @@ class GBSettingsDialog(QDialog):
         self._mp_threshold.setRange(0.0, 1.0)
         self._mp_threshold.setSingleStep(0.05)
         self._mp_threshold.setDecimals(2)
-        self._mp_threshold.setValue(float(self._params.get('threshold', 0.5)))
-        fl.addRow("m' 閾値（≤ threshold → 境界）:", self._mp_threshold)
+        self._mp_threshold.setValue(float(self._params.get('threshold', 0.8)))
+        fl.addRow("m' 閾値（≤ threshold → 境界）\n※FCC: min≈0.72、0.80=最困難4%、0.90=約半数:", self._mp_threshold)
 
         self._mp_plane = QLineEdit(str(self._params.get('slip_plane', '1 1 1')))
         self._mp_plane.setPlaceholderText("例: 1 1 1（FCC）/ 0 0 0 1（HCP）")
