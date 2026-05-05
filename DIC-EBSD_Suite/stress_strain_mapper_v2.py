@@ -230,7 +230,8 @@ class StressStrainMapperApp(QMainWindow):
         self._mat_flat['phi1_ref'] = self.phi1_deg
         self._mat_flat['PHI_ref']  = self.PHI_deg
         self._mat_flat['phi2_ref'] = self.phi2_deg
-        self._gb_seg_cache: dict = {}  # (def_key, params_hash, stage) -> pairs
+        self._gb_seg_cache: dict = {}   # (def_key, params_hash, stage) -> pairs
+        self._gb_cls_cache: dict = {}   # (cls_key, cls_hash, base_key, base_hash, stage) -> pairs
 
     # ----------------------------------------------------------
     # UI 構築（2×2 グリッド）
@@ -652,6 +653,7 @@ class StressStrainMapperApp(QMainWindow):
             defn = DEFINITION_MAP.get(key)
             self._map_gb_settings_btn.setEnabled(bool(defn and defn.has_settings))
             self._gb_seg_cache.clear()
+            self._gb_cls_cache.clear()
             self._redraw_current_map()
         self._map_gb_def_cb.currentIndexChanged.connect(_upd_map_gb_btn)
         _upd_map_gb_btn(0)
@@ -664,6 +666,7 @@ class StressStrainMapperApp(QMainWindow):
             if dlg.exec():
                 self._map_gb_params_store[key] = dlg.get_params()
                 self._gb_seg_cache.clear()
+                self._gb_cls_cache.clear()
                 self._redraw_current_map()
         self._map_gb_settings_btn.clicked.connect(_open_map_gb_settings)
         row_gb.addWidget(self._map_gb_settings_btn)
@@ -674,10 +677,51 @@ class StressStrainMapperApp(QMainWindow):
         self._map_gb_sym_cb.setCurrentText("Cubic")
         self._map_gb_sym_cb.setFixedWidth(80)
         self._map_gb_sym_cb.currentIndexChanged.connect(
-            lambda _: (self._gb_seg_cache.clear(), self._redraw_current_map()))
+            lambda _: (self._gb_seg_cache.clear(), self._gb_cls_cache.clear(), self._redraw_current_map()))
         row_gb.addWidget(self._map_gb_sym_cb)
         row_gb.addStretch()
         layout.addLayout(row_gb)
+
+        # ---- 粒界色分け行 ----
+        row_cls = QHBoxLayout()
+        row_cls.addWidget(QLabel("  色分け:"))
+        self._map_gb_cls_cb = QComboBox()
+        self._map_gb_cls_cb.addItem("なし", "none")
+        for _defn in ALL_DEFINITIONS:
+            if _defn.is_classifier:
+                self._map_gb_cls_cb.addItem(_defn.label, _defn.key)
+        self._map_gb_cls_cb.setFixedWidth(200)
+        self._map_gb_cls_params_store: dict = {}
+
+        def _upd_cls_btn(idx):
+            key  = self._map_gb_cls_cb.currentData()
+            defn = DEFINITION_MAP.get(key)
+            self._map_gb_cls_settings_btn.setEnabled(bool(defn and defn.has_settings))
+            self._gb_cls_cache.clear()
+            self._redraw_current_map()
+
+        self._map_gb_cls_cb.currentIndexChanged.connect(_upd_cls_btn)
+        row_cls.addWidget(self._map_gb_cls_cb)
+
+        self._map_gb_cls_settings_btn = QPushButton("設定…")
+        self._map_gb_cls_settings_btn.setFixedWidth(52)
+        self._map_gb_cls_settings_btn.setEnabled(False)
+
+        def _open_cls_settings():
+            key  = self._map_gb_cls_cb.currentData()
+            defn = DEFINITION_MAP.get(key)
+            if defn is None or not defn.has_settings:
+                return
+            dlg = GBSettingsDialog(key, self._map_gb_cls_params_store.get(key, {}), parent=self)
+            if dlg.exec():
+                self._map_gb_cls_params_store[key] = dlg.get_params()
+                self._gb_cls_cache.clear()
+                self._redraw_current_map()
+
+        self._map_gb_cls_settings_btn.clicked.connect(_open_cls_settings)
+        row_cls.addWidget(self._map_gb_cls_settings_btn)
+        row_cls.addStretch()
+        layout.addLayout(row_cls)
 
         row_cmap_btn = QHBoxLayout()
         btn_cmap_preview = QPushButton("カラーマップ色見本")
@@ -933,11 +977,7 @@ class StressStrainMapperApp(QMainWindow):
         cbar_label = f"{base} [{unit}]" if unit else base
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = self._get_gb_segs(stage, x_draw=x, y_draw=y)
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
-                )
+            if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                 self.canvas_map.draw()
         if self._map_ps_trace_cb.isChecked() and stage:
             exx_d = self.per_stage.get("exx", {}).get(stage)
@@ -1404,10 +1444,7 @@ class StressStrainMapperApp(QMainWindow):
                     LineCollection(t_segs, linewidths=lw, colors="black", alpha=0.7, zorder=3))
                 self.canvas_map.draw()
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = self._get_gb_segs(tgt_stage, x_draw=x, y_draw=y)
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+            if self._draw_gb_on(self.canvas_map.ax, tgt_stage, x_draw=x, y_draw=y):
                 self.canvas_map.draw()
 
     def _on_export_sf_all_stages(self):
@@ -1450,10 +1487,7 @@ class StressStrainMapperApp(QMainWindow):
                         LineCollection(t_segs, linewidths=trace_lw, colors="black", alpha=0.7, zorder=3))
                     self.canvas_map.draw()
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = self._get_gb_segs(stage, x_draw=x, y_draw=y)
-                if segs:
-                    self.canvas_map.ax.add_collection(
-                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"SF_schmid_{stage}.png"
             self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
@@ -1591,10 +1625,7 @@ class StressStrainMapperApp(QMainWindow):
                     LineCollection(t_segs, linewidths=lw, colors="black", alpha=0.7, zorder=3))
                 self.canvas_map.draw()
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = self._get_gb_segs(tgt_stage, x_draw=x, y_draw=y)
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+            if self._draw_gb_on(self.canvas_map.ax, tgt_stage, x_draw=x, y_draw=y):
                 self.canvas_map.draw()
 
     def _on_export_rss_all_stages(self):
@@ -1639,10 +1670,7 @@ class StressStrainMapperApp(QMainWindow):
                         LineCollection(t_segs, linewidths=trace_lw, colors="black", alpha=0.7, zorder=3))
                     self.canvas_map.draw()
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = self._get_gb_segs(stage, x_draw=x, y_draw=y)
-                if segs:
-                    self.canvas_map.ax.add_collection(
-                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"RSS_max_{stage}.png"
             self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
@@ -1769,10 +1797,7 @@ class StressStrainMapperApp(QMainWindow):
             self._map_grod_cmap_cb.currentText(), vmin, vmax, title,
             xlim=self._xlim, ylim=self._ylim, cbar_label=label)
         if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = self._get_gb_segs(tgt_stage, x_draw=x, y_draw=y)
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+            if self._draw_gb_on(self.canvas_map.ax, tgt_stage, x_draw=x, y_draw=y):
                 self.canvas_map.draw()
 
     def _on_export_grod_png(self):
@@ -1819,10 +1844,7 @@ class StressStrainMapperApp(QMainWindow):
                 x, y, data, cmap, vmin, vmax, title,
                 xlim=self._xlim, ylim=self._ylim, cbar_label=label)
             if self._map_show_gb_cb.isChecked() and len(self.cx) > 0:
-                segs = self._get_gb_segs(stage, x_draw=x, y_draw=y)
-                if segs:
-                    self.canvas_map.ax.add_collection(
-                        LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+                if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"GROD_{label}_{stage}_ref{ref_stage}.png"
             self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
@@ -2073,58 +2095,113 @@ class StressStrainMapperApp(QMainWindow):
             vmax = float(np.nanmax(result[~np.isnan(result)])) if np.any(~np.isnan(result)) else 1.0
         return vmin, vmax
 
-    def _get_gb_segs(self, stage=None, x_draw=None, y_draw=None):
-        """現在の粒界定義設定に基づいてセグメントリストを返す。
-
-        stage   : ステージ文字列（"0MPa" など）。None の場合は先頭ステージを使用。
-        x_draw, y_draw : 描画用座標フィルタ（None = 全点）
-        """
-        # UI 構築中（_map_gb_sym_cb がまだ存在しない）は安全に抜ける
-        if not hasattr(self, '_map_gb_sym_cb'):
-            return []
+    def _get_raw_gb_pairs(self, stage: str) -> list:
+        """ベース粒界ペアをキャッシュから返す（なければ計算して格納）。"""
         import hashlib, json as _json
-        if not len(self.cx):
-            return []
-        if stage is None:
-            stage = self.stages[0] if self.stages else "0MPa"
-
         def_key = self._map_gb_def_cb.currentData()
         defn    = DEFINITION_MAP.get(def_key)
         if defn is None:
             return []
-
-        params      = {**defn.default_params, **self._map_gb_params_store.get(def_key, {})}
-        sym_name    = self._map_gb_sym_cb.currentText()
-        sym_ops     = get_sym_ops(sym_name)
+        params        = {**defn.default_params, **self._map_gb_params_store.get(def_key, {})}
+        sym_name      = self._map_gb_sym_cb.currentText()
+        sym_ops       = get_sym_ops(sym_name)
         phase_sym_map = {ph: sym_ops for ph in range(256)}
-
-        params_hash = hashlib.md5(
+        params_hash   = hashlib.md5(
             _json.dumps(params, sort_keys=True, default=str).encode()
         ).hexdigest()[:8]
         cache_key = (def_key, params_hash, stage)
-
         if cache_key not in self._gb_seg_cache:
             try:
-                result_pairs = defn.compute_pairs(
+                self._gb_seg_cache[cache_key] = defn.compute_pairs(
                     self._mat_flat, stage, phase_sym_map, params)
-                self._gb_seg_cache[cache_key] = result_pairs
             except Exception:
                 self._gb_seg_cache[cache_key] = []
+        return self._gb_seg_cache[cache_key]
 
-        pairs = self._gb_seg_cache[cache_key]
+    def _get_gb_segs(self, stage=None, x_draw=None, y_draw=None):
+        """現在の粒界定義設定に基づいてセグメントリストを返す。"""
+        if not hasattr(self, '_map_gb_sym_cb'):
+            return []
+        if not len(self.cx):
+            return []
+        if stage is None:
+            stage = self.stages[0] if self.stages else "0MPa"
+        pairs = self._get_raw_gb_pairs(stage)
         try:
             return pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
         except Exception:
             return []
 
+    def _get_gb_cls_segs(self, stage=None, x_draw=None, y_draw=None):
+        """色分けクラシファイアを適用し、ハイライト対象のセグメントを返す。"""
+        if not hasattr(self, '_map_gb_cls_cb'):
+            return []
+        cls_key = self._map_gb_cls_cb.currentData()
+        if cls_key == "none":
+            return []
+        cls_defn = DEFINITION_MAP.get(cls_key)
+        if cls_defn is None:
+            return []
+        if not len(self.cx):
+            return []
+        if stage is None:
+            stage = self.stages[0] if self.stages else "0MPa"
+
+        base_pairs = self._get_raw_gb_pairs(stage)
+        if not base_pairs:
+            return []
+
+        import hashlib, json as _json
+        sym_name      = self._map_gb_sym_cb.currentText()
+        sym_ops       = get_sym_ops(sym_name)
+        phase_sym_map = {ph: sym_ops for ph in range(256)}
+        cls_params    = {**cls_defn.default_params, **self._map_gb_cls_params_store.get(cls_key, {})}
+        cls_hash      = hashlib.md5(
+            _json.dumps(cls_params, sort_keys=True, default=str).encode()
+        ).hexdigest()[:8]
+        base_key      = self._map_gb_def_cb.currentData()
+        base_params   = {**DEFINITION_MAP[base_key].default_params,
+                         **self._map_gb_params_store.get(base_key, {})}
+        base_hash     = hashlib.md5(
+            _json.dumps(base_params, sort_keys=True, default=str).encode()
+        ).hexdigest()[:8]
+        cache_key = (cls_key, cls_hash, base_key, base_hash, stage)
+
+        if cache_key not in self._gb_cls_cache:
+            try:
+                self._gb_cls_cache[cache_key] = cls_defn.classify_pairs(
+                    base_pairs, self._mat_flat, stage, phase_sym_map, cls_params)
+            except Exception:
+                self._gb_cls_cache[cache_key] = []
+
+        pairs = self._gb_cls_cache[cache_key]
+        try:
+            return pairs_to_segments(pairs, self.cx, self.cy, x_draw=x_draw, y_draw=y_draw)
+        except Exception:
+            return []
+
+    def _draw_gb_on(self, ax, stage=None, x_draw=None, y_draw=None) -> bool:
+        """粒界セグメント（ベース + 色分け）を ax に描画。何か描いた場合 True を返す。
+
+        色分けなし: 全境界を白（"w"）で描画。
+        色分けあり: 非ハイライトを白、ハイライトを赤（#ff4444）で描画。
+        """
+        segs     = self._get_gb_segs(stage, x_draw=x_draw, y_draw=y_draw)
+        cls_segs = self._get_gb_cls_segs(stage, x_draw=x_draw, y_draw=y_draw)
+        if not segs and not cls_segs:
+            return False
+        if cls_segs:
+            if segs:
+                ax.add_collection(LineCollection(segs, linewidths=0.6, alpha=0.6, colors="w"))
+            ax.add_collection(LineCollection(cls_segs, linewidths=1.4, alpha=1.0, colors="#ff4444"))
+        else:
+            ax.add_collection(LineCollection(segs, linewidths=0.6, alpha=0.9, colors="w"))
+        return True
+
     def _draw_derived(self, result, cmap, title, vmin, vmax, cbar_label=None):
         self.canvas_map.draw_scatter(self.cx, self.cy, result, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         if self._derived_show_gb_cb.isChecked() and len(self.cx) > 0:
-            segs = self._get_gb_segs()
-            if segs:
-                self.canvas_map.ax.add_collection(
-                    LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k")
-                )
+            if self._draw_gb_on(self.canvas_map.ax):
                 self.canvas_map.draw()
 
     def _compute_hardening_rate(self):
@@ -2276,9 +2353,7 @@ class StressStrainMapperApp(QMainWindow):
             cbar.set_ticklabels([str(g) for g in self._grain_unique])
 
         if len(self.cx) > 0:
-            segs = self._get_gb_segs()
-            if segs:
-                ax.add_collection(LineCollection(segs, linewidths=0.6, alpha=0.9, colors="k"))
+            self._draw_gb_on(ax)
 
         ax.set_title("Grain ID Map")
         ax.set_xlabel("X")

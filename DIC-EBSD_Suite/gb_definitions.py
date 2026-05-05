@@ -232,9 +232,10 @@ def pairs_to_segments_valued(
 class GBDefinition:
     """粒界定義の基底クラス。すべての定義はこれを継承する。"""
 
-    key:          str  = ""     # 内部識別キー
-    label:        str  = ""     # UIに表示する名前
-    has_settings: bool = False  # True → 「設定…」ボタンでダイアログを開く
+    key:           str  = ""     # 内部識別キー
+    label:         str  = ""     # UIに表示する名前
+    has_settings:  bool = False  # True → 「設定…」ボタンでダイアログを開く
+    is_classifier: bool = False  # True → 色分けコンボに表示（classify_pairs を実装済み）
     default_params: dict = {}   # gb_settings_dialog に渡すデフォルト値
 
     def compute_pairs(
@@ -258,6 +259,21 @@ class GBDefinition:
         list of (i, j) — 境界が存在する隣接点ペア
         """
         raise NotImplementedError
+
+    def classify_pairs(
+            self,
+            base_pairs:    list,
+            mat:           dict,
+            stage:         str,
+            phase_sym_map: dict,
+            params:        dict,
+    ) -> list[tuple[int, int]]:
+        """ベースペアのうちこの定義を満たすもの（ハイライト対象）を返す。
+
+        デフォルトは空リスト（= 分類なし）。
+        サブクラスでオーバーライドして色分け対象のペアを返す。
+        """
+        return []
 
 
 # ============================================================
@@ -563,9 +579,10 @@ class MPrimeDef(GBDefinition):
     κ: すべり方向間の角度（試料座標系）
     """
 
-    key          = "m_prime"
-    label        = "Luster-Morris m'"
-    has_settings = True
+    key           = "m_prime"
+    label         = "Luster-Morris m'"
+    has_settings  = True
+    is_classifier = True
     default_params = {
         'threshold':   0.8,      # m' ≤ threshold → 境界（FCC: min~0.72, 0.80=最困難4%）
         'euler_source': 'ref',
@@ -578,6 +595,64 @@ class MPrimeDef(GBDefinition):
     def compute_pairs(self, mat, stage, phase_sym_map, params):
         pairs, _ = self._compute(mat, stage, phase_sym_map, params)
         return pairs
+
+    def classify_pairs(self, base_pairs, mat, stage, phase_sym_map, params):
+        """ベースペアに対して m' を計算し、threshold 以下のペアを返す（色分け用）。"""
+        if not base_pairs:
+            return []
+        from collections import defaultdict
+        from stress_strain_calc import _parse_slip_system
+
+        threshold    = float(params.get('threshold',  self.default_params['threshold']))
+        euler_source = str(params.get('euler_source', self.default_params['euler_source']))
+        plane_text   = str(params.get('slip_plane',   self.default_params['slip_plane']))
+        dir_text     = str(params.get('slip_dir',     self.default_params['slip_dir']))
+
+        cx  = mat['cx'].flatten()
+        N   = len(cx)
+        try:
+            eulers = _load_euler(mat, stage, euler_source)
+        except KeyError:
+            eulers = _load_euler(mat, stage, 'ref')
+
+        phase_key = f'phase_index_s{stage}'
+        if phase_key in mat:
+            _pa = mat[phase_key].flatten().astype(float)
+            phase_arr = np.where(np.isfinite(_pa), _pa, -1).astype(int)
+        else:
+            phase_arr = np.zeros(N, int)
+
+        valid = (np.isfinite(eulers[:, 0]) & np.isfinite(eulers[:, 1]) & np.isfinite(eulers[:, 2]))
+        rotmats = np.full((N, 3, 3), np.nan)
+        if np.any(valid):
+            rotmats[valid] = euler_to_rotmats(eulers[valid, 0], eulers[valid, 1], eulers[valid, 2])
+
+        fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
+        try:
+            n_slip, b_slip = _parse_slip_system(plane_text, dir_text)
+        except ValueError:
+            return []
+
+        # 同一相かつ両点有効なペアのみ m' 計算
+        phase_groups: dict = defaultdict(list)
+        for pair in base_pairs:
+            i, j = int(pair[0]), int(pair[1])
+            pi, pj = int(phase_arr[i]), int(phase_arr[j])
+            if pi != pj or not (valid[i] and valid[j]):
+                continue
+            phase_groups[pi].append((i, j))
+
+        highlighted: list[tuple[int, int]] = []
+        for ph, group in phase_groups.items():
+            sym      = phase_sym_map.get(ph, fallback_sym)
+            n_equivs = sym @ n_slip
+            b_equivs = sym @ b_slip
+            mprime   = self._calc_mprime_chunked(group, rotmats, n_equivs, b_equivs)
+            for pair, mp in zip(group, mprime):
+                if mp <= threshold:
+                    highlighted.append(pair)
+
+        return highlighted
 
     def compute_pairs_valued(self, mat, stage, phase_sym_map, params):
         """境界ペアとそのm'値を返す。カラー描画（pairs_to_segments_valued）用。"""
