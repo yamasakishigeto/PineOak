@@ -549,28 +549,151 @@ class SpecialBoundaryDef(GBDefinition):
 
 
 # ============================================================
-# 定義④ Luster-Morris m'（スタブ — 将来実装）
+# 定義④ Luster-Morris m'
 # ============================================================
 
 class MPrimeDef(GBDefinition):
+    """Luster-Morris m' 粒界定義。
+
+    隣接2粒の等価すべり系ベクトルをすべての組合せで比較し、
+    m' = max_{s1,s2} |cos ψ| × |cos κ| を計算する。
+    m' ≤ threshold のペアを「すべり移行が困難な境界」とする。
+
+    ψ: 隣接粒のすべり面法線間の角度（試料座標系）
+    κ: すべり方向間の角度（試料座標系）
+    """
+
     key          = "m_prime"
-    label        = "Luster-Morris m'（準備中）"
+    label        = "Luster-Morris m'"
     has_settings = True
     default_params = {
-        'threshold':    0.5,
-        'loading_mode': 'single',    # 'single' or 'local_stress'
-        'load_x':  0.0,
-        'load_y':  1.0,
-        'load_z':  0.0,
+        'threshold':   0.5,      # m' ≤ threshold → 境界
         'euler_source': 'ref',
+        'slip_plane':  '1 1 1',  # すべり面 Miller 指数（スペース区切り）
+        'slip_dir':    '1 -1 0', # すべり方向 Miller 指数
     }
 
+    _CHUNK = 500  # チャンクサイズ（メモリ節約）
+
     def compute_pairs(self, mat, stage, phase_sym_map, params):
-        # TODO: 実装予定
-        raise NotImplementedError(
-            "Luster-Morris m' はまだ実装されていません。"
-            "将来のバージョンで追加予定です。"
+        pairs, _ = self._compute(mat, stage, phase_sym_map, params)
+        return pairs
+
+    def compute_pairs_valued(self, mat, stage, phase_sym_map, params):
+        """境界ペアとそのm'値を返す。カラー描画（pairs_to_segments_valued）用。"""
+        return self._compute(mat, stage, phase_sym_map, params)
+
+    def _compute(self, mat, stage, phase_sym_map, params):
+        from collections import defaultdict
+        from stress_strain_calc import _parse_slip_system
+
+        threshold    = float(params.get('threshold',   self.default_params['threshold']))
+        euler_source = str(params.get('euler_source',  self.default_params['euler_source']))
+        plane_text   = str(params.get('slip_plane',    self.default_params['slip_plane']))
+        dir_text     = str(params.get('slip_dir',      self.default_params['slip_dir']))
+
+        cx  = mat['cx'].flatten()
+        cy  = mat['cy'].flatten()
+        gid = mat['grain_id'].flatten()
+        N   = len(cx)
+
+        try:
+            eulers = _load_euler(mat, stage, euler_source)
+        except KeyError:
+            eulers = _load_euler(mat, stage, 'ref')
+
+        phase_key = f'phase_index_s{stage}'
+        if phase_key in mat:
+            _pa = mat[phase_key].flatten().astype(float)
+            phase_arr = np.where(np.isfinite(_pa), _pa, -1).astype(int)
+        else:
+            phase_arr = np.zeros(N, int)
+
+        valid = (
+            (gid != -1)
+            & np.isfinite(eulers[:, 0])
+            & np.isfinite(eulers[:, 1])
+            & np.isfinite(eulers[:, 2])
         )
+
+        rotmats = np.full((N, 3, 3), np.nan)
+        if np.any(valid):
+            rotmats[valid] = euler_to_rotmats(
+                eulers[valid, 0], eulers[valid, 1], eulers[valid, 2])
+
+        fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
+
+        try:
+            n_slip, b_slip = _parse_slip_system(plane_text, dir_text)
+        except ValueError as e:
+            raise ValueError(f"m' すべり系パラメータが不正です: {e}") from e
+
+        adj_pairs = get_adjacent_pairs(cx, cy)
+
+        # 同一相かつ両点有効なペアを相ごとにグループ化
+        phase_pair_groups: dict = defaultdict(list)
+        for i, j in adj_pairs:
+            pi, pj = int(phase_arr[i]), int(phase_arr[j])
+            if pi != pj:
+                continue
+            if not (valid[i] and valid[j]):
+                continue
+            phase_pair_groups[pi].append((i, j))
+
+        boundary_pairs: list[tuple[int, int]] = []
+        boundary_vals:  list[float]           = []
+
+        for ph, group in phase_pair_groups.items():
+            sym      = phase_sym_map.get(ph, fallback_sym)
+            n_equivs = sym @ n_slip   # (S, 3) 等価すべり面法線（結晶座標系）
+            b_equivs = sym @ b_slip   # (S, 3) 等価すべり方向（結晶座標系）
+
+            mprime = self._calc_mprime_chunked(group, rotmats, n_equivs, b_equivs)
+
+            for k, mp in enumerate(mprime):
+                if mp <= threshold:
+                    boundary_pairs.append(group[k])
+                    boundary_vals.append(float(mp))
+
+        return boundary_pairs, np.array(boundary_vals)
+
+    @staticmethod
+    def _calc_mprime_chunked(group, rotmats, n_equivs, b_equivs):
+        """チャンク処理でm'値 (P,) を返す。
+
+        回転行列 g を試料座標系に変換: n_samp = g @ n_equiv  （結晶→試料）
+        ※シュミット因子は g^T @ lv（試料→結晶）なので逆方向になる。
+        """
+        CHUNK = MPrimeDef._CHUNK
+        results = []
+
+        for start in range(0, len(group), CHUNK):
+            chunk = group[start:start + CHUNK]
+            arr   = np.array(chunk, int)                           # (C, 2)
+
+            # チャンク内のユニークな点インデックスだけ計算（メモリ節約）
+            combined  = np.concatenate([arr[:, 0], arr[:, 1]])
+            uniq, inv = np.unique(combined, return_inverse=True)
+
+            g_u = rotmats[uniq]                                    # (U, 3, 3)
+            # 結晶座標系の等価すべり系ベクトルを試料座標系へ変換
+            n_u = np.einsum('nij,sj->nsi', g_u, n_equivs)         # (U, S, 3)
+            b_u = np.einsum('nij,sj->nsi', g_u, b_equivs)         # (U, S, 3)
+
+            C  = len(chunk)
+            ni = n_u[inv[:C]]   # grain i の等価すべり面法線 (C, S, 3)
+            nj = n_u[inv[C:]]   # grain j の等価すべり面法線 (C, S, 3)
+            bi = b_u[inv[:C]]   # grain i の等価すべり方向  (C, S, 3)
+            bj = b_u[inv[C:]]   # grain j の等価すべり方向  (C, S, 3)
+
+            # m'[c] = max_{s1,s2} |ni[c,s1]·nj[c,s2]| × |bi[c,s1]·bj[c,s2]|
+            dot_n = np.abs(np.einsum('csi,cti->cst', ni, nj))     # (C, S, S)
+            dot_b = np.abs(np.einsum('csi,cti->cst', bi, bj))     # (C, S, S)
+            # m' ∈ [0,1] のはずだが浮動小数点誤差で僅かに超える場合があるためクリップ
+            mp    = np.clip((dot_n * dot_b).reshape(C, -1).max(axis=1), 0.0, 1.0)
+            results.append(mp)
+
+        return np.concatenate(results) if results else np.array([])
 
 
 # ============================================================
@@ -580,6 +703,7 @@ class MPrimeDef(GBDefinition):
 ALL_DEFINITIONS: list[GBDefinition] = [
     GrainIDDef(),
     MisorientationDef(),
+    MPrimeDef(),
 ]
 
 # key → 定義オブジェクトのマッピング

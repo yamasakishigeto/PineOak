@@ -15,7 +15,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout,
     QLabel, QDoubleSpinBox, QComboBox, QCheckBox,
-    QDialogButtonBox, QWidget,
+    QDialogButtonBox, QWidget, QLineEdit,
 )
 
 from gb_definitions import ALL_DEFINITIONS, DEFINITION_MAP, SYM_GROUPS
@@ -71,6 +71,8 @@ class GBSettingsDialog(QDialog):
             return self._form_grain_id()
         elif key == "misorientation":
             return self._form_misorientation()
+        elif key == "m_prime":
+            return self._form_m_prime()
         else:
             lbl = QLabel(f"定義 '{key}' の設定項目はありません。")
             return lbl
@@ -80,6 +82,35 @@ class GBSettingsDialog(QDialog):
         from PyQt6.QtWidgets import QVBoxLayout
         l = QVBoxLayout(w)
         l.addWidget(QLabel("grain_id が異なる隣接点を粒界とみなします。\n追加設定はありません。"))
+        return w
+
+    def _form_m_prime(self) -> QWidget:
+        w = QWidget()
+        fl = QFormLayout(w)
+        fl.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self._mp_threshold = QDoubleSpinBox()
+        self._mp_threshold.setRange(0.0, 1.0)
+        self._mp_threshold.setSingleStep(0.05)
+        self._mp_threshold.setDecimals(2)
+        self._mp_threshold.setValue(float(self._params.get('threshold', 0.5)))
+        fl.addRow("m' 閾値（≤ threshold → 境界）:", self._mp_threshold)
+
+        self._mp_plane = QLineEdit(str(self._params.get('slip_plane', '1 1 1')))
+        self._mp_plane.setPlaceholderText("例: 1 1 1（FCC）/ 0 0 0 1（HCP）")
+        fl.addRow("すべり面（Miller 指数）:", self._mp_plane)
+
+        self._mp_dir = QLineEdit(str(self._params.get('slip_dir', '1 -1 0')))
+        self._mp_dir.setPlaceholderText("例: 1 -1 0（FCC）/ 1 1 -2 0（HCP）")
+        fl.addRow("すべり方向（Miller 指数）:", self._mp_dir)
+
+        self._mp_src = QComboBox()
+        self._mp_src.addItem("参照ステージ（phi1_ref / PHI_ref / phi2_ref）", "ref")
+        self._mp_src.addItem("各ステージ（euler_phi1/phi/phi2_sXXX）",        "stage")
+        idx = 1 if self._params.get('euler_source', 'ref') == 'stage' else 0
+        self._mp_src.setCurrentIndex(idx)
+        fl.addRow("オイラー角ソース:", self._mp_src)
+
         return w
 
     def _form_misorientation(self) -> QWidget:
@@ -118,6 +149,11 @@ class GBSettingsDialog(QDialog):
             self._params['theta_deg']       = self._mis_theta.value()
             self._params['euler_source']    = self._mis_src.currentData()
             self._params['same_phase_only'] = self._mis_same.isChecked()
+        elif self._key == "m_prime":
+            self._params['threshold']   = self._mp_threshold.value()
+            self._params['slip_plane']  = self._mp_plane.text().strip()
+            self._params['slip_dir']    = self._mp_dir.text().strip()
+            self._params['euler_source'] = self._mp_src.currentData()
         self.accept()
 
     def get_params(self) -> dict:
