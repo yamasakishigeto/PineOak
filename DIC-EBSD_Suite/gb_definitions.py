@@ -601,9 +601,9 @@ class MPrimeDef(GBDefinition):
         """ベースペアに対して m' を計算し、threshold 以下のペアを返す（色分け用）。"""
         if not base_pairs:
             return []
-        rotmats, valid, phase_arr, n_equivs, b_equivs, load_vec, fallback_sym = \
+        rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
             self._prepare(mat, stage, phase_sym_map, params)
-        N = len(rotmats)
+        gid = mat['grain_id'].flatten()
 
         # 同一相かつ両点有効なペアを相ごとにグループ化
         from collections import defaultdict
@@ -619,7 +619,8 @@ class MPrimeDef(GBDefinition):
         threshold = float(params.get('threshold', self.default_params['threshold']))
         for ph, group in phase_groups.items():
             sym = phase_sym_map.get(ph, fallback_sym)
-            mp_arr = self._calc_mprime(group, rotmats, sym @ n_equivs, sym @ b_equivs, load_vec)
+            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip,
+                                       load_vec, gid)
             for pair, mp in zip(group, mp_arr):
                 if mp <= threshold:
                     highlighted.append(pair)
@@ -699,7 +700,8 @@ class MPrimeDef(GBDefinition):
 
         for ph, group in phase_pair_groups.items():
             sym    = phase_sym_map.get(ph, fallback_sym)
-            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
+            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip,
+                                       load_vec, gid)
             for pair, mp in zip(group, mp_arr):
                 if mp <= threshold:
                     boundary_pairs.append(pair)
@@ -708,43 +710,70 @@ class MPrimeDef(GBDefinition):
         return boundary_pairs, np.array(boundary_vals)
 
     @staticmethod
-    def _calc_mprime(group, rotmats, n_equivs, b_equivs, load_vec):
-        """各粒子でシュミット因子最大の活性すべり系を選び、その系同士の m' を返す。
+    def _calc_mprime(group, rotmats, n_equivs, b_equivs, load_vec, grain_id_arr=None):
+        """grain ごとにシュミット因子最大の活性すべり系を選び、その系同士の m' を返す。
+
+        grain_id_arr を渡すと「粒ごとに代表点を1点選んで活性系を決定」する。
+        これにより同一粒の全境界セグメントで一貫した m' 値になる。
+        grain_id_arr が None の場合は測定点ごとに活性系を決定する（不安定）。
 
         stress_strain_calc.compute_schmid_factor と同じ手順:
           1. g.T @ lv で荷重軸を結晶座標系へ変換
-          2. argmax(Schmid) で各点の活性系インデックスを決定
+          2. argmax(Schmid) で活性系インデックスを決定
           3. g @ n_equivs[max_idx] で活性系を試料座標系へ変換
           4. 隣接粒 i, j の活性系の m' = |n_i · n_j| × |b_i · b_j|
         """
         if not group:
             return np.array([])
 
-        arr      = np.array(group, int)                    # (P, 2)
-        all_pts  = np.unique(arr)                          # (U,)
-        g_pts    = rotmats[all_pts]                        # (U, 3, 3)
+        arr = np.array(group, int)   # (P, 2)
 
-        # 荷重軸を各点の結晶座標系へ変換: g.T @ lv  (einsum nji = g.T)
-        load_crys = np.einsum('nji,j->ni', g_pts, load_vec)   # (U, 3)
+        if grain_id_arr is not None:
+            # 粒ごとに代表点（最初に現れた有効点）を選ぶ
+            grain_to_rep: dict = {}
+            for i, j in group:
+                gi, gj = int(grain_id_arr[i]), int(grain_id_arr[j])
+                if gi not in grain_to_rep:
+                    grain_to_rep[gi] = i
+                if gj not in grain_to_rep:
+                    grain_to_rep[gj] = j
+            unique_grains = list(grain_to_rep.keys())
+            rep_pts       = np.array([grain_to_rep[g] for g in unique_grains])
+            g_reps        = rotmats[rep_pts]                              # (G, 3, 3)
 
-        # 全等価系のシュミット因子 → argmax で活性系を選択
-        cos_phi = np.abs(load_crys @ n_equivs.T)              # (U, S)
-        cos_lam = np.abs(load_crys @ b_equivs.T)              # (U, S)
-        max_idx = (cos_phi * cos_lam).argmax(axis=1)          # (U,)
+            load_crys = np.einsum('nji,j->ni', g_reps, load_vec)         # (G, 3)
+            cos_phi   = np.abs(load_crys @ n_equivs.T)                   # (G, S)
+            cos_lam   = np.abs(load_crys @ b_equivs.T)                   # (G, S)
+            max_idx   = (cos_phi * cos_lam).argmax(axis=1)               # (G,)
 
-        # 活性系を試料座標系へ変換: g @ n_equivs[max_idx]
-        n_active = np.einsum('nij,nj->ni', g_pts, n_equivs[max_idx])   # (U, 3)
-        b_active = np.einsum('nij,nj->ni', g_pts, b_equivs[max_idx])   # (U, 3)
+            n_active_g = np.einsum('nij,nj->ni', g_reps, n_equivs[max_idx])  # (G, 3)
+            b_active_g = np.einsum('nij,nj->ni', g_reps, b_equivs[max_idx])  # (G, 3)
 
-        # ペアインデックスを U-空間に変換
-        pt_to_u = {pt: u for u, pt in enumerate(all_pts)}
-        ui = np.array([pt_to_u[i] for i, _ in group])
-        uj = np.array([pt_to_u[j] for _, j in group])
+            grain_to_u = {g: u for u, g in enumerate(unique_grains)}
+            ui = np.array([grain_to_u[int(grain_id_arr[i])] for i, _ in group])
+            uj = np.array([grain_to_u[int(grain_id_arr[j])] for _, j in group])
+            n_i, n_j = n_active_g[ui], n_active_g[uj]
+            b_i, b_j = b_active_g[ui], b_active_g[uj]
+        else:
+            # 測定点ごとに活性系を決定（粒界をまたぐ比較には不安定）
+            all_pts  = np.unique(arr)
+            g_pts    = rotmats[all_pts]
+            load_crys = np.einsum('nji,j->ni', g_pts, load_vec)
+            cos_phi   = np.abs(load_crys @ n_equivs.T)
+            cos_lam   = np.abs(load_crys @ b_equivs.T)
+            max_idx   = (cos_phi * cos_lam).argmax(axis=1)
+            n_active  = np.einsum('nij,nj->ni', g_pts, n_equivs[max_idx])
+            b_active  = np.einsum('nij,nj->ni', g_pts, b_equivs[max_idx])
+            pt_to_u   = {pt: u for u, pt in enumerate(all_pts)}
+            ui = np.array([pt_to_u[i] for i, _ in group])
+            uj = np.array([pt_to_u[j] for _, j in group])
+            n_i, n_j = n_active[ui], n_active[uj]
+            b_i, b_j = b_active[ui], b_active[uj]
 
         # m' = |n_i · n_j| × |b_i · b_j|
         return np.clip(
-            np.abs(np.einsum('pi,pi->p', n_active[ui], n_active[uj])) *
-            np.abs(np.einsum('pi,pi->p', b_active[ui], b_active[uj])),
+            np.abs(np.einsum('pi,pi->p', n_i, n_j)) *
+            np.abs(np.einsum('pi,pi->p', b_i, b_j)),
             0.0, 1.0,
         )
 
