@@ -104,8 +104,8 @@ class GBSettingsDialog(QDialog):
         self._mp_dir.setPlaceholderText("例: 1 -1 0（FCC）/ 1 1 -2 0（HCP）")
         fl.addRow("すべり方向（Miller 指数）:", self._mp_dir)
 
-        lx = self._params.get('load_x', 0.0)
-        ly = self._params.get('load_y', 1.0)
+        lx = self._params.get('load_x', 1.0)
+        ly = self._params.get('load_y', 0.0)
         lz = self._params.get('load_z', 0.0)
         fmt = lambda v: str(int(v)) if float(v) == int(float(v)) else str(v)
         self._mp_load = QLineEdit(f"{fmt(lx)} {fmt(ly)} {fmt(lz)}")

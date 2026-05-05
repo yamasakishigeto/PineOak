@@ -588,8 +588,8 @@ class MPrimeDef(GBDefinition):
         'euler_source': 'ref',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
-        'load_x':       0.0,      # 荷重軸（試料座標系）
-        'load_y':       1.0,
+        'load_x':       1.0,      # 荷重軸（試料座標系）
+        'load_y':       0.0,
         'load_z':       0.0,
     }
 
@@ -662,8 +662,8 @@ class MPrimeDef(GBDefinition):
         except ValueError as e:
             raise ValueError(f"m' すべり系パラメータが不正: {e}") from e
 
-        lv = np.array([float(params.get('load_x', 0.0)),
-                       float(params.get('load_y', 1.0)),
+        lv = np.array([float(params.get('load_x', 1.0)),
+                       float(params.get('load_y', 0.0)),
                        float(params.get('load_z', 0.0))], dtype=float)
         norm = np.linalg.norm(lv)
         load_vec = lv / norm if norm > 1e-12 else np.array([0.0, 1.0, 0.0])
