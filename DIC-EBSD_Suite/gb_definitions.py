@@ -604,8 +604,8 @@ class MPrimeDef(GBDefinition):
         'euler_source': 'ref',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
-        'load_x':       0.0,      # 荷重軸（試料座標系）STABIX sigma_22=1 に対応
-        'load_y':       1.0,
+        'load_x':       1.0,      # 荷重軸（試料座標系）X方向＝画面左右
+        'load_y':       0.0,
         'load_z':       0.0,
     }
 
@@ -703,11 +703,11 @@ class MPrimeDef(GBDefinition):
         except ValueError as e:
             raise ValueError(f"m' すべり系パラメータが不正: {e}") from e
 
-        lv = np.array([float(params.get('load_x', 1.0)),
-                       float(params.get('load_y', 0.0)),
-                       float(params.get('load_z', 0.0))], dtype=float)
+        lv = np.array([float(params.get('load_x', self.default_params['load_x'])),
+                       float(params.get('load_y', self.default_params['load_y'])),
+                       float(params.get('load_z', self.default_params['load_z']))], dtype=float)
         norm = np.linalg.norm(lv)
-        load_vec = lv / norm if norm > 1e-12 else np.array([0.0, 1.0, 0.0])
+        load_vec = lv / norm if norm > 1e-12 else np.array([1.0, 0.0, 0.0])
 
         fallback_sym = list(phase_sym_map.values())[0] if phase_sym_map else get_sym_ops("Cubic")
         return rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym
