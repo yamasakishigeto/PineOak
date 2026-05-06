@@ -307,11 +307,16 @@ def dic_load_config(folder: str):
             k, v = k.strip(), v.strip()
 
             if not in_s1 and not in_s2 and not in_scale and not in_cmap:
-                if k == 'subset':   result['subset']   = int(v.split()[0])
-                if k == 'gauge':    result['gauge']    = int(v.split()[0])
-                if k == 'workers':  result['workers']  = int(v.split()[0])
-                if k == 'NCC閾値':  result['ncc_thr']  = float(v.split()[0])
-                if k == 'dt':       result['dt']       = float(v.split()[0])
+                if k == 'subset':    result['subset']          = int(v.split()[0])
+                if k == 'gauge':     result['gauge']           = int(v.split()[0])
+                if k == 'workers':   result['workers']         = int(v.split()[0])
+                if k in ('NCC閾値', 'ZNCC閾値'):
+                    try: result['ncc_thr'] = float(v.split()[0])
+                    except ValueError: pass
+                if k == 'dt':
+                    try: result['dt'] = float(v.split()[0])
+                    except ValueError: pass   # 「（未設定）」のときは読み飛ばす
+                if k == 'サブピクセル': result['subpixel_method'] = v.split()[0]
 
             if in_s1:
                 if k == 'step':   result['s1_step'] = int(v.split()[0])
@@ -764,7 +769,7 @@ strain   = res['strain']
 img_h = extent[2] - extent[3]
 img_w = extent[1] - extent[0]
 aspect = img_h / img_w
-fig, axes = plt.subplots(3, 3, figsize=(18, 18 * aspect + 2))
+fig, axes = plt.subplots(3, 3, figsize=(12, (18 * aspect + 2) * 2 / 3))
 
 def plot_one(ax, data, title, key, cmap, symmetric=True):
     lo, hi = sc.get(key, (None, None))
@@ -778,7 +783,8 @@ def plot_one(ax, data, title, key, cmap, symmetric=True):
         vmin = float(np.percentile(valid, 2))  if len(valid) else 0
         vmax = float(np.percentile(valid, 98)) if len(valid) else 1
     im = ax.imshow(data, cmap=cmap, extent=extent, vmin=vmin, vmax=vmax, aspect='equal')
-    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.ax.tick_params(labelsize=6)
     ax.set_title(title, fontsize=9, pad=3)
     ax.set_xlabel('X [px]', fontsize=7); ax.set_ylabel('Y [px]', fontsize=7)
     ax.tick_params(labelsize=6)
@@ -787,7 +793,8 @@ plot_one(axes[0,0], u_grid,              'u変位 [px]',               'u',     
 plot_one(axes[0,1], v_grid,              'v変位 [px]',               'v',         _cm('v'))
 ncc_vmin = max(ncc_thr, 0.0)
 im = axes[0,2].imshow(ncc_grid, cmap='plasma', extent=extent, vmin=ncc_vmin, vmax=1.0, aspect='equal')
-plt.colorbar(im, ax=axes[0,2], fraction=0.046, pad=0.04)
+cb_ncc = plt.colorbar(im, ax=axes[0,2], fraction=0.046, pad=0.04)
+cb_ncc.ax.tick_params(labelsize=6)
 axes[0,2].set_title(f'NCC peak (下限={ncc_vmin:.2f})', fontsize=9, pad=3)
 axes[0,2].set_xlabel('X [px]', fontsize=7); axes[0,2].set_ylabel('Y [px]', fontsize=7)
 axes[0,2].tick_params(labelsize=6)
@@ -812,7 +819,7 @@ if 'strain_rate' in res:
     _rlbls  = ['dεxx/dt [/s]', 'dεyy/dt [/s]', 'dεxy/dt [/s]', 'de1/dt [/s]', 'dγmax/dt [/s]']
     _rcmaps = [_cm(_rk) for _rk in _rkeys]
     _rsym   = [True, True, True, False, False]
-    fig2, axes2 = plt.subplots(1, 5, figsize=(22, 4 * aspect + 1))
+    fig2, axes2 = plt.subplots(1, 5, figsize=(15, (4 * aspect + 1) * 2 / 3))
     for _ax, _rk, _rl, _cm2, _sym in zip(axes2, _rkeys, _rlbls, _rcmaps, _rsym):
         _arr = _rate.get(_rk)
         if _arr is None:
@@ -830,7 +837,8 @@ if 'strain_rate' in res:
             _vmin = float(np.percentile(_valid, 2)) if len(_valid) else 0
             _vmax = float(np.percentile(_valid, 98)) if len(_valid) else 1
         _im = _ax.imshow(_arr, cmap=_cm2, extent=extent, vmin=_vmin, vmax=_vmax, aspect='equal')
-        plt.colorbar(_im, ax=_ax, fraction=0.046, pad=0.04)
+        _cb = plt.colorbar(_im, ax=_ax, fraction=0.046, pad=0.04)
+        _cb.ax.tick_params(labelsize=6)
         _ax.set_title(_rl, fontsize=9, pad=3)
         _ax.set_xlabel('X [px]', fontsize=7); _ax.set_ylabel('Y [px]', fontsize=7)
         _ax.tick_params(labelsize=6)
@@ -1584,7 +1592,7 @@ def _run_patrep_batch(params: dict):
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  PineOak v1.0  —  DIC/EBSD Suite")
+    print("  PineOak v1.1  —  DIC/EBSD Suite")
     print(f"  Tools dir: {TOOLS_DIR}")
     print("=" * 50)
     eel.start(

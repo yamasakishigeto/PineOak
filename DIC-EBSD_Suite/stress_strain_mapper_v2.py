@@ -189,7 +189,7 @@ class StressStrainMapperApp(QMainWindow):
     def __init__(self, mat_path: Path):
         super().__init__()
         self.mat_path = mat_path
-        self.setWindowTitle(f"PineOak v1.0  —  Stress–Strain Mapper  —  {mat_path.name}")
+        self.setWindowTitle(f"PineOak v1.1  —  Stress–Strain Mapper  —  {mat_path.name}")
         self.resize(1280, 960)
 
         # データ読み込み
