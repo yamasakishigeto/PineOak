@@ -604,8 +604,8 @@ class MPrimeDef(GBDefinition):
         'euler_source': 'ref',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
-        'load_x':       1.0,      # 荷重軸（試料座標系）
-        'load_y':       0.0,
+        'load_x':       0.0,      # 荷重軸（試料座標系）STABIX sigma_22=1 に対応
+        'load_y':       1.0,
         'load_z':       0.0,
     }
 
@@ -752,7 +752,7 @@ class MPrimeDef(GBDefinition):
     def _calc_mprime(group, rotmats, n_equivs, b_equivs, load_vec):
         """測定点ごとにシュミット因子最大の活性すべり系を選び、m' を返す。
 
-        compute_schmid_factor と同じ手順で各点の活性系を独立に決定する:
+        各点の活性系を荷重方向から独立に決定する:
           1. g.T @ load_sample で荷重軸を結晶座標系へ変換
           2. argmax(|cos φ| × |cos λ|) で活性系インデックスを決定
           3. g @ n_crystal で活性系を試料座標系へ変換
