@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QSlider, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
-    QMessageBox, QSizePolicy, QCheckBox, QScrollArea,
+    QMessageBox, QSizePolicy, QCheckBox, QScrollArea, QDialog,
 )
 from PyQt6.QtCore import Qt
 
@@ -62,10 +62,43 @@ CMAPS = [
     "viridis", "plasma", "inferno", "magma", "coolwarm",
     "RdBu_r", "seismic", "bwr", "jet", "turbo",
     "rainbow", "hot", "Blues", "Reds",
+    "RdYlGn", "RdYlBu", "PiYG", "PRGn",
 ]
 
 DIC_STRAIN_BASES = ["exx", "eyy", "exy", "e1", "gamma_max", "omega_xy"]
 EXCLUDE_Y_BASES = {"u", "v", "zncc"} | set(DIC_STRAIN_BASES)
+
+
+# ============================================================
+# m' カラーバーウィンドウ
+# ============================================================
+
+class MprimeColorbarWindow(QDialog):
+    """m' グラデーション用カラーバーを単独ウィンドウで表示する。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Tool)
+        self.setWindowTitle("m' カラースケール")
+        self.setFixedSize(100, 320)
+        self._fig = Figure(figsize=(1.0, 3.2), tight_layout=False)
+        self._fig.subplots_adjust(left=0.05, right=0.45, top=0.96, bottom=0.04)
+        self._canvas = FigureCanvasQtAgg(self._fig)
+        self._cbar_ax = self._fig.add_axes([0.15, 0.04, 0.30, 0.92])
+        self._cbar = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._canvas)
+
+    def update_cmap(self, cmap_name: str):
+        import matplotlib.cm as mcm
+        from matplotlib.colors import Normalize
+        self._cbar_ax.clear()
+        sm = mcm.ScalarMappable(norm=Normalize(0.0, 1.0), cmap=cmap_name)
+        sm.set_array([])
+        self._cbar = self._fig.colorbar(sm, cax=self._cbar_ax)
+        self._cbar.set_label("m'", fontsize=9)
+        self._cbar.ax.tick_params(labelsize=8)
+        self._canvas.draw()
 
 
 # ============================================================
@@ -721,8 +754,43 @@ class StressStrainMapperApp(QMainWindow):
 
         self._map_gb_cls_settings_btn.clicked.connect(_open_cls_settings)
         row_cls.addWidget(self._map_gb_cls_settings_btn)
+
+        # m' カラーマップ選択（m_prime 選択時のみ有効）
+        self._mp_cmap_cb = QComboBox()
+        self._mp_cmap_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._mp_cmap_cb.addItems(CMAPS)
+        self._mp_cmap_cb.setCurrentText("RdYlGn")
+        self._mp_cmap_cb.setEnabled(False)
+        self._mp_cmap_cb.currentIndexChanged.connect(
+            lambda _: (self._update_mp_cbar(), self._redraw_current_map()))
+        row_cls.addWidget(self._mp_cmap_cb)
+
+        # カラーバーウィンドウ表示ボタン
+        self._mp_cbar_btn = QPushButton("カラーバー")
+        self._mp_cbar_btn.setFixedWidth(76)
+        self._mp_cbar_btn.setEnabled(False)
+        self._mp_cbar_window: MprimeColorbarWindow | None = None
+        def _show_mp_cbar():
+            if self._mp_cbar_window is None or not self._mp_cbar_window.isVisible():
+                self._mp_cbar_window = MprimeColorbarWindow(parent=self)
+                self._mp_cbar_window.update_cmap(self._mp_cmap_cb.currentText())
+                self._mp_cbar_window.show()
+            else:
+                self._mp_cbar_window.raise_()
+                self._mp_cbar_window.activateWindow()
+        self._mp_cbar_btn.clicked.connect(_show_mp_cbar)
+        row_cls.addWidget(self._mp_cbar_btn)
+
         row_cls.addStretch()
         layout.addLayout(row_cls)
+
+        # cls コンボ変更時に m' 関連ウィジェットの有効/無効を切り替える
+        def _upd_mp_widgets(idx):
+            is_mp = self._map_gb_cls_cb.currentData() == "m_prime"
+            self._mp_cmap_cb.setEnabled(is_mp)
+            self._mp_cbar_btn.setEnabled(is_mp)
+        self._map_gb_cls_cb.currentIndexChanged.connect(_upd_mp_widgets)
+        _upd_mp_widgets(0)
 
         row_cmap_btn = QHBoxLayout()
         btn_cmap_preview = QPushButton("カラーマップ色見本")
@@ -2243,18 +2311,12 @@ class StressStrainMapperApp(QMainWindow):
         if val_segs and vals is not None:
             # m' グラデーション描画（カラーマップ）
             from matplotlib.colors import Normalize
-            lc = LineCollection(val_segs, cmap="RdYlGn",
+            mp_cmap = self._mp_cmap_cb.currentText()
+            lc = LineCollection(val_segs, cmap=mp_cmap,
                                 norm=Normalize(vmin=0.0, vmax=1.0),
                                 linewidths=1.2, alpha=0.95, zorder=4)
             lc.set_array(vals)
             ax.add_collection(lc)
-            # インセットカラーバー（右端に小型）
-            try:
-                cbar_ax = ax.inset_axes([1.01, 0.0, 0.03, 1.0])
-                ax.get_figure().colorbar(lc, cax=cbar_ax, label="m'")
-                cbar_ax.tick_params(labelsize=8)
-            except Exception:
-                pass
             return True
 
         segs     = self._get_gb_segs(stage, x_draw=x_draw, y_draw=y_draw)
@@ -2371,6 +2433,11 @@ class StressStrainMapperApp(QMainWindow):
     # ----------------------------------------------------------
     # Grain ID マップの描画
     # ----------------------------------------------------------
+
+    def _update_mp_cbar(self):
+        """カラーバーウィンドウが開いていれば選択中 cmap で更新する。"""
+        if self._mp_cbar_window is not None and self._mp_cbar_window.isVisible():
+            self._mp_cbar_window.update_cmap(self._mp_cmap_cb.currentText())
 
     def _show_cmap_preview(self):
         """カラーマップ色見本を別ウィンドウで表示する。"""
