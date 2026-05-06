@@ -89,13 +89,6 @@ class GBSettingsDialog(QDialog):
         fl = QFormLayout(w)
         fl.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
-        self._mp_threshold = QDoubleSpinBox()
-        self._mp_threshold.setRange(0.0, 1.0)
-        self._mp_threshold.setSingleStep(0.05)
-        self._mp_threshold.setDecimals(2)
-        self._mp_threshold.setValue(float(self._params.get('threshold', 0.3)))
-        fl.addRow("m' 閾値（≤ threshold → 境界）:", self._mp_threshold)
-
         self._mp_plane = QLineEdit(str(self._params.get('slip_plane', '1 1 1')))
         self._mp_plane.setPlaceholderText("例: 1 1 1（FCC）/ 0 0 0 1（HCP）")
         fl.addRow("すべり面（Miller 指数）:", self._mp_plane)
@@ -104,8 +97,8 @@ class GBSettingsDialog(QDialog):
         self._mp_dir.setPlaceholderText("例: 1 -1 0（FCC）/ 1 1 -2 0（HCP）")
         fl.addRow("すべり方向（Miller 指数）:", self._mp_dir)
 
-        lx = self._params.get('load_x', 0.0)
-        ly = self._params.get('load_y', 1.0)
+        lx = self._params.get('load_x', 1.0)
+        ly = self._params.get('load_y', 0.0)
         lz = self._params.get('load_z', 0.0)
         fmt = lambda v: str(int(v)) if float(v) == int(float(v)) else str(v)
         self._mp_load = QLineEdit(f"{fmt(lx)} {fmt(ly)} {fmt(lz)}")
@@ -158,7 +151,6 @@ class GBSettingsDialog(QDialog):
             self._params['euler_source']    = self._mis_src.currentData()
             self._params['same_phase_only'] = self._mis_same.isChecked()
         elif self._key == "m_prime":
-            self._params['threshold']    = self._mp_threshold.value()
             self._params['slip_plane']   = self._mp_plane.text().strip()
             self._params['slip_dir']     = self._mp_dir.text().strip()
             self._params['euler_source'] = self._mp_src.currentData()

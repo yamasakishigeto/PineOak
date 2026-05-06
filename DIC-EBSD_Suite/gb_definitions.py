@@ -588,8 +588,7 @@ class MPrimeDef(GBDefinition):
     """Luster-Morris m' 粒界定義。
 
     隣接2粒の等価すべり系ベクトルをすべての組合せで比較し、
-    m' = max_{s1,s2} |cos ψ| × |cos κ| を計算する。
-    m' ≤ threshold のペアを「すべり移行が困難な境界」とする。
+    m' = |cos ψ| × |cos κ| を計算する。全粒界にグラデーション表示する。
 
     ψ: 隣接粒のすべり面法線間の角度（試料座標系）
     κ: すべり方向間の角度（試料座標系）
@@ -600,7 +599,7 @@ class MPrimeDef(GBDefinition):
     has_settings  = True
     is_classifier = True
     default_params = {
-        'threshold':    0.3,      # m' ≤ threshold → 境界（活性すべり系ベース: 0〜1 全域分布）
+        'threshold':    1.0,      # m' ≤ threshold → 境界（1.0 = 全境界）
         'euler_source': 'ref',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
@@ -620,7 +619,6 @@ class MPrimeDef(GBDefinition):
         rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
             self._prepare(mat, stage, phase_sym_map, params)
 
-        # 同一相かつ両点有効なペアを相ごとにグループ化
         from collections import defaultdict
         phase_groups: dict = defaultdict(list)
         for pair in base_pairs:
@@ -630,8 +628,8 @@ class MPrimeDef(GBDefinition):
                 continue
             phase_groups[pi].append((i, j))
 
-        highlighted: list[tuple[int, int]] = []
         threshold = float(params.get('threshold', self.default_params['threshold']))
+        highlighted: list[tuple[int, int]] = []
         for ph, group in phase_groups.items():
             sym = phase_sym_map.get(ph, fallback_sym)
             mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
@@ -715,7 +713,6 @@ class MPrimeDef(GBDefinition):
     def _compute(self, mat, stage, phase_sym_map, params):
         from collections import defaultdict
 
-        threshold = float(params.get('threshold', self.default_params['threshold']))
         rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
             self._prepare(mat, stage, phase_sym_map, params)
 
@@ -735,6 +732,7 @@ class MPrimeDef(GBDefinition):
                 continue
             phase_pair_groups[pi].append((i, j))
 
+        threshold = float(params.get('threshold', self.default_params['threshold']))
         boundary_pairs: list[tuple[int, int]] = []
         boundary_vals:  list[float]           = []
 
