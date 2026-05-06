@@ -753,9 +753,9 @@ class MPrimeDef(GBDefinition):
         """測定点ごとにシュミット因子最大の活性すべり系を選び、m' を返す。
 
         各点の活性系を荷重方向から独立に決定する:
-          1. g.T @ load_sample で荷重軸を結晶座標系へ変換
+          1. g @ load_sample で荷重軸を結晶座標系へ変換
           2. argmax(|cos φ| × |cos λ|) で活性系インデックスを決定
-          3. g @ n_crystal で活性系を試料座標系へ変換
+          3. g.T @ n_crystal で活性系を試料座標系へ変換
           4. 隣接点ペア (i, j) の m' = |n_i · n_j| × |b_i · b_j|
         """
         if not group:
@@ -765,17 +765,17 @@ class MPrimeDef(GBDefinition):
         all_pts = np.unique(arr)         # 全登場点のインデックス
         g_pts   = rotmats[all_pts]       # (num_pts, 3, 3)
 
-        # 荷重軸を各点の結晶座標系へ変換: g.T @ load_sample
-        load_crys = np.einsum('nji,j->ni', g_pts, load_vec)   # (num_pts, 3)
+        # 荷重軸を各点の結晶座標系へ変換: g @ load_sample
+        load_crys = np.einsum('nij,j->ni', g_pts, load_vec)   # (num_pts, 3)
 
         # シュミット因子を結晶座標系で計算して最大系を選ぶ
         cos_phi = np.abs(load_crys @ n_equivs.T)              # (num_pts, S)
         cos_lam = np.abs(load_crys @ b_equivs.T)              # (num_pts, S)
         max_idx = (cos_phi * cos_lam).argmax(axis=1)          # (num_pts,)
 
-        # 活性系を試料座標系へ変換: g @ n_crystal
-        n_active = np.einsum('nij,nj->ni', g_pts, n_equivs[max_idx])  # (num_pts, 3)
-        b_active = np.einsum('nij,nj->ni', g_pts, b_equivs[max_idx])  # (num_pts, 3)
+        # 活性系を試料座標系へ変換: g.T @ n_crystal
+        n_active = np.einsum('nji,nj->ni', g_pts, n_equivs[max_idx])  # (num_pts, 3)
+        b_active = np.einsum('nji,nj->ni', g_pts, b_equivs[max_idx])  # (num_pts, 3)
 
         pt_to_u = {pt: u for u, pt in enumerate(all_pts)}
         ui = np.array([pt_to_u[i] for i, _ in group])
