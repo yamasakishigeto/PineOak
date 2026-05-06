@@ -1,7 +1,7 @@
 # PineOak DIC/EBSD Suite
 
 SEM画像を用いたDIC（Digital Image Correlation）解析の統合ランチャーです。
-通常DIC・EBSDジオリファレンス・Heaviside DICを一つのGUIから順に実行できます。
+通常DIC・EBSDジオリファレンス・Heaviside DIC・Stress-Strain Mapper・Statistical Analysisを一つのGUIから順に実行できます。
 
 ---
 
@@ -37,9 +37,11 @@ py -3.13 main.py
         ↓
 5. Def EBSD Georef    変形後EBSDのジオリファレンス
         ↓
-6. Stress-Strain Mapper  応力–ひずみ曲線マッパー
+6. Stress-Strain Mapper  応力–ひずみ曲線・シュミット因子・RSS・GROD・m' 粒界マッピング
         ↓
 7. Heaviside DIC      不連続変位解析・Heaviside DIC計算
+        ↓
+8. Statistical Analysis  ひずみ・結晶学的変数の統計解析・ヒストグラム・ステージ変化グラフ
 ```
 
 作業フォルダを選択してから各ツールを起動してください。
@@ -101,7 +103,44 @@ DICサブセットグリッドに結晶粒情報を割り当てます。
 
 ---
 
-### 4. Heaviside DIC（`heaviside_dic_v81.py`）
+### 4. Stress-Strain Mapper（`stress_strain_mapper_v2.py`）
+
+DIC と EBSD を統合した応力–ひずみ解析ツールです。
+
+**入力:** `integrated_georef.mat`
+
+**主な機能:**
+
+| 機能 | 内容 |
+|---|---|
+| 応力–ひずみ曲線 | サブセット・粒・相ごとの曲線表示 |
+| Schmid Factor | すべり系指定によるシュミット因子マップ、すべり面トレース表示 |
+| RSS | Resolved Shear Stress マップ |
+| GROD | Grain Reference Orientation Deviation マップ |
+| 主ひずみ方向 | 主ひずみ・主せん断ひずみ方向の計算と表示 |
+| m'（Luster–Morris） | 粒界ごとの m' 値によるグラデーション描画、閾値以下/以上フィルタ、カラーマップ選択 |
+
+---
+
+### 5. Statistical Analysis（`stats_analysis_v1.py`）
+
+解析済みデータの統計解析モジュールです。
+
+**入力:** `integrated_georef.mat`
+
+**主な機能:**
+
+| 機能 | 内容 |
+|---|---|
+| ヒストグラム | ひずみ・結晶学的変数の分布表示、ビン幅自動統一 |
+| ステージ変化グラフ | 各変数のステージ（負荷レベル）依存性プロット |
+| Quality Filter | CI / IQ / ZNCC / PK height / MAE によるデータフィルタリング |
+| Region Filter | 相・粒界近傍でのデータ絞り込み |
+| 軸範囲指定 | 各グラフの最大・最小値を手動設定 |
+
+---
+
+### 6. Heaviside DIC（`heaviside_dic_v81.py`）
 すべり帯などの不連続変位場をHeaviside基底関数で解析します。
 
 **入力:**
@@ -146,6 +185,10 @@ DIC-EBSD_Suite/
 ├── preprocessed_loader.py                     # 前処理済みデータローダー
 ├── visualize_grain_map_overlay_250709.py      # 粒マップ重ね合わせ可視化
 ├── stress_strain_mapper_v2.py                 # Stress-Strain Mapper（PyQt6 GUI）
+├── stress_strain_calc.py                      # 応力–ひずみ計算関数
+├── gb_definitions.py                          # 粒界定義（SpecialBoundary / m'）
+├── gb_settings_dialog.py                      # 粒界設定ダイアログ
+├── stats_analysis_v1.py                       # Statistical Analysis（PyQt6 GUI）
 ├── _dic_runner.py                             # DIC実行管理
 ├── _dic_runner_src.py                         # DIC解析サブプロセス用スクリプト
 ├── _patrep_runner.py                          # PatRep実行管理

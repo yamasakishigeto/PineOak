@@ -1,7 +1,7 @@
 # PineOak SEM-DIC/HR-EBSD Tools
 
 SEM-DIC と HR-EBSD の実験・解析で使うための Python ツール集です。
-SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、Heaviside DICによるすべり帯などの検出、DICサブセットごとの応力–ひずみ曲線の可視化などをサポートします。
+SEM画像からのDICひずみ測定、SEM像またはDICマップとEBSDデータとのジオリファレンス、Heaviside DICによるすべり帯などの検出、DICサブセットごとの応力–ひずみ曲線の可視化、シュミット因子・RSS・m' パラメータの粒界マッピング、統計解析などをサポートします。
 
 **チュートリアル動画:** [YouTube チャンネルを見る](https://www.youtube.com/channel/UCY4qW2Bj_Rh82PAZ9XJpbXQ)
 
@@ -17,8 +17,9 @@ GUI（ブラウザベース）から以下の解析を実行できます。
 | 3 | Normal DIC | SEM 画像を使ったサブセットベースのひずみ測定 |
 | 4 | EBSD Georef | EBSD グレインマップを SEM 座標系に位置合わせ |
 | 5 | Def EBSD Georef | 変形後 EBSD グレインマップのジオリファレンス |
-| 6 | Stress-Strain Mapper | サブセット・粒・相ごとの応力–ひずみ曲線の可視化 |
+| 6 | Stress-Strain Mapper | サブセット・粒・相ごとの応力–ひずみ曲線の可視化、シュミット因子・RSS・GROD・m' 粒界マッピング |
 | 7 | Heaviside DIC | すべり帯などの不連続変形の検出・可視化 |
+| 8 | Statistical Analysis | ひずみ・結晶学的変数のヒストグラムおよびステージ変化グラフ |
 
 ---
 
