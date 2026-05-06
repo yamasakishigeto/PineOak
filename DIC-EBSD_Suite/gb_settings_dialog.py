@@ -13,9 +13,9 @@ stats_analysis と stress_strain_mapper の両方から呼び出す。
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout,
+    QDialog, QVBoxLayout, QFormLayout, QHBoxLayout,
     QLabel, QDoubleSpinBox, QComboBox, QCheckBox,
-    QDialogButtonBox, QWidget, QLineEdit,
+    QDialogButtonBox, QWidget, QLineEdit, QRadioButton, QButtonGroup,
 )
 
 from gb_definitions import ALL_DEFINITIONS, DEFINITION_MAP, SYM_GROUPS
@@ -89,12 +89,28 @@ class GBSettingsDialog(QDialog):
         fl = QFormLayout(w)
         fl.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
+        thr_row = QHBoxLayout()
         self._mp_threshold = QDoubleSpinBox()
         self._mp_threshold.setRange(0.0, 1.0)
         self._mp_threshold.setSingleStep(0.05)
         self._mp_threshold.setDecimals(2)
         self._mp_threshold.setValue(float(self._params.get('threshold', 1.0)))
-        fl.addRow("m' 閾値（≤ threshold → 境界）:", self._mp_threshold)
+        thr_row.addWidget(self._mp_threshold)
+        self._mp_thr_bg = QButtonGroup()
+        rb_lte = QRadioButton("以下 (≤)")
+        rb_gte = QRadioButton("以上 (≥)")
+        self._mp_thr_bg.addButton(rb_lte, 0)
+        self._mp_thr_bg.addButton(rb_gte, 1)
+        if self._params.get('threshold_mode', 'lte') == 'gte':
+            rb_gte.setChecked(True)
+        else:
+            rb_lte.setChecked(True)
+        thr_row.addWidget(rb_lte)
+        thr_row.addWidget(rb_gte)
+        thr_row.addStretch()
+        thr_w = QWidget()
+        thr_w.setLayout(thr_row)
+        fl.addRow("m' 閾値:", thr_w)
 
         self._mp_plane = QLineEdit(str(self._params.get('slip_plane', '1 1 1')))
         self._mp_plane.setPlaceholderText("例: 1 1 1（FCC）/ 0 0 0 1（HCP）")
@@ -158,8 +174,9 @@ class GBSettingsDialog(QDialog):
             self._params['euler_source']    = self._mis_src.currentData()
             self._params['same_phase_only'] = self._mis_same.isChecked()
         elif self._key == "m_prime":
-            self._params['threshold']    = self._mp_threshold.value()
-            self._params['slip_plane']   = self._mp_plane.text().strip()
+            self._params['threshold']      = self._mp_threshold.value()
+            self._params['threshold_mode'] = 'gte' if self._mp_thr_bg.checkedId() == 1 else 'lte'
+            self._params['slip_plane']     = self._mp_plane.text().strip()
             self._params['slip_dir']     = self._mp_dir.text().strip()
             self._params['euler_source'] = self._mp_src.currentData()
             try:

@@ -599,7 +599,8 @@ class MPrimeDef(GBDefinition):
     has_settings  = True
     is_classifier = True
     default_params = {
-        'threshold':    1.0,      # m' ≤ threshold → 境界（1.0 = 全境界）
+        'threshold':      1.0,    # フィルタ閾値（1.0 = 全境界）
+        'threshold_mode': 'lte',  # 'lte': m' ≤ threshold / 'gte': m' ≥ threshold
         'euler_source': 'ref',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
@@ -629,12 +630,13 @@ class MPrimeDef(GBDefinition):
             phase_groups[pi].append((i, j))
 
         threshold = float(params.get('threshold', self.default_params['threshold']))
+        gte_mode  = params.get('threshold_mode', 'lte') == 'gte'
         highlighted: list[tuple[int, int]] = []
         for ph, group in phase_groups.items():
             sym = phase_sym_map.get(ph, fallback_sym)
             mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
             for pair, mp in zip(group, mp_arr):
-                if mp <= threshold:
+                if (mp >= threshold) if gte_mode else (mp <= threshold):
                     highlighted.append(pair)
         return highlighted
 
@@ -733,6 +735,7 @@ class MPrimeDef(GBDefinition):
             phase_pair_groups[pi].append((i, j))
 
         threshold = float(params.get('threshold', self.default_params['threshold']))
+        gte_mode  = params.get('threshold_mode', 'lte') == 'gte'
         boundary_pairs: list[tuple[int, int]] = []
         boundary_vals:  list[float]           = []
 
@@ -740,7 +743,7 @@ class MPrimeDef(GBDefinition):
             sym    = phase_sym_map.get(ph, fallback_sym)
             mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
             for pair, mp in zip(group, mp_arr):
-                if mp <= threshold:
+                if (mp >= threshold) if gte_mode else (mp <= threshold):
                     boundary_pairs.append(pair)
                     boundary_vals.append(float(mp))
 
