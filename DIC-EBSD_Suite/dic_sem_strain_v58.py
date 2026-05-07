@@ -114,6 +114,7 @@ SEARCH_FINE    = 5    # Stage 2：探索範囲 [px]
 
 GAUGE_LENGTH   = 1    # ひずみゲージ長さ（サブセット間隔の整数倍）
 STRAIN_TYPE    = 'infinitesimal'  # ひずみ種類: 'infinitesimal'=微小ひずみ, 'green_lagrange'=グリーン-ラグランジェ
+SUBPIXEL_METHOD = 'parabolic'     # サブピクセル補間手法: 'parabolic', 'gaussian', 'spline'
 USE_PREV_STAGE1 = True  # True=2枚目以降のStage1初期値に前段Stage1結果を使用（高速化）
                          # False=毎回グローバルシフトを初期値（独立処理）
                       # 1=隣接サブセット間差分（最高分解能）、2以上=nステップ離れた点の中心差分
@@ -1280,11 +1281,23 @@ def search_integer_displacement(ref, deformed, cx, cy, subset_size,
     return best_u, best_v, zncc_map
 
 
+def _subpixel_gaussian_1d(c_minus, c0, c_plus):
+    """log空間での放物線フィット（ガウス型ピーク仮定・ピークロッキング低減）。"""
+    if c_minus <= 0.0 or c0 <= 0.0 or c_plus <= 0.0:
+        return 0.0
+    lm, l0, lp = np.log(c_minus), np.log(c0), np.log(c_plus)
+    denom = lm - 2.0 * l0 + lp
+    if abs(denom) < 1e-12:
+        return 0.0
+    return float(np.clip(0.5 * (lm - lp) / denom, -1.0, 1.0))
+
+
 def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v=0):
     """
-    2D放物線フィットによるサブピクセル精度向上。
-    ピーク周囲3×3点を使って2次曲面をフィットし、解析的な極大値を求める。
-    従来の独立1D放物線より精度が高い。
+    サブピクセル精度向上。SUBPIXEL_METHOD グローバルで手法を切り替え。
+      'parabolic' : 2D放物線フィット（9点最小二乗・デフォルト）
+      'gaussian'  : 1D独立ガウスフィット（log空間、ピークロッキング低減）
+      'spline'    : 2D RectBivariateSpline（細密グリッド評価）
     """
     peak_v_idx = best_v - round(init_v) + search_range
     peak_u_idx = best_u - round(init_u) + search_range
@@ -1292,11 +1305,43 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
             peak_u_idx <= 0 or peak_u_idx >= zncc_map.shape[1]-1):
         return float(best_u), float(best_v)
 
-    # 3×3近傍を取得
     patch = zncc_map[peak_v_idx-1:peak_v_idx+2, peak_u_idx-1:peak_u_idx+2]
 
-    # 2D放物線フィット: f(u,v) = a*u^2 + b*v^2 + c*u*v + d*u + e*v + f
-    # 9点から最小二乗法で係数を求め、極値を解析的に計算
+    method = SUBPIXEL_METHOD
+
+    # ---- ガウスフィット（独立1D）----
+    if method == 'gaussian':
+        delta_u = _subpixel_gaussian_1d(patch[1, 0], patch[1, 1], patch[1, 2])
+        delta_v = _subpixel_gaussian_1d(patch[0, 1], patch[1, 1], patch[2, 1])
+        return best_u + delta_u, best_v + delta_v
+
+    # ---- スプライン補間 ----
+    if method == 'spline':
+        try:
+            from scipy.interpolate import RectBivariateSpline
+            window = 2
+            h, w = zncc_map.shape
+            wy1 = max(0, peak_v_idx - window); wy2 = min(h-1, peak_v_idx + window)
+            wx1 = max(0, peak_u_idx - window); wx2 = min(w-1, peak_u_idx + window)
+            if (wy2 - wy1 >= 2) and (wx2 - wx1 >= 2):
+                local = zncc_map[wy1:wy2+1, wx1:wx2+1].astype(np.float64)
+                ys = np.arange(wy1, wy2+1, dtype=np.float64)
+                xs = np.arange(wx1, wx2+1, dtype=np.float64)
+                spl = RectBivariateSpline(ys, xs, local,
+                                          kx=min(3, len(ys)-1), ky=min(3, len(xs)-1))
+                ys_f = np.linspace(wy1, wy2, 100)
+                xs_f = np.linspace(wx1, wx2, 100)
+                vals = spl(ys_f, xs_f)
+                siy, six = np.unravel_index(np.argmax(vals), vals.shape)
+                delta_u = float(np.clip(xs_f[six] - peak_u_idx, -1.0, 1.0))
+                delta_v = float(np.clip(ys_f[siy] - peak_v_idx, -1.0, 1.0))
+                return best_u + delta_u, best_v + delta_v
+        except Exception:
+            pass
+        # フォールバック: parabolic
+        method = 'parabolic'
+
+    # ---- 2D放物線フィット（デフォルト） ----
     pts = []
     vals = []
     for dv in [-1, 0, 1]:
@@ -1309,7 +1354,6 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
     try:
         coeffs, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
     except np.linalg.LinAlgError:
-        # フィット失敗時は1D放物線にフォールバック
         c_left  = patch[1, 0]; c_mid = patch[1, 1]; c_right = patch[1, 2]
         denom_u = 2.0*(c_left - 2.0*c_mid + c_right)
         delta_u = (c_left - c_right) / denom_u if abs(denom_u) > 1e-10 else 0.0
@@ -1319,8 +1363,6 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
         return best_u + delta_u, best_v + delta_v
 
     a, b, c, d, e, _ = coeffs
-    # 極値: [2a  c][du]   [-d]
-    #       [c  2b][dv] = [-e]
     denom = 4*a*b - c*c
     if abs(denom) < 1e-10:
         delta_u, delta_v = 0.0, 0.0
@@ -1328,7 +1370,6 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
         delta_u = (c*e - 2*b*d) / denom
         delta_v = (c*d - 2*a*e) / denom
 
-    # 補正量が1px以内に収まらない場合はクリップ
     delta_u = float(np.clip(delta_u, -1.0, 1.0))
     delta_v = float(np.clip(delta_v, -1.0, 1.0))
     return best_u + delta_u, best_v + delta_v
@@ -1745,7 +1786,9 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     img_w = extent[1] - extent[0]
     aspect = img_h / img_w
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6 * aspect + 1))
+    fig, axes = plt.subplots(1, 3, figsize=(12, (6 * aspect + 1) * 2 / 3))
+
+    _tk = 7  # マップ座標軸・カラーバー共通の文字サイズ
 
     u_abs = max(np.nanpercentile(np.abs(u_grid), 95), 1.0)
     u_lo, u_hi = sc.get('u', (None, None))
@@ -1753,9 +1796,11 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     u_vmax = u_hi if u_hi is not None else  u_abs
     im0 = axes[0].imshow(u_grid, cmap=cmap_sym, extent=extent,
                           vmin=u_vmin, vmax=u_vmax, aspect='equal')
-    plt.colorbar(im0, ax=axes[0], label="u [px]")
+    cb0 = plt.colorbar(im0, ax=axes[0], label="u [px]")
+    cb0.ax.tick_params(labelsize=_tk)
     axes[0].set_title(f"u変位マップ\nグローバルシフト: x={shift_x}px")
     axes[0].set_xlabel("X [px]"); axes[0].set_ylabel("Y [px]")
+    axes[0].tick_params(labelsize=_tk)
 
     v_abs = max(np.nanpercentile(np.abs(v_grid), 95), 1.0)
     v_lo, v_hi = sc.get('v', (None, None))
@@ -1763,16 +1808,20 @@ def visualize_displacement(cx_list, cy_list, u_corr, v_corr,
     v_vmax = v_hi if v_hi is not None else  v_abs
     im1 = axes[1].imshow(v_grid, cmap=cmap_sym, extent=extent,
                           vmin=v_vmin, vmax=v_vmax, aspect='equal')
-    plt.colorbar(im1, ax=axes[1], label="v [px]")
+    cb1 = plt.colorbar(im1, ax=axes[1], label="v [px]")
+    cb1.ax.tick_params(labelsize=_tk)
     axes[1].set_title(f"v変位マップ\nグローバルシフト: y={shift_y}px")
     axes[1].set_xlabel("X [px]"); axes[1].set_ylabel("Y [px]")
+    axes[1].tick_params(labelsize=_tk)
 
     zncc_vmin = max(zncc_threshold, 0.0)
     im2 = axes[2].imshow(zncc_grid, cmap='plasma', extent=extent,
                           vmin=zncc_vmin, vmax=1.0, aspect='equal')
-    plt.colorbar(im2, ax=axes[2], label="ZNCC peak")
+    cb2 = plt.colorbar(im2, ax=axes[2], label="ZNCC peak")
+    cb2.ax.tick_params(labelsize=_tk)
     axes[2].set_title(f"ZNCCピーク値マップ\n(下限={zncc_vmin:.2f}=しきい値)")
     axes[2].set_xlabel("X [px]"); axes[2].set_ylabel("Y [px]")
+    axes[2].tick_params(labelsize=_tk)
 
     plt.tight_layout()
     if preview:
@@ -1791,7 +1840,7 @@ def visualize_strain(strain, subset_step, ref_name, def_name, def_stem="",
     img_h = extent[2] - extent[3]
     img_w = extent[1] - extent[0]
     aspect = img_h / img_w
-    col_w = 5.5
+    col_w = 5.5 * 2 / 3
     fig, axes = plt.subplots(2, 3, figsize=(col_w * 3, col_w * aspect * 2))
 
     def plot_strain(ax, data, title, key, cmap='RdBu_r', symmetric=True):
@@ -1806,7 +1855,8 @@ def visualize_strain(strain, subset_step, ref_name, def_name, def_stem="",
             vmax = np.nanpercentile(data, 98)
         im = ax.imshow(data, cmap=cmap, extent=extent,
                        vmin=vmin, vmax=vmax, aspect='equal')
-        plt.colorbar(im, ax=ax, label="[-]", fraction=0.046, pad=0.04)
+        cb = plt.colorbar(im, ax=ax, label="[-]", fraction=0.046, pad=0.04)
+        cb.ax.tick_params(labelsize=7)
         ax.set_title(title, pad=4, fontsize=10)
         ax.set_xlabel("X [px]", fontsize=8)
         ax.set_ylabel("Y [px]", fontsize=8)

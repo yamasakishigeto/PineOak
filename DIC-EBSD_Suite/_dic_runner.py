@@ -32,6 +32,7 @@ mod.ZNCC_THRESHOLD   = p["zncc_threshold"]
 mod.N_WORKERS       = p["n_workers"]
 mod.GAUGE_LENGTH    = p["gauge_length"]
 mod.STRAIN_TYPE     = p.get("strain_type", "infinitesimal")
+mod.SUBPIXEL_METHOD = p.get("subpixel_method", "parabolic")
 mod.USE_PREV_STAGE1 = p["use_prev_stage1"]
 _dt_raw = p.get("dt", None)
 DT = float(_dt_raw) if (_dt_raw is not None and float(_dt_raw) > 0) else None
@@ -140,6 +141,7 @@ config_lines = [
     f'  subset     : {SUBSET_SIZE} px',
     f'  gauge      : {GAUGE_LENGTH} 倍',
     f'  ZNCC閾値    : {ZNCC_THRESHOLD}',
+    f'  サブピクセル: {mod.SUBPIXEL_METHOD}',
     f'  workers    : {mod.N_WORKERS}',
     f'  dt         : {f"{DT:.3f} 秒/フレーム" if DT else "（未設定）"}', '',
     '[カラースケール]',
@@ -148,12 +150,19 @@ for k, (lo, hi) in SCALE_CONFIG.items():
     config_lines.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
 
 _CMAP_DEF = {'u':'RdBu_r','v':'RdBu_r','exx':'RdBu_r','eyy':'RdBu_r','exy':'RdBu_r',
-             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r'}
+             'e1':'hot_r','gamma_max':'hot_r','omega_xy':'RdBu_r',
+             'exx_rate':'RdBu_r','eyy_rate':'RdBu_r','exy_rate':'RdBu_r',
+             'e1_rate':'hot_r','gamma_max_rate':'hot_r'}
 _cmap_cfg = p.get('cmap', {})
 config_lines.append('')
 config_lines.append('[カラーマップ]')
 for k in ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']:
     config_lines.append(f'  {k:<12}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
+if DT is not None:
+    config_lines.append('')
+    config_lines.append('[ひずみ速度カラーマップ]')
+    for k in ['exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate']:
+        config_lines.append(f'  {k:<16}: {_cmap_cfg.get(k) or _CMAP_DEF.get(k, "RdBu_r")}')
 
 config_path = OUTPUT_DIR / 'dic_config.txt'
 with open(config_path, 'w', encoding='utf-8') as f:

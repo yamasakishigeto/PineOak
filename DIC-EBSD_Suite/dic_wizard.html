@@ -516,6 +516,16 @@
         <span class="param-hint">← この値未満のNCC点をNaN化（0で無効）</span>
       </div>
 
+      <div class="param-row">
+        <label class="param-label">サブピクセル補間</label>
+        <select class="param-input" id="subpixel-method" style="width:auto;">
+          <option value="parabolic">放物線フィット（標準）</option>
+          <option value="gaussian">ガウスフィット（ピークロッキング低減）</option>
+          <option value="spline">2Dスプライン（高精度・低速）</option>
+        </select>
+        <span class="param-hint">← サブピクセル変位量が小さい領域でのひずみ精度に影響</span>
+      </div>
+
       <hr class="sep">
 
       <div class="param-group-title">ひずみ計算</div>
@@ -920,6 +930,7 @@ async function loadConfig() {
   if (result.gauge)      document.getElementById('gauge-length').value   = result.gauge;
   if (result.dt != null) { document.getElementById('dt').value = result.dt; updateDtSection(); }
   if (result.workers != null) document.getElementById('n-workers').value = result.workers;
+  if (result.subpixel_method) document.getElementById('subpixel-method').value = result.subpixel_method;
 
   if (result.scale) {
     [...SCALE_KEYS, ...RATE_KEYS].forEach(k => {
@@ -991,6 +1002,7 @@ async function onRun() {
     s2_search:   parseInt(document.getElementById('s2-search').value),
     subset_size: parseInt(document.getElementById('subset-size').value),
     zncc_threshold: parseFloat(document.getElementById('ncc-thr').value),
+    subpixel_method: document.getElementById('subpixel-method').value,
     n_workers:   parseInt(document.getElementById('n-workers').value),
     gauge_length: parseInt(document.getElementById('gauge-length').value),
     dt:           document.getElementById('dt').value.trim() ? parseFloat(document.getElementById('dt').value) : null,

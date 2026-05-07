@@ -32,6 +32,7 @@ mod.ZNCC_THRESHOLD   = p["zncc_threshold"]
 mod.N_WORKERS       = p["n_workers"]
 mod.GAUGE_LENGTH    = p["gauge_length"]
 mod.STRAIN_TYPE     = p.get("strain_type", "infinitesimal")
+mod.SUBPIXEL_METHOD = p.get("subpixel_method", "parabolic")
 mod.USE_PREV_STAGE1 = p["use_prev_stage1"]
 _dt_raw = p.get("dt", None)
 DT = float(_dt_raw) if (_dt_raw is not None and float(_dt_raw) > 0) else None
@@ -140,6 +141,7 @@ config_lines = [
     f'  subset     : {SUBSET_SIZE} px',
     f'  gauge      : {GAUGE_LENGTH} 倍',
     f'  ZNCC閾値    : {ZNCC_THRESHOLD}',
+    f'  サブピクセル: {mod.SUBPIXEL_METHOD}',
     f'  workers    : {mod.N_WORKERS}',
     f'  dt         : {f"{DT:.3f} 秒/フレーム" if DT else "（未設定）"}', '',
     '[カラースケール]',
