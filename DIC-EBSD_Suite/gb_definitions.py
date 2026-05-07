@@ -134,26 +134,39 @@ def disorientation_angles_batch(
     Returns
     -------
     angles : (P,) float [degrees]  対称性を考慮した最小ミスオリエンテーション角
+
+    Notes
+    -----
+    双晶対称（bicrystal symmetry）: S_k @ ΔR @ S_l^T を全 (k,l) 組合せで評価。
+    左からのみの適用（S_k @ ΔR）では、同一粒内で対称性等価なオイラー角解
+    （例: 立方晶の 90° 等価解）が異なるサブセットに割り当てられた場合に
+    ミスオリエンテーション 0° を正しく検出できないため、両側適用が必要。
+
+    効率化: S_k ごとにループし、trace(S_k @ ΔR @ S_l^T) = (S_k @ ΔR).flatten() · S_l.flatten()
+    をフロベニウス内積で一括計算。メモリ O(S × P × 9)。
     """
     if len(pairs) == 0:
         return np.array([])
     pairs = np.asarray(pairs, int)
-    Ri = rotmats[pairs[:, 0]]                            # (P, 3, 3)
-    Rj = rotmats[pairs[:, 1]]                            # (P, 3, 3)
-    deltaR   = np.einsum('pji,pjk->pik', Ri, Rj)        # Ri.T @ Rj  (P,3,3)
-    deltaR_T = deltaR.transpose(0, 2, 1)                 # (deltaR).T (P,3,3)
+    Ri = rotmats[pairs[:, 0]]                      # (P, 3, 3)
+    Rj = rotmats[pairs[:, 1]]                      # (P, 3, 3)
+    deltaR = np.einsum('pji,pjk->pik', Ri, Rj)    # Ri.T @ Rj  (P, 3, 3)
 
-    # 各対称操作を左から掛けてトレース（= 2cosθ + 1）の最大値を探す
-    sdR   = np.einsum('sij,pjk->spik', sym_ops, deltaR)    # (S,P,3,3)
-    sdR_T = np.einsum('sij,pjk->spik', sym_ops, deltaR_T)  # (S,P,3,3)
+    S = len(sym_ops)
+    P = len(pairs)
+    sym_flat = sym_ops.reshape(S, 9)               # (S, 9)  S_l をフラット化
+    max_trace = np.full(P, -3.0)
 
-    def _traces(arr):
-        return arr[:, :, 0, 0] + arr[:, :, 1, 1] + arr[:, :, 2, 2]  # (S,P)
+    # 双晶対称: max_{k,l} trace(S_k @ ΔR @ S_l^T)
+    # = max_{k,l} Frobenius_inner(S_k @ ΔR,  S_l)
+    for k in range(S):
+        sdR_k      = np.einsum('ij,pjl->pil', sym_ops[k], deltaR)  # (P, 3, 3)
+        sdR_k_flat = sdR_k.reshape(P, 9)                            # (P, 9)
+        traces_kl  = sdR_k_flat @ sym_flat.T                        # (P, S)
+        max_trace  = np.maximum(max_trace, np.max(traces_kl, axis=1))
 
-    all_traces = np.concatenate([_traces(sdR), _traces(sdR_T)], axis=0)  # (2S,P)
-    max_trace  = np.max(all_traces, axis=0)                              # (P,)
-    cos_half   = np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)
-    return np.degrees(np.arccos(cos_half))
+    cos_theta = np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_theta))
 
 
 # ============================================================
@@ -797,8 +810,8 @@ class MPrimeDef(GBDefinition):
 # ============================================================
 
 ALL_DEFINITIONS: list[GBDefinition] = [
-    GrainIDDef(),
     MisorientationDef(),
+    GrainIDDef(),
     MPrimeDef(),
 ]
 
