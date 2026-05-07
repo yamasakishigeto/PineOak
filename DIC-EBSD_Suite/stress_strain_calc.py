@@ -146,10 +146,12 @@ def compute_rss(phi1_deg, PHI_deg, phi2_deg,
         return rss
 
     # RSS 最大のすべり系の試料座標系法線からトレース方向を計算
-    # n = [nx, ny, nz] → trace = [ny, -nx] (XY 面との交線方向)
+    # 試料座標系でのトレース: n × z_hat = [ny_s, -nx_s]
+    # ただし cx/cy は画像座標系（cy 下向き = -y_sample）なので
+    # 画像座標系でのトレース y 成分は符号反転して +nx_s になる
     n_max = n_samp[np.arange(Nv), max_idx, :]             # (Nv, 3)
-    tx =  n_max[:, 1]
-    ty = -n_max[:, 0]
+    tx =  n_max[:, 1]   #  ny_sample（x は同方向）
+    ty =  n_max[:, 0]   # +nx_sample（y は画像座標系で反転）
     norm = np.sqrt(tx**2 + ty**2)
     norm[norm < 1e-12] = 1.0
     trace = np.full((N, 2), np.nan)
@@ -271,8 +273,8 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
     # g.T @ n_crystal: g は試料→結晶なので転置で結晶→試料
     n_samp = np.einsum('nji,sj->nsi', g, n_equivs)          # (Nv, S, 3)
     n_max  = n_samp[np.arange(len(max_idx)), max_idx, :]     # (Nv, 3)
-    tx =  n_max[:, 1]
-    ty = -n_max[:, 0]
+    tx =  n_max[:, 1]   #  ny_sample（x は同方向）
+    ty =  n_max[:, 0]   # +nx_sample（y は画像座標系で反転）
     norm = np.sqrt(tx**2 + ty**2)
     norm[norm < 1e-12] = 1.0
     trace = np.full((N, 2), np.nan)
