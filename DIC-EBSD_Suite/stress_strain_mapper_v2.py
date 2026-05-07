@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QSlider, QPushButton, QLineEdit,
     QRadioButton, QButtonGroup, QGroupBox, QFileDialog,
     QMessageBox, QSizePolicy, QCheckBox, QScrollArea, QDialog,
+    QInputDialog,
 )
 from PyQt6.QtCore import Qt
 
@@ -1092,7 +1093,16 @@ class StressStrainMapperApp(QMainWindow):
             if self._map_mode == "var":
                 self._draw_map_current()
 
+    def _ask_dpi(self) -> int | None:
+        """解像度（dpi）をダイアログで尋ね、整数値を返す。キャンセル時は None。"""
+        dpi, ok = QInputDialog.getInt(
+            self, "保存解像度", "DPI を指定してください:", 300, 72, 1200, 50)
+        return dpi if ok else None
+
     def _export_map_current(self):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         base = self._map_var_cb.currentText()
         idx = self._map_stage_slider.value()
         data, x, y, stage = self._get_map_data(base, idx)
@@ -1104,10 +1114,13 @@ class StressStrainMapperApp(QMainWindow):
         self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, title, xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
         fname = f"map_{base}_{stage}.png" if stage else f"map_{base}.png"
         out = self.mat_path.parent / fname
-        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     def _export_map_all_stages(self):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         base = self._map_var_cb.currentText()
         if base not in self.per_stage:
             QMessageBox.warning(self, "Export All", "ステージ付き変数を選択してください。")
@@ -1134,7 +1147,7 @@ class StressStrainMapperApp(QMainWindow):
             self.canvas_map.draw_scatter(x, y, data, cmap, vmin, vmax, f"{base} [{stage}]", xlim=self._xlim, ylim=self._ylim, cbar_label=cbar_label)
             self.canvas_map._fig.savefig(
                 str(self.mat_path.parent / f"map_{base}_{stage}.png"),
-                dpi=300, bbox_inches="tight")
+                dpi=dpi, bbox_inches="tight")
 
         QMessageBox.information(self, "Export All",
                                 f"{len(sts)} 枚を保存しました:\n{self.mat_path.parent}")
@@ -1517,6 +1530,9 @@ class StressStrainMapperApp(QMainWindow):
                 self.canvas_map.draw()
 
     def _on_export_sf_all_stages(self):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         if "SF_schmid" not in self.per_stage:
             self._on_compute_sf()
         if "SF_schmid" not in self.per_stage:
@@ -1559,7 +1575,7 @@ class StressStrainMapperApp(QMainWindow):
                 if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"SF_schmid_{stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
             saved += 1
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
@@ -1698,6 +1714,9 @@ class StressStrainMapperApp(QMainWindow):
                 self.canvas_map.draw()
 
     def _on_export_rss_all_stages(self):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         if "RSS_max" not in self.per_stage:
             self._on_compute_rss()
         if "RSS_max" not in self.per_stage:
@@ -1742,7 +1761,7 @@ class StressStrainMapperApp(QMainWindow):
                 if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"RSS_max_{stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
             saved += 1
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
         self._map_grod_status_lbl.setStyleSheet("color: goldenrod;")
@@ -1870,6 +1889,9 @@ class StressStrainMapperApp(QMainWindow):
                 self.canvas_map.draw()
 
     def _on_export_grod_png(self):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         if "GROD_angle" not in self.per_stage:
             QMessageBox.warning(self, "Export", "先に Compute Map を実行してください。")
             return
@@ -1880,11 +1902,14 @@ class StressStrainMapperApp(QMainWindow):
         var = (self._map_grod_var_cb.currentText()
                .replace(" ", "_").replace("[", "").replace("]", ""))
         out = self.mat_path.parent / f"GROD_{var}_{tgt}_ref{ref}.png"
-        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     def _on_export_grod_all_stages(self):
         """キャッシュがなければ先に全ステージ計算してから PNG を一括出力する。"""
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         if "GROD_angle" not in self.per_stage:
             self._on_compute_grod()
         if "GROD_angle" not in self.per_stage:
@@ -1916,7 +1941,7 @@ class StressStrainMapperApp(QMainWindow):
                 if self._draw_gb_on(self.canvas_map.ax, stage, x_draw=x, y_draw=y):
                     self.canvas_map.draw()
             out = self.mat_path.parent / f"GROD_{label}_{stage}_ref{ref_stage}.png"
-            self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+            self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
             saved += 1
 
         self._map_grod_status_lbl.setText(f"完了: {saved} 枚を保存")
@@ -2423,11 +2448,14 @@ class StressStrainMapperApp(QMainWindow):
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
     def _export_derived(self, key):
+        dpi = self._ask_dpi()
+        if dpi is None:
+            return
         if key not in self._derived_results:
             QMessageBox.warning(self, "Export", "先に Compute & Map を実行してください。")
             return
         out = self.mat_path.parent / f"derived_{key}.png"
-        self.canvas_map._fig.savefig(str(out), dpi=300, bbox_inches="tight")
+        self.canvas_map._fig.savefig(str(out), dpi=dpi, bbox_inches="tight")
         QMessageBox.information(self, "Export", f"保存しました:\n{out}")
 
     # ----------------------------------------------------------
