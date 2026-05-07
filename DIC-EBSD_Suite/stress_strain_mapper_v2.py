@@ -64,6 +64,7 @@ CMAPS = [
     "RdBu_r", "seismic", "bwr", "jet", "turbo",
     "rainbow", "hot", "Blues", "Reds",
     "RdYlGn", "RdYlBu", "PiYG", "PRGn",
+    "gray", "gray_r",
 ]
 
 DIC_STRAIN_BASES = ["exx", "eyy", "exy", "e1", "gamma_max", "omega_xy"]
@@ -760,7 +761,7 @@ class StressStrainMapperApp(QMainWindow):
         self._mp_cmap_cb = QComboBox()
         self._mp_cmap_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._mp_cmap_cb.addItems(CMAPS)
-        self._mp_cmap_cb.setCurrentText("RdYlGn")
+        self._mp_cmap_cb.setCurrentText("rainbow")
         self._mp_cmap_cb.setEnabled(False)
         self._mp_cmap_cb.currentIndexChanged.connect(
             lambda _: (self._update_mp_cbar(), self._redraw_current_map()))
@@ -2327,7 +2328,7 @@ class StressStrainMapperApp(QMainWindow):
     def _draw_gb_on(self, ax, stage=None, x_draw=None, y_draw=None) -> bool:
         """粒界セグメントを ax に描画。何か描いた場合 True を返す。
 
-        m' グラデーション: 全境界を RdYlGn カラーマップで色付け + インセットカラーバー。
+        m' グラデーション: 全境界を選択カラーマップで色付け + インセットカラーバー。
         バイナリ色分け: ベース白 + ハイライト赤（#ff4444）。
         色分けなし: 全境界を白で描画。
         """
