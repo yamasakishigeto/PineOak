@@ -131,9 +131,9 @@ def compute_rss(phi1_deg, PHI_deg, phi2_deg,
     n_equivs = sym_ops @ n_slip
     b_equivs = sym_ops @ b_slip
 
-    # 結晶座標系 → 試料座標系: shape (Nv, S, 3)
-    n_samp = np.einsum('nij,sj->nsi', g, n_equivs)
-    b_samp = np.einsum('nij,sj->nsi', g, b_equivs)
+    # 結晶座標系 → 試料座標系: g.T @ n  (g は試料→結晶なので転置で結晶→試料)
+    n_samp = np.einsum('nji,sj->nsi', g, n_equivs)
+    b_samp = np.einsum('nji,sj->nsi', g, b_equivs)
 
     # RSS[n,s] = n_samp[n,s] · sigma[n] · b_samp[n,s]
     sigma_b = np.einsum('nij,nsj->nsi', sigma, b_samp)   # (Nv, S, 3)
@@ -268,7 +268,8 @@ def compute_schmid_factor(phi1_deg, PHI_deg, phi2_deg, n_slip, b_slip, load_vecs
         return schmid
 
     # 最大シュミット因子のすべり系を試料座標系に変換してトレース方向を計算
-    n_samp = np.einsum('nij,sj->nsi', g, n_equivs)          # (Nv, S, 3)
+    # g.T @ n_crystal: g は試料→結晶なので転置で結晶→試料
+    n_samp = np.einsum('nji,sj->nsi', g, n_equivs)          # (Nv, S, 3)
     n_max  = n_samp[np.arange(len(max_idx)), max_idx, :]     # (Nv, 3)
     tx =  n_max[:, 1]
     ty = -n_max[:, 0]
