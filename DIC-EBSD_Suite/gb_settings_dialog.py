@@ -89,6 +89,14 @@ class GBSettingsDialog(QDialog):
         fl = QFormLayout(w)
         fl.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
+        self._mp_theta = QDoubleSpinBox()
+        self._mp_theta.setRange(0.1, 90.0)
+        self._mp_theta.setSingleStep(1.0)
+        self._mp_theta.setDecimals(1)
+        self._mp_theta.setSuffix(" °")
+        self._mp_theta.setValue(float(self._params.get('theta_deg', 15.0)))
+        fl.addRow("粒界判定閾値 θ:", self._mp_theta)
+
         thr_row = QHBoxLayout()
         self._mp_threshold = QDoubleSpinBox()
         self._mp_threshold.setRange(0.0, 1.0)
@@ -174,6 +182,7 @@ class GBSettingsDialog(QDialog):
             self._params['euler_source']    = self._mis_src.currentData()
             self._params['same_phase_only'] = self._mis_same.isChecked()
         elif self._key == "m_prime":
+            self._params['theta_deg']      = self._mp_theta.value()
             self._params['threshold']      = self._mp_threshold.value()
             self._params['threshold_mode'] = 'gte' if self._mp_thr_bg.checkedId() == 1 else 'lte'
             self._params['slip_plane']     = self._mp_plane.text().strip()

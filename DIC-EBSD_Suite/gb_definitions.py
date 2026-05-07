@@ -137,13 +137,13 @@ def disorientation_angles_batch(
 
     Notes
     -----
-    双晶対称（bicrystal symmetry）: S_k @ ΔR @ S_l^T を全 (k,l) 組合せで評価。
-    左からのみの適用（S_k @ ΔR）では、同一粒内で対称性等価なオイラー角解
-    （例: 立方晶の 90° 等価解）が異なるサブセットに割り当てられた場合に
-    ミスオリエンテーション 0° を正しく検出できないため、両側適用が必要。
+    正しいミスオリエンテーション行列は結晶座標系で M = Rj @ Ri^T。
+    Bunge パッシブ規約 (g: sample→crystal) において g_j = S @ g_i
+    （対称性等価解）のとき M = S ∈ G となり、左側のみの対称操作
+    S_k @ M で S_k = S^{-1} → angle = 0° が正しく得られる。
 
-    効率化: S_k ごとにループし、trace(S_k @ ΔR @ S_l^T) = (S_k @ ΔR).flatten() · S_l.flatten()
-    をフロベニウス内積で一括計算。メモリ O(S × P × 9)。
+    M^T = M^{-1} も同時に評価することで (i,j) 割り当ての曖昧さに対処する。
+    メモリ: O(2S × P × 9)。
     """
     if len(pairs) == 0:
         return np.array([])
@@ -309,29 +309,7 @@ class GBDefinition:
 
 
 # ============================================================
-# 定義① grain_id が異なる境界（既存・後方互換）
-# ============================================================
-
-class GrainIDDef(GBDefinition):
-    key           = "grain_id"
-    label         = "grain_id — 隣接粒IDが異なる境界"
-    has_settings  = False
-    default_params = {}
-
-    def compute_pairs(self, mat, stage, phase_sym_map, params):
-        cx  = mat['cx'].flatten()
-        cy  = mat['cy'].flatten()
-        gid = mat['grain_id'].flatten()
-
-        boundary = []
-        for i, j in get_adjacent_pairs(cx, cy):
-            if gid[i] != gid[j]:
-                boundary.append((i, j))
-        return boundary
-
-
-# ============================================================
-# 定義② ミスオリエンテーション ≥ θ°
+# 定義① ミスオリエンテーション ≥ θ°
 # ============================================================
 
 class MisorientationDef(GBDefinition):
@@ -615,7 +593,8 @@ class MPrimeDef(GBDefinition):
     has_settings  = True
     is_classifier = True
     default_params = {
-        'threshold':      1.0,    # フィルタ閾値（1.0 = 全境界）
+        'theta_deg':      15.0,   # 粒界判定ミスオリエンテーション閾値 [degrees]
+        'threshold':      1.0,    # m' フィルタ閾値（1.0 = 全境界）
         'threshold_mode': 'lte',  # 'lte': m' ≤ threshold / 'gte': m' ≥ threshold
         'euler_source': 'stage',
         'slip_plane':   '1 1 1',
@@ -734,19 +713,18 @@ class MPrimeDef(GBDefinition):
         rotmats, valid, phase_arr, n_slip, b_slip, load_vec, fallback_sym = \
             self._prepare(mat, stage, phase_sym_map, params)
 
+        theta = float(params.get('theta_deg', self.default_params['theta_deg']))
+
         cx  = mat['cx'].flatten()
         cy  = mat['cy'].flatten()
-        gid = mat['grain_id'].flatten()
-        valid = valid & (gid != -1)
 
         adj_pairs = get_adjacent_pairs(cx, cy)
 
+        # 同相・有効点ペアをグループ化
         phase_pair_groups: dict = defaultdict(list)
         for i, j in adj_pairs:
             pi, pj = int(phase_arr[i]), int(phase_arr[j])
             if pi != pj or not (valid[i] and valid[j]):
-                continue
-            if gid[i] == gid[j]:   # 同一粒内はスキップ（m'は粒界専用）
                 continue
             phase_pair_groups[pi].append((i, j))
 
@@ -756,9 +734,18 @@ class MPrimeDef(GBDefinition):
         boundary_vals:  list[float]           = []
 
         for ph, group in phase_pair_groups.items():
-            sym    = phase_sym_map.get(ph, fallback_sym)
-            mp_arr = self._calc_mprime(group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
-            for pair, mp in zip(group, mp_arr):
+            sym = phase_sym_map.get(ph, fallback_sym)
+
+            # ミスオリエンテーション >= theta のペアのみ粒界とみなす
+            pairs_np = np.array(group, int)
+            angles   = disorientation_angles_batch(pairs_np, rotmats, sym)
+            gb_group = [p for p, a in zip(group, angles) if a >= theta]
+
+            if not gb_group:
+                continue
+
+            mp_arr = self._calc_mprime(gb_group, rotmats, sym @ n_slip, sym @ b_slip, load_vec)
+            for pair, mp in zip(gb_group, mp_arr):
                 if (mp >= threshold) if gte_mode else (mp <= threshold):
                     boundary_pairs.append(pair)
                     boundary_vals.append(float(mp))
@@ -814,7 +801,6 @@ class MPrimeDef(GBDefinition):
 
 ALL_DEFINITIONS: list[GBDefinition] = [
     MisorientationDef(),
-    GrainIDDef(),
     MPrimeDef(),
 ]
 
