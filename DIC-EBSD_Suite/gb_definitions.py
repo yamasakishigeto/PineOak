@@ -148,24 +148,27 @@ def disorientation_angles_batch(
     if len(pairs) == 0:
         return np.array([])
     pairs = np.asarray(pairs, int)
-    Ri = rotmats[pairs[:, 0]]                      # (P, 3, 3)
-    Rj = rotmats[pairs[:, 1]]                      # (P, 3, 3)
-    deltaR = np.einsum('pji,pjk->pik', Ri, Rj)    # Ri.T @ Rj  (P, 3, 3)
+    Ri = rotmats[pairs[:, 0]]                            # (P, 3, 3)
+    Rj = rotmats[pairs[:, 1]]                            # (P, 3, 3)
 
-    S = len(sym_ops)
-    P = len(pairs)
-    sym_flat = sym_ops.reshape(S, 9)               # (S, 9)  S_l をフラット化
-    max_trace = np.full(P, -3.0)
+    # 結晶座標系での相対回転: M = Rj @ Ri^T
+    # g_j = S @ g_i（対称性等価）のとき M = S ∈ G となり、
+    # 左側のみの対称操作 S_k @ M で S_k = S^{-1} → angle = 0° が正しく得られる。
+    # ΔR = Ri^T @ Rj（混合座標系）では g_i が G に属さない限り
+    # S_k @ ΔR が恒等行列にならず誤った結果になる。
+    M   = np.einsum('pij,pkj->pik', Rj, Ri)             # Rj @ Ri^T  (P, 3, 3)
+    M_T = M.transpose(0, 2, 1)                           # M^T = M^{-1}  (P, 3, 3)
 
-    # 双晶対称: max_{k,l} trace(S_k @ ΔR @ S_l^T)
-    # = max_{k,l} Frobenius_inner(S_k @ ΔR,  S_l)
-    for k in range(S):
-        sdR_k      = np.einsum('ij,pjl->pil', sym_ops[k], deltaR)  # (P, 3, 3)
-        sdR_k_flat = sdR_k.reshape(P, 9)                            # (P, 9)
-        traces_kl  = sdR_k_flat @ sym_flat.T                        # (P, S)
-        max_trace  = np.maximum(max_trace, np.max(traces_kl, axis=1))
+    # 左側から対称操作を適用: max_k trace(S_k @ M) および max_k trace(S_k @ M^T)
+    sM   = np.einsum('sij,pjk->spik', sym_ops, M)       # (S, P, 3, 3)
+    sM_T = np.einsum('sij,pjk->spik', sym_ops, M_T)     # (S, P, 3, 3)
 
-    cos_theta = np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)
+    def _traces(arr):
+        return arr[:, :, 0, 0] + arr[:, :, 1, 1] + arr[:, :, 2, 2]  # (S, P)
+
+    all_traces = np.concatenate([_traces(sM), _traces(sM_T)], axis=0)  # (2S, P)
+    max_trace  = np.max(all_traces, axis=0)                             # (P,)
+    cos_theta  = np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)
     return np.degrees(np.arccos(cos_theta))
 
 
