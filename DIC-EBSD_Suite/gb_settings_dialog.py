@@ -131,7 +131,7 @@ class GBSettingsDialog(QDialog):
         self._mp_src = QComboBox()
         self._mp_src.addItem("参照ステージ（phi1_ref / PHI_ref / phi2_ref）", "ref")
         self._mp_src.addItem("各ステージ（euler_phi1/phi/phi2_sXXX）",        "stage")
-        idx = 1 if self._params.get('euler_source', 'ref') == 'stage' else 0
+        idx = 1 if self._params.get('euler_source', 'stage') == 'stage' else 0
         self._mp_src.setCurrentIndex(idx)
         fl.addRow("オイラー角ソース:", self._mp_src)
 
@@ -153,7 +153,7 @@ class GBSettingsDialog(QDialog):
         self._mis_src = QComboBox()
         self._mis_src.addItem("参照ステージ（phi1_ref / PHI_ref / phi2_ref）", "ref")
         self._mis_src.addItem("各ステージ（euler_phi1/phi/phi2_sXXX）",        "stage")
-        idx = 1 if self._params.get('euler_source', 'ref') == 'stage' else 0
+        idx = 1 if self._params.get('euler_source', 'stage') == 'stage' else 0
         self._mis_src.setCurrentIndex(idx)
         fl.addRow("オイラー角ソース:", self._mis_src)
 

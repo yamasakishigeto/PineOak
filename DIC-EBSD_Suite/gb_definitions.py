@@ -324,7 +324,7 @@ class MisorientationDef(GBDefinition):
     has_settings = True
     default_params = {
         'theta_deg':       15.0,   # 閾値角度 [degrees]
-        'euler_source':   'ref',   # 'ref' or 'stage'
+        'euler_source':   'stage', # 'ref' or 'stage'
         'same_phase_only': False,  # True → 同じ相間のみ評価
     }
 
@@ -419,7 +419,7 @@ class SpecialBoundaryDef(GBDefinition):
         'angle_deg':   60.0,       # 回転角 [degrees]
         'axis_tol':    5.0,        # 軸 Tolerance [degrees]
         'angle_tol':   5.0,        # 角度 Tolerance [degrees]
-        'euler_source': 'ref',
+        'euler_source': 'stage',
         'same_phase_only': True,
     }
 
@@ -601,7 +601,7 @@ class MPrimeDef(GBDefinition):
     default_params = {
         'threshold':      1.0,    # フィルタ閾値（1.0 = 全境界）
         'threshold_mode': 'lte',  # 'lte': m' ≤ threshold / 'gte': m' ≥ threshold
-        'euler_source': 'ref',
+        'euler_source': 'stage',
         'slip_plane':   '1 1 1',
         'slip_dir':     '1 -1 0',
         'load_x':       1.0,      # 荷重軸（試料座標系）X方向＝画面左右
