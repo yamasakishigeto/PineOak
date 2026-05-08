@@ -1468,7 +1468,7 @@ def patrep_browse_dir(title: str, initialdir: str):
 
 @eel.expose
 def patrep_get_info(parent_folder: str):
-    """親フォルダを検査して mat 名一覧・Phase 情報・tif フォルダ一覧を返す"""
+    """親フォルダを検査してステージ情報・Phase 情報を返す"""
     try:
         import numpy as _np
         from pathlib import Path as _Path
@@ -1477,39 +1477,46 @@ def patrep_get_info(parent_folder: str):
 
         parent = _Path(parent_folder)
 
-        # pre-processed {name}.mat と .xlsx が両方あるものを全列挙
+        # tif フォルダ一覧（名前→存在確認用）
+        tif_folder_names = set(
+            d.name for d in parent.iterdir()
+            if d.is_dir() and any(d.glob("*.tif"))
+        )
+
+        # pre-processed *.mat を全列挙し、ステージごとの存在状況を返す
         mats = sorted(parent.glob("pre-processed *.mat"))
-        all_mat_names = []
+        if not mats:
+            return {"error": "pre-processed *.mat が見つかりません"}
+
+        stages = []
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
-            xlsx = parent / f"pre-processed {name}.xlsx"
-            if xlsx.exists():
-                all_mat_names.append(name)
+            has_xlsx = (parent / f"pre-processed {name}.xlsx").exists()
+            has_tif  = name in tif_folder_names
+            stages.append({
+                "name":     name,
+                "has_mat":  True,
+                "has_xlsx": has_xlsx,
+                "has_tif":  has_tif,
+            })
 
-        if not all_mat_names:
-            return {"error": "pre-processed *.mat/.xlsx が見つかりません"}
-
-        # phase 情報は最初に見つかった mat から読む（全スキャン共通のはず）
+        # phase 情報は最初の mat から読む
         mat0 = smart_loadmat(str(mats[0]), variable_names=["phase_index", "phasetxt"])
-        phase_idx_map = mat0["phase_index"]
+        phase_idx_map   = mat0["phase_index"]
         phase_names_raw = [str(n) for n in mat0["phasetxt"][0]]
         idxs = sorted(set(
             int(v) for v in phase_idx_map.flatten()
             if not (isinstance(v, float) and _np.isnan(v))
         ))
         phases = [
-            {"index": i,
-             "name": phase_names_raw[i] if i < len(phase_names_raw) else f"Phase{i}"}
+            {"index": i, "name": phase_names_raw[i] if i < len(phase_names_raw) else f"Phase{i}"}
             for i in idxs
         ]
 
-        # tif ファイルを含むサブフォルダを列挙
-        tif_folders = sorted(
-            d.name for d in parent.iterdir()
-            if d.is_dir() and any(d.glob("*.tif"))
-        )
+        # 後方互換：all_mat_names（mat+xlsx 両方あるもの）も返す
+        all_mat_names = [s["name"] for s in stages if s["has_xlsx"]]
 
-        return {"all_mat_names": all_mat_names, "phases": phases, "tif_folders": tif_folders}
+        return {"stages": stages, "all_mat_names": all_mat_names, "phases": phases}
 
     except Exception as e:
         return {"error": str(e)}

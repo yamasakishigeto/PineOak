@@ -214,7 +214,10 @@
   .stage-row.done    { background: rgba(0,255,136,0.03); }
   .stage-row.error   { background: rgba(255,107,53,0.04); }
   .stage-row.unchecked td { opacity: 0.38; }
-  .stage-name { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .stage-name  { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; }
+  .file-col    { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+  .file-col--ok { color: var(--text); }
+  .file-col--ng { color: var(--text-dim); opacity: 0.5; }
   .stage-ref-badge {
     font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px;
     color: var(--accent); background: rgba(0,212,255,0.12); white-space: nowrap;
@@ -298,7 +301,8 @@
   ];
 
   let _parentFolder = null;
-  let _allMatNames  = [];   // 全 mat 名
+  let _allMatNames  = [];   // 全 mat 名（後方互換）
+  let _stages       = [];   // [{name, has_mat, has_xlsx, has_tif}]
   let _phases       = [];   // [{index, name}]
   let _running      = false;
 
@@ -318,6 +322,7 @@
       const info = await eel.patrep_get_info(path)();
       if (info.error) { setStatus(info.error, false); return; }
 
+      _stages      = info.stages       || [];
       _allMatNames = info.all_mat_names || [];
       _phases      = info.phases;
 
@@ -336,8 +341,8 @@
     const wrap = document.getElementById('stage-wrap');
     wrap.innerHTML = '';
 
-    const sorted = [..._allMatNames].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    const sorted = [..._stages].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
     if (sorted.length === 0) {
       wrap.innerHTML = '<div class="nth-hint">対応する pre-processed .mat が見つかりませんでした</div>';
@@ -347,26 +352,47 @@
     const table = document.createElement('table');
     table.className = 'stage-table';
     table.innerHTML = `<thead><tr>
-      <th>ステージ</th>
+      <th>変形ステージ</th>
+      <th>Matファイル</th>
+      <th>Tifフォルダ</th>
+      <th>Xlsxファイル</th>
       <th class="col-center">参照</th>
       <th class="col-center">処理対象</th>
       <th>状態</th>
     </tr></thead>`;
 
     const tbody = document.createElement('tbody');
-    sorted.forEach((name, i) => {
-      const sid = _sid(name);
+    sorted.forEach((stage, i) => {
+      const { name, has_mat, has_tif, has_xlsx } = stage;
+      const sid   = _sid(name);
       const isRef = i === 0;
+      const canNth = has_mat && has_xlsx;   // nth には xlsx が必要
+
       const tr = document.createElement('tr');
-      tr.className = 'stage-row' + (isRef ? ' is-ref' : '');
+      tr.className = 'stage-row' + (isRef ? ' is-ref' : (!canNth ? ' unchecked' : ''));
       tr.id = `nth-row-${sid}`;
 
-      // ステージ名
+      // 変形ステージ名
       const tdName = document.createElement('td');
       tdName.className = 'stage-name';
-      tdName.textContent = `${name}.mat`;
+      tdName.textContent = name;
 
-      // 参照ラジオ
+      // Matファイル
+      const tdMat = document.createElement('td');
+      tdMat.className = 'file-col' + (has_mat ? ' file-col--ok' : ' file-col--ng');
+      tdMat.textContent = has_mat ? `pre-processed ${name}.mat` : '—';
+
+      // Tifフォルダ
+      const tdTif = document.createElement('td');
+      tdTif.className = 'file-col' + (has_tif ? ' file-col--ok' : ' file-col--ng');
+      tdTif.textContent = has_tif ? name : '—';
+
+      // Xlsxファイル
+      const tdXlsx = document.createElement('td');
+      tdXlsx.className = 'file-col' + (has_xlsx ? ' file-col--ok' : ' file-col--ng');
+      tdXlsx.textContent = isRef ? '—' : (has_xlsx ? `pre-processed ${name}.xlsx` : '—');
+
+      // 参照ラジオ（mat があれば選べる）
       const tdRadio = document.createElement('td');
       tdRadio.className = 'col-center';
       const radio = document.createElement('input');
@@ -374,19 +400,20 @@
       radio.name = 'stage-role';
       radio.value = name;
       radio.checked = isRef;
+      radio.disabled = !has_mat;
       radio.style.accentColor = 'var(--accent)';
       radio.onchange = onStageChange;
       tdRadio.appendChild(radio);
 
-      // 処理対象チェックボックス
+      // 処理対象チェック（mat + xlsx があれば選べる）
       const tdCheck = document.createElement('td');
       tdCheck.className = 'col-center';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'nth-check';
       cb.value = name;
-      cb.checked = !isRef;
-      cb.disabled = isRef;
+      cb.checked = !isRef && canNth;
+      cb.disabled = isRef || !canNth;
       cb.style.accentColor = 'var(--accent)';
       cb.style.visibility = isRef ? 'hidden' : '';
       cb.onchange = () => {
@@ -405,11 +432,11 @@
         stat.textContent = 'REF';
       } else {
         stat.className = 'nth-status';
-        stat.textContent = '—';
+        stat.textContent = canNth ? '—' : 'xlsx なし';
       }
       tdStat.appendChild(stat);
 
-      tr.append(tdName, tdRadio, tdCheck, tdStat);
+      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck, tdStat);
       tbody.appendChild(tr);
     });
 
