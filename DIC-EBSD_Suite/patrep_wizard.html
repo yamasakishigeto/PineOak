@@ -309,10 +309,12 @@
       _phases      = info.phases;
       _tifFolders  = info.tif_folders || [];
 
-      // ref ドロップダウンを mat 名一覧で更新
+      // ref ドロップダウンを mat 名一覧で更新（自然順ソート）
       const refSel = document.getElementById('ref-name-input');
       refSel.innerHTML = '';
-      _allMatNames.forEach(n => {
+      const sortedMatNames = [..._allMatNames].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      sortedMatNames.forEach(n => {
         const opt = document.createElement('option');
         opt.value = n;
         opt.textContent = `pre-processed ${n}.mat`;
