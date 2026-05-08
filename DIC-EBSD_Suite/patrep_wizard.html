@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v1 -->
+<!-- v3 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -62,7 +62,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 6px;
-    overflow: hidden;
   }
   .card-title {
     font-family: var(--mono);
@@ -127,42 +126,6 @@
   }
   .sym-select:focus { outline: none; border-color: var(--accent); }
 
-  /* ---- nth チェックリスト ---- */
-  .nth-list {
-    padding: 0 16px 14px;
-    display: flex; flex-direction: column; gap: 4px;
-    max-height: 260px; overflow-y: auto;
-  }
-  .nth-row {
-    display: grid;
-    grid-template-columns: 22px 1fr 1fr 70px;
-    gap: 8px; align-items: center;
-    padding: 5px 8px; border: 1px solid transparent; border-radius: 4px;
-    transition: border-color 0.2s;
-  }
-  .folder-select {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 3px; padding: 3px 6px; font-family: var(--mono);
-    font-size: 10px; color: var(--text); cursor: pointer;
-  }
-  .folder-select:focus { outline: none; border-color: var(--accent); }
-  .nth-row:hover { background: rgba(255,255,255,0.02); }
-  .nth-row.running { border-color: var(--accent);  background: rgba(0,212,255,0.04); }
-  .nth-row.done    { border-color: var(--green);   background: rgba(0,255,136,0.03); }
-  .nth-row.error   { border-color: var(--accent2); background: rgba(255,107,53,0.04); }
-  .nth-row.unchecked { opacity: 0.38; }
-
-  .nth-check { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
-  .nth-name  { font-family: var(--mono); font-size: 11px; color: var(--text); }
-
-  .nth-status {
-    font-family: var(--mono); font-size: 9px; text-align: center;
-    padding: 2px 6px; border-radius: 3px; white-space: nowrap; color: var(--text-dim);
-  }
-  .nth-status.running { color: var(--accent);  background: rgba(0,212,255,0.12); }
-  .nth-status.done    { color: var(--green);   background: rgba(0,255,136,0.10); }
-  .nth-status.error   { color: var(--accent2); background: rgba(255,107,53,0.10); }
-
   .nth-hint { font-size: 11px; color: var(--text-dim); text-align: center; padding: 12px 0; font-style: italic; }
   .nth-header { padding: 0 16px 6px; display: flex; align-items: center; gap: 8px; }
   .nth-header-title { font-family: var(--mono); font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em; flex: 1; }
@@ -195,17 +158,20 @@
   .footer-status.ok  { color: var(--green); }
   .footer-status.err { color: var(--accent2); }
 
-  .divider { border: none; border-top: 1px solid var(--border); margin: 2px 16px 10px; }
-
   /* ---- ステージテーブル ---- */
-  .stage-wrap { padding: 0 16px 14px; }
+  .stage-wrap {
+    padding: 0 16px 14px;
+    max-height: 380px;
+    overflow-y: auto;
+  }
   .stage-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
-  .stage-table th {
+  .stage-table thead th {
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
     color: var(--text-dim); font-weight: 400; padding: 4px 8px;
     border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap;
   }
   .stage-table th.col-center { text-align: center; }
-  .stage-table td { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .stage-table td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.03); }
   .stage-table td.col-center { text-align: center; }
   .stage-row { transition: background 0.15s; }
   .stage-row:hover { background: rgba(255,255,255,0.02); }
@@ -214,14 +180,19 @@
   .stage-row.done    { background: rgba(0,255,136,0.03); }
   .stage-row.error   { background: rgba(255,107,53,0.04); }
   .stage-row.unchecked td { opacity: 0.38; }
-  .stage-name  { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; }
-  .file-col    { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
-  .file-col--ok { color: var(--text); }
-  .file-col--ng { color: var(--text-dim); opacity: 0.5; }
-  .stage-ref-badge {
-    font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px;
-    color: var(--accent); background: rgba(0,212,255,0.12); white-space: nowrap;
+  .stage-name { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; }
+  .file-col   { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+  /* ファイル選択ドロップダウン */
+  .file-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 2px 4px; font-family: var(--mono);
+    font-size: 10px; color: var(--text); cursor: pointer;
+    max-width: 200px; width: 100%;
   }
+  .file-select:focus { outline: none; border-color: var(--accent); }
+  .file-select.ng { color: var(--text-dim); opacity: 0.6; }
+  .file-col-dash { font-family: var(--mono); font-size: 10px; color: var(--text-dim); opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -301,8 +272,8 @@
   ];
 
   let _parentFolder = null;
-  let _allMatNames  = [];   // 全 mat 名（後方互換）
-  let _stages       = [];   // [{name, has_mat, has_xlsx, has_tif}]
+  let _stages       = [];   // [{name, has_mat, has_xlsx, has_tif, tif_name}]
+  let _allTifDirs   = [];   // 親フォルダ内の全サブフォルダ名
   let _phases       = [];   // [{index, name}]
   let _running      = false;
 
@@ -322,9 +293,9 @@
       const info = await eel.patrep_get_info(path)();
       if (info.error) { setStatus(info.error, false); return; }
 
-      _stages      = info.stages       || [];
-      _allMatNames = info.all_mat_names || [];
-      _phases      = info.phases;
+      _stages     = info.stages      || [];
+      _allTifDirs = info.all_tif_dirs || [];
+      _phases     = info.phases;
 
       buildStageTable();
       buildPhaseRows();
@@ -334,6 +305,52 @@
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
     updateRunButton();
+  }
+
+  // ── ステージ名の表示用ラベル（末尾の序数接尾辞を除去）──────────────────────
+  function stageLabel(name) {
+    return name.replace(/(?:th|st|nd|rd)$/i, '');
+  }
+
+  // ── ファイル選択ドロップダウン生成 ─────────────────────────────────────────
+  function makeFileSelect(options, defaultVal, labelFn, cls) {
+    const sel = document.createElement('select');
+    sel.className = `file-select ${cls}`;
+    if (!options.includes(defaultVal)) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '—';
+      opt.selected = true;
+      sel.appendChild(opt);
+      sel.classList.add('ng');
+    }
+    options.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = labelFn(v);
+      opt.selected = v === defaultVal;
+      sel.appendChild(opt);
+    });
+    return sel;
+  }
+
+  function makeTifSelect(dirs, defaultDir, cls) {
+    const sel = document.createElement('select');
+    sel.className = `file-select ${cls}`;
+    const blankOpt = document.createElement('option');
+    blankOpt.value = '';
+    blankOpt.textContent = '—';
+    blankOpt.selected = !defaultDir;
+    sel.appendChild(blankOpt);
+    dirs.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d;
+      opt.selected = d === defaultDir;
+      sel.appendChild(opt);
+    });
+    if (!defaultDir) sel.classList.add('ng');
+    return sel;
   }
 
   // ── ステージテーブル構築 ─────────────────────────────────────────────────────
@@ -349,6 +366,9 @@
       return;
     }
 
+    const allMats  = sorted.filter(s => s.has_mat).map(s => s.name);
+    const allXlsx  = sorted.filter(s => s.has_xlsx).map(s => s.name);
+
     const table = document.createElement('table');
     table.className = 'stage-table';
     table.innerHTML = `<thead><tr>
@@ -358,39 +378,46 @@
       <th>Xlsxファイル</th>
       <th class="col-center">参照</th>
       <th class="col-center">処理対象</th>
-      <th>状態</th>
     </tr></thead>`;
 
     const tbody = document.createElement('tbody');
     sorted.forEach((stage, i) => {
-      const { name, has_mat, has_tif, has_xlsx } = stage;
-      const sid   = _sid(name);
-      const isRef = i === 0;
-      const canNth = has_mat && has_xlsx;   // nth には xlsx が必要
+      const { name, has_mat, has_tif, has_xlsx, tif_name } = stage;
+      const sid    = _sid(name);
+      const isRef  = i === 0;
+      const canNth = has_mat && has_xlsx;
 
       const tr = document.createElement('tr');
       tr.className = 'stage-row' + (isRef ? ' is-ref' : (!canNth ? ' unchecked' : ''));
       tr.id = `nth-row-${sid}`;
 
-      // 変形ステージ名
+      // 変形ステージ名（序数接尾辞を除去して表示）
       const tdName = document.createElement('td');
       tdName.className = 'stage-name';
-      tdName.textContent = name;
+      tdName.textContent = stageLabel(name);
+      tdName.title = name;
 
-      // Matファイル
+      // Mat ドロップダウン
       const tdMat = document.createElement('td');
-      tdMat.className = 'file-col' + (has_mat ? ' file-col--ok' : ' file-col--ng');
-      tdMat.textContent = has_mat ? `pre-processed ${name}.mat` : '—';
+      tdMat.className = 'file-col';
+      tdMat.appendChild(makeFileSelect(allMats, name, n => `pre-processed ${n}.mat`, 'mat-select'));
 
-      // Tifフォルダ
+      // Tif ドロップダウン
       const tdTif = document.createElement('td');
-      tdTif.className = 'file-col' + (has_tif ? ' file-col--ok' : ' file-col--ng');
-      tdTif.textContent = has_tif ? name : '—';
+      tdTif.className = 'file-col';
+      tdTif.appendChild(makeTifSelect(_allTifDirs, tif_name || '', 'tif-select'));
 
-      // Xlsxファイル
+      // Xlsx ドロップダウン（ref 行は "—" を表示するだけ）
       const tdXlsx = document.createElement('td');
-      tdXlsx.className = 'file-col' + (has_xlsx ? ' file-col--ok' : ' file-col--ng');
-      tdXlsx.textContent = isRef ? '—' : (has_xlsx ? `pre-processed ${name}.xlsx` : '—');
+      tdXlsx.className = 'file-col';
+      if (isRef) {
+        const dash = document.createElement('span');
+        dash.className = 'file-col-dash';
+        dash.textContent = '—';
+        tdXlsx.appendChild(dash);
+      } else {
+        tdXlsx.appendChild(makeFileSelect(allXlsx, name, n => `pre-processed ${n}.xlsx`, 'xlsx-select'));
+      }
 
       // 参照ラジオ（mat があれば選べる）
       const tdRadio = document.createElement('td');
@@ -423,20 +450,7 @@
       };
       tdCheck.appendChild(cb);
 
-      // 状態
-      const tdStat = document.createElement('td');
-      const stat = document.createElement('span');
-      stat.id = `nth-status-${sid}`;
-      if (isRef) {
-        stat.className = 'stage-ref-badge';
-        stat.textContent = 'REF';
-      } else {
-        stat.className = 'nth-status';
-        stat.textContent = canNth ? '—' : 'xlsx なし';
-      }
-      tdStat.appendChild(stat);
-
-      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck, tdStat);
+      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck);
       tbody.appendChild(tr);
     });
 
@@ -452,15 +466,10 @@
     document.querySelectorAll('.stage-row').forEach(tr => {
       const radio = tr.querySelector('input[name="stage-role"]');
       const cb    = tr.querySelector('.nth-check');
-      const stat  = tr.querySelector('[id^="nth-status-"]');
       const isRef = radio && radio.value === refName;
       tr.classList.toggle('is-ref', isRef);
       tr.classList.toggle('unchecked', !isRef && cb && !cb.checked);
       if (cb) { cb.disabled = isRef; cb.style.visibility = isRef ? 'hidden' : ''; }
-      if (stat) {
-        if (isRef) { stat.className = 'stage-ref-badge'; stat.textContent = 'REF'; }
-        else       { stat.className = 'nth-status';      stat.textContent = '—';   }
-      }
     });
     updateHint();
     updateRunButton();
@@ -521,12 +530,32 @@
   async function onRun() {
     const refRadio = document.querySelector('input[name="stage-role"]:checked');
     if (!refRadio || !_parentFolder) return;
-    const refName = refRadio.value;
+    const refStageName = refRadio.value;
+
+    // ref 行の tif 選択値を取得
+    const refRow    = document.getElementById(`nth-row-${_sid(refStageName)}`);
+    const refTifSel = refRow ? refRow.querySelector('.tif-select') : null;
+    const refTif    = refTifSel ? refTifSel.value : refStageName;
 
     const checkedNames = Array.from(
       document.querySelectorAll('.nth-check:not(:disabled):checked')
     ).map(cb => cb.value);
     if (checkedNames.length === 0) return;
+
+    // nth ごとのオーバーライドを収集
+    const nthMatOverrides  = {};
+    const nthTifOverrides  = {};
+    const nthXlsxOverrides = {};
+    checkedNames.forEach(name => {
+      const row     = document.getElementById(`nth-row-${_sid(name)}`);
+      if (!row) return;
+      const matSel  = row.querySelector('.mat-select');
+      const tifSel  = row.querySelector('.tif-select');
+      const xlsxSel = row.querySelector('.xlsx-select');
+      if (matSel  && matSel.value  && matSel.value  !== name) nthMatOverrides[name]  = matSel.value;
+      if (tifSel  && tifSel.value  && tifSel.value  !== name) nthTifOverrides[name]  = tifSel.value;
+      if (xlsxSel && xlsxSel.value && xlsxSel.value !== name) nthXlsxOverrides[name] = xlsxSel.value;
+    });
 
     const phaseSym = {};
     _phases.forEach(ph => {
@@ -539,13 +568,16 @@
     setStatus('解析を開始しています...', true);
 
     const params = {
-      parent_folder:    _parentFolder,
-      nth_names:        checkedNames,
-      angle_threshold:  parseFloat(document.getElementById('angle-thr').value) || 5.0,
-      scale_factor:     parseFloat(document.getElementById('scale-factor').value) || 100.0,
-      phase_sym:        phaseSym,
-      ref_name:         refName,
-      nth_folder_names: {},
+      parent_folder:      _parentFolder,
+      ref_name:           refStageName,
+      ref_tif:            refTif,
+      nth_names:          checkedNames,
+      nth_mat_overrides:  nthMatOverrides,
+      nth_folder_names:   nthTifOverrides,
+      nth_xlsx_overrides: nthXlsxOverrides,
+      angle_threshold:    parseFloat(document.getElementById('angle-thr').value) || 5.0,
+      scale_factor:       parseFloat(document.getElementById('scale-factor').value) || 100.0,
+      phase_sym:          phaseSym,
     };
 
     await eel.patrep_start_batch(params)();
@@ -554,17 +586,10 @@
   // ── Python コールバック ───────────────────────────────────────────────────────
   eel.expose(patrep_on_nth_status);
   function patrep_on_nth_status(name, type) {
-    const sid  = _sid(name);
-    const row  = document.getElementById(`nth-row-${sid}`);
-    const stat = document.getElementById(`nth-status-${sid}`);
+    const sid = _sid(name);
+    const row = document.getElementById(`nth-row-${sid}`);
     if (row) {
       row.className = 'stage-row ' + (type === 'idle' ? '' : type);
-    }
-    if (stat) {
-      stat.className = 'nth-status ' + (type === 'idle' ? '' : type);
-      stat.textContent = type === 'running' ? 'RUNNING' :
-                         type === 'done'    ? 'DONE'    :
-                         type === 'error'   ? 'ERROR'   : '—';
     }
   }
 
