@@ -334,7 +334,9 @@
   // ── ref 変更時に nth_names を再構築 ──────────────────────────────────────────
   function onRefChange() {
     const refName = document.getElementById('ref-name-input').value.trim();
-    _nthNames = _allMatNames.filter(n => n !== refName);
+    _nthNames = _allMatNames
+      .filter(n => n !== refName)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
     _nthChecked = {};
     _nthStatus  = {};
     _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
