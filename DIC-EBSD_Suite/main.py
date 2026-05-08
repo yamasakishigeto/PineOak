@@ -1477,42 +1477,41 @@ def patrep_get_info(parent_folder: str):
 
         parent = _Path(parent_folder)
 
-        # pre-processed *.mat を全列挙し、ステージごとの存在状況を返す
-        mats = sorted(parent.glob("pre-processed *.mat"))
-        if not mats:
-            return {"error": "pre-processed *.mat が見つかりません"}
-
-        # 親フォルダ内の全サブフォルダを列挙（隠しフォルダ除く）
+        # 自然順ソートキー
         import re as _re
         def _nat_key(s):
             return [int(t) if t.isdigit() else t.lower() for t in _re.split(r'(\d+)', s)]
+
+        # pre-processed *.mat を自然順で列挙
+        mats = sorted(parent.glob("pre-processed *.mat"), key=lambda p: _nat_key(p.stem))
+        if not mats:
+            return {"error": "pre-processed *.mat が見つかりません"}
+
+        # pre-processed *.xlsx を自然順で列挙（名前部分だけ取り出す）
+        all_xlsx_names = sorted(
+            [p.stem.replace("pre-processed ", "") for p in parent.glob("pre-processed *.xlsx")],
+            key=_nat_key
+        )
+
+        # 親フォルダ内の全サブフォルダを自然順で列挙（隠しフォルダ除く）
         all_tif_dirs = sorted(
             [d.name for d in parent.iterdir() if d.is_dir() and not d.name.startswith('.')],
             key=_nat_key
         )
 
-        def _best_tif(name, tif_dirs):
-            if name in tif_dirs:
-                return name
-            # 数字部分のみで照合
-            digits = _re.sub(r'[^\d]', '', name)
-            if digits:
-                for d in tif_dirs:
-                    if _re.sub(r'[^\d]', '', d) == digits:
-                        return d
-            return ""
-
+        # i番目のmatにi番目のxlsx・tifをデフォルト割り当て（名前の関連なし）
         stages = []
-        for m in mats:
-            name = m.stem.replace("pre-processed ", "")
-            has_xlsx = (parent / f"pre-processed {name}.xlsx").exists()
-            tif_name = _best_tif(name, all_tif_dirs)
+        for i, m in enumerate(mats):
+            name      = m.stem.replace("pre-processed ", "")
+            xlsx_name = all_xlsx_names[i] if i < len(all_xlsx_names) else ""
+            tif_name  = all_tif_dirs[i]   if i < len(all_tif_dirs)   else ""
             stages.append({
-                "name":     name,
-                "has_mat":  True,
-                "has_xlsx": has_xlsx,
-                "has_tif":  bool(tif_name),
-                "tif_name": tif_name,   # "" のときはドロップダウンで手動選択
+                "name":      name,
+                "has_mat":   True,
+                "has_xlsx":  bool(xlsx_name),
+                "xlsx_name": xlsx_name,
+                "has_tif":   bool(tif_name),
+                "tif_name":  tif_name,
             })
 
         # phase 情報は最初の mat から読む
