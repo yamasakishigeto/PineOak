@@ -217,8 +217,10 @@
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
       <div class="file-row">
-        <div class="file-label">Ref スキャン名<span class="required">*</span></div>
-        <input class="param-input" type="text" id="ref-name-input" placeholder="例: ref, before, 0th" oninput="onRefChange()" style="flex:1; width:auto;">
+        <div class="file-label">参照ステージのフォルダ<span class="required">*</span></div>
+        <select class="sym-select" id="ref-name-input" onchange="onRefChange()" style="flex:1; width:auto;" disabled>
+          <option value="">（参照ステージのフォルダを選択してください）</option>
+        </select>
       </div>
     </div>
   </div>
@@ -306,6 +308,17 @@
       _allMatNames = info.all_mat_names || [];
       _phases      = info.phases;
       _tifFolders  = info.tif_folders || [];
+
+      // ref ドロップダウンを mat 名一覧で更新
+      const refSel = document.getElementById('ref-name-input');
+      refSel.innerHTML = '';
+      _allMatNames.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        refSel.appendChild(opt);
+      });
+      refSel.disabled = _allMatNames.length === 0;
 
       onRefChange();              // ref を除いた nth_names を確定
       buildPhaseRows();
