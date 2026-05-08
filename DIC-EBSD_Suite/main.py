@@ -1477,12 +1477,6 @@ def patrep_get_info(parent_folder: str):
 
         parent = _Path(parent_folder)
 
-        # tif フォルダ一覧（名前→存在確認用）
-        tif_folder_names = set(
-            d.name for d in parent.iterdir()
-            if d.is_dir() and any(d.glob("*.tif"))
-        )
-
         # pre-processed *.mat を全列挙し、ステージごとの存在状況を返す
         mats = sorted(parent.glob("pre-processed *.mat"))
         if not mats:
@@ -1492,7 +1486,7 @@ def patrep_get_info(parent_folder: str):
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
             has_xlsx = (parent / f"pre-processed {name}.xlsx").exists()
-            has_tif  = name in tif_folder_names
+            has_tif  = (parent / name).is_dir()
             stages.append({
                 "name":     name,
                 "has_mat":  True,
