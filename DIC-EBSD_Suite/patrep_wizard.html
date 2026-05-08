@@ -309,17 +309,16 @@
       _phases      = info.phases;
       _tifFolders  = info.tif_folders || [];
 
-      // ref ドロップダウンを「mat ファイルかつ tif フォルダが両方存在する名前」で更新
+      // ref ドロップダウンを mat 名一覧で更新
       const refSel = document.getElementById('ref-name-input');
       refSel.innerHTML = '';
-      const refCandidates = _allMatNames.filter(n => _tifFolders.includes(n));
-      refCandidates.forEach(n => {
+      _allMatNames.forEach(n => {
         const opt = document.createElement('option');
         opt.value = n;
         opt.textContent = n;
         refSel.appendChild(opt);
       });
-      refSel.disabled = refCandidates.length === 0;
+      refSel.disabled = _allMatNames.length === 0;
 
       onRefChange();              // ref を除いた nth_names を確定
       buildPhaseRows();
