@@ -40,14 +40,17 @@ if len(sys.argv) < 2:
 with open(sys.argv[1], encoding='utf-8') as _f:
     params = json.load(_f)
 
-patrep_dir       = params['patrep_dir']
-parent_folder    = Path(params['parent_folder'])
-nth_names        = params['nth_names']
-angle_thr        = float(params['angle_threshold'])
-scale_factor     = float(params['scale_factor'])
-phase_sym        = params['phase_sym']          # {"0": "cubic", ...}
-ref_name         = params.get('ref_name', 'ref')
-nth_folder_names = params.get('nth_folder_names', {})  # {"8th": "1100MPa", ...}
+patrep_dir        = params['patrep_dir']
+parent_folder     = Path(params['parent_folder'])
+nth_names         = params['nth_names']
+angle_thr         = float(params['angle_threshold'])
+scale_factor      = float(params['scale_factor'])
+phase_sym         = params['phase_sym']           # {"0": "cubic", ...}
+ref_name          = params.get('ref_name', 'ref')
+ref_tif           = params.get('ref_tif', ref_name)           # tif フォルダ名（override）
+nth_folder_names  = params.get('nth_folder_names', {})        # nth tif フォルダ override
+nth_mat_overrides = params.get('nth_mat_overrides', {})       # nth mat ステージ名 override
+nth_xlsx_overrides = params.get('nth_xlsx_overrides', {})
 
 # EBSD PatRep モジュールをパスに追加
 sys.path.insert(0, patrep_dir)
@@ -90,8 +93,9 @@ if not mat_ref_candidates:
     print(f"ERROR: pre-processed {ref_name}*.mat が見つかりません")
     sys.exit(1)
 mat_ref    = mat_ref_candidates[0]
-folder_ref = parent_folder / ref_name
-print(f"  ref パターンフォルダ: {ref_name}")
+folder_ref = parent_folder / ref_tif
+print(f"  ref mat: {mat_ref.name}")
+print(f"  ref パターンフォルダ: {ref_tif}")
 
 # phase 情報を読む
 _mat0 = loadmat(str(mat_ref), variable_names=['phasetxt', 'phase_index'])
@@ -121,10 +125,14 @@ for nth_name in nth_names:
     print('='*55)
 
     try:
-        mat_nth    = parent_folder / f"pre-processed {nth_name}.mat"
-        excel_nth  = parent_folder / f"pre-processed {nth_name}.xlsx"
-        nth_dir_name = nth_folder_names.get(nth_name, nth_name)
+        mat_stage_name  = nth_mat_overrides.get(nth_name, nth_name)
+        xlsx_stage_name = nth_xlsx_overrides.get(nth_name, nth_name)
+        nth_dir_name    = nth_folder_names.get(nth_name, nth_name)
+        mat_nth   = parent_folder / f"pre-processed {mat_stage_name}.mat"
+        excel_nth = parent_folder / f"pre-processed {xlsx_stage_name}.xlsx"
         folder_nth = parent_folder / nth_dir_name
+        print(f"  {nth_name} mat: pre-processed {mat_stage_name}.mat")
+        print(f"  {nth_name} xlsx: pre-processed {xlsx_stage_name}.xlsx")
         print(f"  {nth_name} パターンフォルダ: {nth_dir_name}")
 
         missing = [p for p in [mat_ref, mat_nth, excel_nth] if not p.exists()]

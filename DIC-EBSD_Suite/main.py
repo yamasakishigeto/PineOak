@@ -1482,16 +1482,27 @@ def patrep_get_info(parent_folder: str):
         if not mats:
             return {"error": "pre-processed *.mat が見つかりません"}
 
+        # 親フォルダ内の全サブフォルダを列挙（隠しフォルダ除く）
+        import re as _re
+        def _nat_key(s):
+            return [int(t) if t.isdigit() else t.lower() for t in _re.split(r'(\d+)', s)]
+        all_tif_dirs = sorted(
+            [d.name for d in parent.iterdir() if d.is_dir() and not d.name.startswith('.')],
+            key=_nat_key
+        )
+
         stages = []
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
             has_xlsx = (parent / f"pre-processed {name}.xlsx").exists()
-            has_tif  = (parent / name).is_dir()
+            # tif フォルダ: 同名フォルダがあればその名前、なければ空文字
+            tif_name = name if (parent / name).is_dir() else ""
             stages.append({
                 "name":     name,
                 "has_mat":  True,
                 "has_xlsx": has_xlsx,
-                "has_tif":  has_tif,
+                "has_tif":  bool(tif_name),
+                "tif_name": tif_name,
             })
 
         # phase 情報は最初の mat から読む
@@ -1507,10 +1518,14 @@ def patrep_get_info(parent_folder: str):
             for i in idxs
         ]
 
-        # 後方互換：all_mat_names（mat+xlsx 両方あるもの）も返す
         all_mat_names = [s["name"] for s in stages if s["has_xlsx"]]
 
-        return {"stages": stages, "all_mat_names": all_mat_names, "phases": phases}
+        return {
+            "stages": stages,
+            "all_mat_names": all_mat_names,
+            "all_tif_dirs": all_tif_dirs,
+            "phases": phases,
+        }
 
     except Exception as e:
         return {"error": str(e)}
