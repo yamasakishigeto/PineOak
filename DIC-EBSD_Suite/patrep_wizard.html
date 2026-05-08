@@ -196,6 +196,29 @@
   .footer-status.err { color: var(--accent2); }
 
   .divider { border: none; border-top: 1px solid var(--border); margin: 2px 16px 10px; }
+
+  /* ---- ステージテーブル ---- */
+  .stage-wrap { padding: 0 16px 14px; }
+  .stage-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .stage-table th {
+    color: var(--text-dim); font-weight: 400; padding: 4px 8px;
+    border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap;
+  }
+  .stage-table th.col-center { text-align: center; }
+  .stage-table td { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .stage-table td.col-center { text-align: center; }
+  .stage-row { transition: background 0.15s; }
+  .stage-row:hover { background: rgba(255,255,255,0.02); }
+  .stage-row.is-ref { background: rgba(0,212,255,0.05); }
+  .stage-row.running { background: rgba(0,212,255,0.04); }
+  .stage-row.done    { background: rgba(0,255,136,0.03); }
+  .stage-row.error   { background: rgba(255,107,53,0.04); }
+  .stage-row.unchecked td { opacity: 0.38; }
+  .stage-name { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .stage-ref-badge {
+    font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    color: var(--accent); background: rgba(0,212,255,0.12); white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -216,23 +239,17 @@
         <div class="file-path" id="parent-path">（未選択）</div>
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
-      <div class="file-row">
-        <div class="file-label">参照ステージのmatファイル<span class="required">*</span></div>
-        <select class="sym-select" id="ref-name-input" onchange="onRefChange()" style="flex:1; width:auto;" disabled>
-          <option value="">（参照ステージのmatファイルを選択してください）</option>
-        </select>
-      </div>
     </div>
   </div>
 
-  <!-- Step 2: 処理対象 nth フォルダ -->
+  <!-- Step 2: ステージ一覧 -->
   <div class="card">
     <div class="nth-header">
-      <div class="nth-header-title">Step 2 — 処理対象 nth フォルダ</div>
+      <div class="nth-header-title">Step 2 — ステージ一覧</div>
       <span class="nth-header-hint" id="nth-hint"></span>
     </div>
-    <div class="nth-list" id="nth-list">
-      <div class="nth-hint" id="nth-empty">親フォルダを選択すると自動検出されます</div>
+    <div class="stage-wrap" id="stage-wrap">
+      <div class="nth-hint">親フォルダを選択すると自動検出されます</div>
     </div>
   </div>
 
@@ -281,12 +298,8 @@
   ];
 
   let _parentFolder = null;
-  let _allMatNames  = [];      // 全 mat 名（ref 含む）
-  let _nthNames     = [];      // ref を除いた処理対象
-  let _nthChecked   = {};      // {name: bool}
-  let _nthStatus    = {};      // {name: 'idle'|'running'|'done'|'error'}
-  let _phases       = [];      // [{index, name}]
-  let _tifFolders   = [];      // tif を含むサブフォルダ一覧
+  let _allMatNames  = [];   // 全 mat 名
+  let _phases       = [];   // [{index, name}]
   let _running      = false;
 
   // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
@@ -307,100 +320,123 @@
 
       _allMatNames = info.all_mat_names || [];
       _phases      = info.phases;
-      _tifFolders  = info.tif_folders || [];
 
-      // ref ドロップダウンを mat 名一覧で更新（自然順ソート）
-      const refSel = document.getElementById('ref-name-input');
-      refSel.innerHTML = '';
-      const sortedMatNames = [..._allMatNames].sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-      sortedMatNames.forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n;
-        opt.textContent = `pre-processed ${n}.mat`;
-        refSel.appendChild(opt);
-      });
-      refSel.disabled = _allMatNames.length === 0;
-
-      onRefChange();              // ref を除いた nth_names を確定
+      buildStageTable();
       buildPhaseRows();
-      setStatus(`${_nthNames.length} 段階・${_phases.length} Phase を検出しました`, true);
+      const nthCount = document.querySelectorAll('.nth-check:not(:disabled)').length;
+      setStatus(`${nthCount} 段階・${_phases.length} Phase を検出しました`, true);
     } catch(e) {
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
     updateRunButton();
   }
 
-  // ── ref 変更時に nth_names を再構築 ──────────────────────────────────────────
-  function onRefChange() {
-    const refName = document.getElementById('ref-name-input').value.trim();
-    _nthNames = _allMatNames
-      .filter(n => n !== refName)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-    _nthChecked = {};
-    _nthStatus  = {};
-    _nthNames.forEach(n => { _nthChecked[n] = true; _nthStatus[n] = 'idle'; });
-    buildNthList();
-    updateRunButton();
-  }
+  // ── ステージテーブル構築 ─────────────────────────────────────────────────────
+  function buildStageTable() {
+    const wrap = document.getElementById('stage-wrap');
+    wrap.innerHTML = '';
 
-  // ── nth チェックリスト構築 ───────────────────────────────────────────────────
-  function buildNthList() {
-    const list = document.getElementById('nth-list');
-    list.innerHTML = '';
+    const sorted = [..._allMatNames].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-    if (_nthNames.length === 0) {
-      list.innerHTML = '<div class="nth-hint">対応する pre-processed .mat/.xlsx が見つかりませんでした</div>';
-      document.getElementById('nth-hint').textContent = '';
+    if (sorted.length === 0) {
+      wrap.innerHTML = '<div class="nth-hint">対応する pre-processed .mat が見つかりませんでした</div>';
       return;
     }
 
-    _nthNames.forEach(name => {
-      const row = document.createElement('div');
-      row.className = 'nth-row';
-      row.id = `nth-row-${_sid(name)}`;
+    const table = document.createElement('table');
+    table.className = 'stage-table';
+    table.innerHTML = `<thead><tr>
+      <th>ステージ</th>
+      <th class="col-center">参照</th>
+      <th class="col-center">処理対象</th>
+      <th>状態</th>
+    </tr></thead>`;
 
+    const tbody = document.createElement('tbody');
+    sorted.forEach((name, i) => {
+      const sid = _sid(name);
+      const isRef = i === 0;
+      const tr = document.createElement('tr');
+      tr.className = 'stage-row' + (isRef ? ' is-ref' : '');
+      tr.id = `nth-row-${sid}`;
+
+      // ステージ名
+      const tdName = document.createElement('td');
+      tdName.className = 'stage-name';
+      tdName.textContent = `${name}.mat`;
+
+      // 参照ラジオ
+      const tdRadio = document.createElement('td');
+      tdRadio.className = 'col-center';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'stage-role';
+      radio.value = name;
+      radio.checked = isRef;
+      radio.style.accentColor = 'var(--accent)';
+      radio.onchange = onStageChange;
+      tdRadio.appendChild(radio);
+
+      // 処理対象チェックボックス
+      const tdCheck = document.createElement('td');
+      tdCheck.className = 'col-center';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'nth-check';
-      cb.checked = _nthChecked[name];
+      cb.value = name;
+      cb.checked = !isRef;
+      cb.disabled = isRef;
+      cb.style.accentColor = 'var(--accent)';
+      cb.style.visibility = isRef ? 'hidden' : '';
       cb.onchange = () => {
-        _nthChecked[name] = cb.checked;
-        row.classList.toggle('unchecked', !cb.checked);
+        tr.classList.toggle('unchecked', !cb.checked);
         updateHint();
         updateRunButton();
       };
+      tdCheck.appendChild(cb);
 
-      const label = document.createElement('div');
-      label.className = 'nth-name';
-      label.textContent = name;
+      // 状態
+      const tdStat = document.createElement('td');
+      const stat = document.createElement('span');
+      stat.id = `nth-status-${sid}`;
+      if (isRef) {
+        stat.className = 'stage-ref-badge';
+        stat.textContent = 'REF';
+      } else {
+        stat.className = 'nth-status';
+        stat.textContent = '—';
+      }
+      tdStat.appendChild(stat);
 
-      // nth パターンフォルダ選択
-      const folderSel = document.createElement('select');
-      folderSel.className = 'folder-select';
-      folderSel.id = `sel-folder-nth-${_sid(name)}`;
-      _tifFolders.forEach(fn => {
-        const opt = document.createElement('option');
-        opt.value = opt.textContent = fn;
-        folderSel.appendChild(opt);
-      });
-      // nth_name と同名フォルダがあればデフォルト選択
-      const pref = _tifFolders.find(fn => fn.toLowerCase() === name.toLowerCase());
-      if (pref) folderSel.value = pref;
-
-      const stat = document.createElement('div');
-      stat.className = 'nth-status';
-      stat.id = `nth-status-${_sid(name)}`;
-      stat.textContent = '—';
-
-      row.appendChild(cb);
-      row.appendChild(label);
-      row.appendChild(folderSel);
-      row.appendChild(stat);
-      list.appendChild(row);
+      tr.append(tdName, tdRadio, tdCheck, tdStat);
+      tbody.appendChild(tr);
     });
 
+    table.appendChild(tbody);
+    wrap.appendChild(table);
     updateHint();
+  }
+
+  // ── 参照ラジオ変更時 ─────────────────────────────────────────────────────────
+  function onStageChange() {
+    const refRadio = document.querySelector('input[name="stage-role"]:checked');
+    const refName  = refRadio ? refRadio.value : '';
+    document.querySelectorAll('.stage-row').forEach(tr => {
+      const radio = tr.querySelector('input[name="stage-role"]');
+      const cb    = tr.querySelector('.nth-check');
+      const stat  = tr.querySelector('[id^="nth-status-"]');
+      const isRef = radio && radio.value === refName;
+      tr.classList.toggle('is-ref', isRef);
+      tr.classList.toggle('unchecked', !isRef && cb && !cb.checked);
+      if (cb) { cb.disabled = isRef; cb.style.visibility = isRef ? 'hidden' : ''; }
+      if (stat) {
+        if (isRef) { stat.className = 'stage-ref-badge'; stat.textContent = 'REF'; }
+        else       { stat.className = 'nth-status';      stat.textContent = '—';   }
+      }
+    });
+    updateHint();
+    updateRunButton();
   }
 
   // ── Phase 対称性行の構築 ─────────────────────────────────────────────────────
@@ -440,25 +476,31 @@
 
   // ── ヒント更新 ───────────────────────────────────────────────────────────────
   function updateHint() {
-    const checked = _nthNames.filter(n => _nthChecked[n]).length;
+    const total   = document.querySelectorAll('.nth-check:not(:disabled)').length;
+    const checked = document.querySelectorAll('.nth-check:not(:disabled):checked').length;
     document.getElementById('nth-hint').textContent =
-      _nthNames.length > 0 ? `${checked} / ${_nthNames.length} 選択中` : '';
+      total > 0 ? `${checked} / ${total} 選択中` : '';
   }
 
   // ── 実行ボタン ───────────────────────────────────────────────────────────────
   function updateRunButton() {
-    const hasChecked = _nthNames.some(n => _nthChecked[n]);
-    const refName = document.getElementById('ref-name-input').value.trim();
+    const hasRef     = !!document.querySelector('input[name="stage-role"]:checked');
+    const hasChecked = !!document.querySelector('.nth-check:not(:disabled):checked');
     document.getElementById('btn-run').disabled =
-      !(_parentFolder && refName && hasChecked && _phases.length > 0 && !_running);
+      !(_parentFolder && hasRef && hasChecked && _phases.length > 0 && !_running);
   }
 
   // ── 実行 ─────────────────────────────────────────────────────────────────────
   async function onRun() {
-    const checkedNames = _nthNames.filter(n => _nthChecked[n]);
-    if (!_parentFolder || checkedNames.length === 0) return;
+    const refRadio = document.querySelector('input[name="stage-role"]:checked');
+    if (!refRadio || !_parentFolder) return;
+    const refName = refRadio.value;
 
-    // phase_sym 収集
+    const checkedNames = Array.from(
+      document.querySelectorAll('.nth-check:not(:disabled):checked')
+    ).map(cb => cb.value);
+    if (checkedNames.length === 0) return;
+
     const phaseSym = {};
     _phases.forEach(ph => {
       const sel = document.getElementById(`sym-${ph.index}`);
@@ -469,21 +511,14 @@
     document.getElementById('btn-run').disabled = true;
     setStatus('解析を開始しています...', true);
 
-    // nth フォルダ名マッピング収集
-    const nthFolderNames = {};
-    checkedNames.forEach(name => {
-      const sel = document.getElementById(`sel-folder-nth-${_sid(name)}`);
-      if (sel) nthFolderNames[name] = sel.value;
-    });
-
     const params = {
       parent_folder:    _parentFolder,
       nth_names:        checkedNames,
       angle_threshold:  parseFloat(document.getElementById('angle-thr').value) || 5.0,
       scale_factor:     parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:        phaseSym,
-      ref_name:         document.getElementById('ref-name-input').value.trim(),
-      nth_folder_names: nthFolderNames,
+      ref_name:         refName,
+      nth_folder_names: {},
     };
 
     await eel.patrep_start_batch(params)();
@@ -492,12 +527,11 @@
   // ── Python コールバック ───────────────────────────────────────────────────────
   eel.expose(patrep_on_nth_status);
   function patrep_on_nth_status(name, type) {
-    _nthStatus[name] = type;
-    const sid = _sid(name);
+    const sid  = _sid(name);
     const row  = document.getElementById(`nth-row-${sid}`);
     const stat = document.getElementById(`nth-status-${sid}`);
     if (row) {
-      row.className = 'nth-row ' + (type === 'idle' ? '' : type);
+      row.className = 'stage-row ' + (type === 'idle' ? '' : type);
     }
     if (stat) {
       stat.className = 'nth-status ' + (type === 'idle' ? '' : type);
