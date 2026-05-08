@@ -217,9 +217,9 @@
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
       <div class="file-row">
-        <div class="file-label">参照ステージのフォルダ<span class="required">*</span></div>
+        <div class="file-label">参照ステージのmatファイル<span class="required">*</span></div>
         <select class="sym-select" id="ref-name-input" onchange="onRefChange()" style="flex:1; width:auto;" disabled>
-          <option value="">（参照ステージのフォルダを選択してください）</option>
+          <option value="">（参照ステージのmatファイルを選択してください）</option>
         </select>
       </div>
     </div>
@@ -315,7 +315,7 @@
       _allMatNames.forEach(n => {
         const opt = document.createElement('option');
         opt.value = n;
-        opt.textContent = n;
+        opt.textContent = `pre-processed ${n}.mat`;
         refSel.appendChild(opt);
       });
       refSel.disabled = _allMatNames.length === 0;
