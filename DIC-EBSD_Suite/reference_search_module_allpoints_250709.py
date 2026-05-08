@@ -24,20 +24,20 @@ def euler_to_matrix(phi1, Phi, phi2):
     ])
 
 # 2つの結晶指向行列間のmisorientation角を計算する（対称操作を考慮し、度単位で返す）
+# Bunge パッシブ規約: M = g2 @ g1^T に左から対称操作を適用（M と M^T の両方）
 def misorientation_angle_deg(g1, g2, sym_ops):
-    min_angle = 180.0
-    g1_inv = np.linalg.inv(g1)
+    M   = g2 @ g1.T
+    M_T = M.T
+    max_trace = -1.0
     for sym in sym_ops:
-        delta = g2 @ sym @ g1_inv
-        trace = np.trace(delta)
-        angle_rad = np.arccos(np.clip((trace - 1) / 2, -1.0, 1.0))
-        angle_deg = np.degrees(angle_rad)
-        if angle_deg < min_angle:
-            min_angle = angle_deg
-    return min_angle
+        for mat in (M, M_T):
+            t = np.trace(sym @ mat)
+            if t > max_trace:
+                max_trace = t
+    return np.degrees(np.arccos(np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)))
 
 # numpy ベクトル化版 misorientation 一括計算
-# 回転行列が直交行列であることを利用し R^-1 = R^T とする（linalg.inv 不要）
+# Bunge パッシブ規約: M = g_target @ g_ref^T に左から対称操作を適用（M と M^T の両方）
 def _misorientation_batch(g_refs, g_target, sym_ops):
     """
     g_refs:   (N, 3, 3) — 参照点群の回転行列
@@ -45,17 +45,17 @@ def _misorientation_batch(g_refs, g_target, sym_ops):
     sym_ops:  (S, 3, 3) — 対称操作行列群
     戻り値:   (N,)      — 各参照点との最小 misorientation 角（度）
     """
-    # g_target @ sym_ops[j] → (S, 3, 3)
-    g_target_sym = g_target[np.newaxis] @ sym_ops        # (S, 3, 3)
-    # R^-1 = R^T（直交行列の性質）
-    g_refs_inv = g_refs.transpose(0, 2, 1)               # (N, 3, 3)
-    # delta[i,j] = g_target_sym[j] @ g_refs_inv[i] → (N, S, 3, 3)
-    delta = g_target_sym[np.newaxis] @ g_refs_inv[:, np.newaxis]
-    # 対角和（trace） → (N, S)
-    traces = delta[..., 0, 0] + delta[..., 1, 1] + delta[..., 2, 2]
-    # misorientation 角（度）→ 対称操作ごとの最小値 → (N,)
-    angles = np.degrees(np.arccos(np.clip((traces - 1) / 2, -1.0, 1.0)))
-    return angles.min(axis=1)
+    # M[i] = g_target @ g_refs[i]^T  (N, 3, 3)
+    M   = g_target[np.newaxis] @ g_refs.transpose(0, 2, 1)   # (N, 3, 3)
+    M_T = M.transpose(0, 2, 1)                                # M^{-1}  (N, 3, 3)
+    # S_k @ M[i] および S_k @ M[i]^T  → (S, N, 3, 3)
+    sM   = sym_ops[:, np.newaxis] @ M[np.newaxis]             # (S, N, 3, 3)
+    sM_T = sym_ops[:, np.newaxis] @ M_T[np.newaxis]           # (S, N, 3, 3)
+    def _tr(a):
+        return a[..., 0, 0] + a[..., 1, 1] + a[..., 2, 2]   # (S, N)
+    # 最大トレース → 最小ミスオリエンテーション角  (N,)
+    max_trace = np.max(np.concatenate([_tr(sM), _tr(sM_T)], axis=0), axis=0)
+    return np.degrees(np.arccos(np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)))
 
 # Excelファイルから参照ステップを読み取り、DataFrameで返す
 def read_steps_from_excel(excel_path):
