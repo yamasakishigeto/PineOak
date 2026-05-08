@@ -155,15 +155,7 @@
   .nth-check { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
   .nth-name  { font-family: var(--mono); font-size: 11px; color: var(--text); }
 
-  .nth-status {
-    font-family: var(--mono); font-size: 9px; text-align: center;
-    padding: 2px 6px; border-radius: 3px; white-space: nowrap; color: var(--text-dim);
-  }
-  .nth-status.running { color: var(--accent);  background: rgba(0,212,255,0.12); }
-  .nth-status.done    { color: var(--green);   background: rgba(0,255,136,0.10); }
-  .nth-status.error   { color: var(--accent2); background: rgba(255,107,53,0.10); }
-
-  .nth-hint { font-size: 11px; color: var(--text-dim); text-align: center; padding: 12px 0; font-style: italic; }
+.nth-hint { font-size: 11px; color: var(--text-dim); text-align: center; padding: 12px 0; font-style: italic; }
   .nth-header { padding: 0 16px 6px; display: flex; align-items: center; gap: 8px; }
   .nth-header-title { font-family: var(--mono); font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em; flex: 1; }
   .nth-header-hint  { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
@@ -218,10 +210,6 @@
   .file-col    { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
   .file-col--ok { color: var(--text); }
   .file-col--ng { color: var(--text-dim); opacity: 0.5; }
-  .stage-ref-badge {
-    font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px;
-    color: var(--accent); background: rgba(0,212,255,0.12); white-space: nowrap;
-  }
 </style>
 </head>
 <body>
@@ -358,7 +346,6 @@
       <th>Xlsxファイル</th>
       <th class="col-center">参照</th>
       <th class="col-center">処理対象</th>
-      <th>状態</th>
     </tr></thead>`;
 
     const tbody = document.createElement('tbody');
@@ -423,20 +410,7 @@
       };
       tdCheck.appendChild(cb);
 
-      // 状態
-      const tdStat = document.createElement('td');
-      const stat = document.createElement('span');
-      stat.id = `nth-status-${sid}`;
-      if (isRef) {
-        stat.className = 'stage-ref-badge';
-        stat.textContent = 'REF';
-      } else {
-        stat.className = 'nth-status';
-        stat.textContent = canNth ? '—' : 'xlsx なし';
-      }
-      tdStat.appendChild(stat);
-
-      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck, tdStat);
+      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck);
       tbody.appendChild(tr);
     });
 
@@ -452,15 +426,10 @@
     document.querySelectorAll('.stage-row').forEach(tr => {
       const radio = tr.querySelector('input[name="stage-role"]');
       const cb    = tr.querySelector('.nth-check');
-      const stat  = tr.querySelector('[id^="nth-status-"]');
       const isRef = radio && radio.value === refName;
       tr.classList.toggle('is-ref', isRef);
       tr.classList.toggle('unchecked', !isRef && cb && !cb.checked);
       if (cb) { cb.disabled = isRef; cb.style.visibility = isRef ? 'hidden' : ''; }
-      if (stat) {
-        if (isRef) { stat.className = 'stage-ref-badge'; stat.textContent = 'REF'; }
-        else       { stat.className = 'nth-status';      stat.textContent = '—';   }
-      }
     });
     updateHint();
     updateRunButton();
@@ -554,17 +523,10 @@
   // ── Python コールバック ───────────────────────────────────────────────────────
   eel.expose(patrep_on_nth_status);
   function patrep_on_nth_status(name, type) {
-    const sid  = _sid(name);
-    const row  = document.getElementById(`nth-row-${sid}`);
-    const stat = document.getElementById(`nth-status-${sid}`);
+    const sid = _sid(name);
+    const row = document.getElementById(`nth-row-${sid}`);
     if (row) {
       row.className = 'stage-row ' + (type === 'idle' ? '' : type);
-    }
-    if (stat) {
-      stat.className = 'nth-status ' + (type === 'idle' ? '' : type);
-      stat.textContent = type === 'running' ? 'RUNNING' :
-                         type === 'done'    ? 'DONE'    :
-                         type === 'error'   ? 'ERROR'   : '—';
     }
   }
 
