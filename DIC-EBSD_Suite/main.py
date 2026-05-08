@@ -1491,18 +1491,28 @@ def patrep_get_info(parent_folder: str):
             key=_nat_key
         )
 
+        def _best_tif(name, tif_dirs):
+            if name in tif_dirs:
+                return name
+            # 数字部分のみで照合
+            digits = _re.sub(r'[^\d]', '', name)
+            if digits:
+                for d in tif_dirs:
+                    if _re.sub(r'[^\d]', '', d) == digits:
+                        return d
+            return ""
+
         stages = []
         for m in mats:
             name = m.stem.replace("pre-processed ", "")
             has_xlsx = (parent / f"pre-processed {name}.xlsx").exists()
-            # tif フォルダ: 同名フォルダがあればその名前、なければ空文字
-            tif_name = name if (parent / name).is_dir() else ""
+            tif_name = _best_tif(name, all_tif_dirs)
             stages.append({
                 "name":     name,
                 "has_mat":  True,
                 "has_xlsx": has_xlsx,
                 "has_tif":  bool(tif_name),
-                "tif_name": tif_name,
+                "tif_name": tif_name,   # "" のときはドロップダウンで手動選択
             })
 
         # phase 情報は最初の mat から読む
