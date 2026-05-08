@@ -382,7 +382,7 @@
 
     const tbody = document.createElement('tbody');
     sorted.forEach((stage, i) => {
-      const { name, has_mat, has_tif, has_xlsx, tif_name } = stage;
+      const { name, has_mat, has_tif, has_xlsx, tif_name, xlsx_name } = stage;
       const sid    = _sid(name);
       const isRef  = i === 0;
       const canNth = has_mat && has_xlsx;
@@ -416,7 +416,7 @@
         dash.textContent = '—';
         tdXlsx.appendChild(dash);
       } else {
-        tdXlsx.appendChild(makeFileSelect(allXlsx, name, n => `pre-processed ${n}.xlsx`, 'xlsx-select'));
+        tdXlsx.appendChild(makeFileSelect(allXlsx, xlsx_name || '', n => `pre-processed ${n}.xlsx`, 'xlsx-select'));
       }
 
       // 参照ラジオ（mat があれば選べる）
