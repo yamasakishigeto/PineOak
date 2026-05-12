@@ -1177,16 +1177,26 @@ if config_path.exists():
     cut = next((i for i, l in enumerate(lines) if l.strip() == '[カラースケール]'), len(lines))
     base = '\n'.join(lines[:cut])
     var_keys = ['u','v','exx','eyy','exy','e1','gamma_max','omega_xy']
+    rate_keys = ['exx_rate','eyy_rate','exy_rate','e1_rate','gamma_max_rate']
+    has_rate = any('strain_rate' in r for r in results_list)
     scale_sec = ['[カラースケール]']
     for k in var_keys:
         lo, hi = sc.get(k, (None, None))
-        scale_sec.append(f'  {k:<12}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
+        scale_sec.append(f'  {k:<16}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
+    if has_rate:
+        for k in rate_keys:
+            lo, hi = sc.get(k, (None, None))
+            scale_sec.append(f'  {k:<16}: min={lo if lo is not None else "自動"}  max={hi if hi is not None else "自動"}')
     cmap_sec = ['[カラーマップ]']
     for k in var_keys:
-        cmap_sec.append(f'  {k:<12}: {_cm(k)}')
-    config_path.write_text(
-        base + '\n' + '\n'.join(scale_sec) + '\n' + '\n'.join(cmap_sec) + '\n',
-        encoding='utf-8')
+        cmap_sec.append(f'  {k:<16}: {_cm(k)}')
+    parts = [base, '\n'.join(scale_sec), '\n'.join(cmap_sec)]
+    if has_rate:
+        rate_cmap_sec = ['[ひずみ速度カラーマップ]']
+        for k in rate_keys:
+            rate_cmap_sec.append(f'  {k:<16}: {_cm(k)}')
+        parts.append('\n'.join(rate_cmap_sec))
+    config_path.write_text('\n'.join(parts) + '\n', encoding='utf-8')
     print('dic_config.txt を更新しました')
 
 print(f"保存完了: {output_dir}")
