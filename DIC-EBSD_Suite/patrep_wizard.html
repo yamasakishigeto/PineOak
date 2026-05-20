@@ -241,6 +241,11 @@
         <input class="param-input" type="number" id="scale-factor" value="100" min="1" step="1">
         <span class="param-unit">（例: step=0.1μm, factor=100 → x10y20.tif）</span>
       </div>
+      <div class="param-row">
+        <div class="param-label">対称性を考慮する</div>
+        <input type="checkbox" id="use-symmetry" style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;">
+        <span class="param-unit">（phi2+90°等の等価インデックスに対応・誤マッチが増える場合はOFF）</span>
+      </div>
     </div>
   </div>
 
@@ -578,6 +583,7 @@
       angle_threshold:    parseFloat(document.getElementById('angle-thr').value) || 5.0,
       scale_factor:       parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:          phaseSym,
+      use_symmetry:       document.getElementById('use-symmetry').checked,
     };
 
     await eel.patrep_start_batch(params)();

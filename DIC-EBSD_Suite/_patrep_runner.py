@@ -47,6 +47,7 @@ angle_thr         = float(params['angle_threshold'])
 scale_factor      = float(params['scale_factor'])
 phase_sym         = params['phase_sym']           # {"0": "cubic", ...}
 ref_name          = params.get('ref_name', 'ref')
+use_symmetry      = bool(params.get('use_symmetry', False))
 ref_tif           = params.get('ref_tif', ref_name)           # tif フォルダ名（override）
 nth_folder_names  = params.get('nth_folder_names', {})        # nth tif フォルダ override
 nth_mat_overrides = params.get('nth_mat_overrides', {})       # nth mat ステージ名 override
@@ -171,6 +172,7 @@ for nth_name in nth_names:
                 angle_threshold=angle_thr,
                 target_phase=idx,
                 ref_name=ref_name,
+                use_symmetry=use_symmetry,
             )
             df_phase['phase'] = phase_name
             dfs.append(df_phase)

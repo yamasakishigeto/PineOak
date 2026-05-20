@@ -37,24 +37,28 @@ def misorientation_angle_deg(g1, g2, sym_ops):
     return np.degrees(np.arccos(np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)))
 
 # numpy ベクトル化版 misorientation 一括計算
-# Bunge パッシブ規約: M = g_target @ g_ref^T に左から対称操作を適用（M と M^T の両方）
-def _misorientation_batch(g_refs, g_target, sym_ops):
+def _misorientation_batch(g_refs, g_target, sym_ops, use_symmetry=False):
     """
-    g_refs:   (N, 3, 3) — 参照点群の回転行列
-    g_target: (3, 3)    — 対象点の回転行列
-    sym_ops:  (S, 3, 3) — 対称操作行列群
-    戻り値:   (N,)      — 各参照点との最小 misorientation 角（度）
+    g_refs:       (N, 3, 3) — 参照点群の回転行列
+    g_target:     (3, 3)    — 対象点の回転行列
+    sym_ops:      (S, 3, 3) — 対称操作行列群
+    use_symmetry: bool      — True: 左側対称操作を適用（M と M^T 両方）
+                              False: 生のミスオリエンテーション（物理的方位差）
+    戻り値:       (N,)      — 各参照点との misorientation 角（度）
     """
     # M[i] = g_target @ g_refs[i]^T  (N, 3, 3)
-    M   = g_target[np.newaxis] @ g_refs.transpose(0, 2, 1)   # (N, 3, 3)
-    M_T = M.transpose(0, 2, 1)                                # M^{-1}  (N, 3, 3)
-    # S_k @ M[i] および S_k @ M[i]^T  → (S, N, 3, 3)
-    sM   = sym_ops[:, np.newaxis] @ M[np.newaxis]             # (S, N, 3, 3)
-    sM_T = sym_ops[:, np.newaxis] @ M_T[np.newaxis]           # (S, N, 3, 3)
-    def _tr(a):
-        return a[..., 0, 0] + a[..., 1, 1] + a[..., 2, 2]   # (S, N)
-    # 最大トレース → 最小ミスオリエンテーション角  (N,)
-    max_trace = np.max(np.concatenate([_tr(sM), _tr(sM_T)], axis=0), axis=0)
+    M = g_target[np.newaxis] @ g_refs.transpose(0, 2, 1)      # (N, 3, 3)
+    if use_symmetry:
+        # Bunge パッシブ規約: 左から対称操作を適用（M と M^T の両方）
+        M_T  = M.transpose(0, 2, 1)                            # M^{-1}  (N, 3, 3)
+        sM   = sym_ops[:, np.newaxis] @ M[np.newaxis]          # (S, N, 3, 3)
+        sM_T = sym_ops[:, np.newaxis] @ M_T[np.newaxis]        # (S, N, 3, 3)
+        def _tr(a):
+            return a[..., 0, 0] + a[..., 1, 1] + a[..., 2, 2]
+        max_trace = np.max(np.concatenate([_tr(sM), _tr(sM_T)], axis=0), axis=0)
+    else:
+        # 対称操作なし: 物理的な方位差をそのまま使用
+        max_trace = M[..., 0, 0] + M[..., 1, 1] + M[..., 2, 2]  # (N,)
     return np.degrees(np.arccos(np.clip((max_trace - 1.0) / 2.0, -1.0, 1.0)))
 
 # Excelファイルから参照ステップを読み取り、DataFrameで返す
@@ -133,7 +137,8 @@ def run_misorientation_matching_all_vs_targets(
     iq_percentile=0.0,
     sym_ops=None,
     target_phase=None,
-    ref_name='ref'):
+    ref_name='ref',
+    use_symmetry=False):
     global cached_scale_factor
     print(f"Selected symmetry operations count: {len(sym_ops)}")
     mat_ref = loadmat(mat_ref_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality', 'phase_index'])
@@ -186,7 +191,8 @@ def run_misorientation_matching_all_vs_targets(
         masked_idx = np.where(mask)[0]
 
         # numpy ベクトル化で全参照点との misorientation を一括計算
-        min_angles = _misorientation_batch(g_refs_all[mask], g_target, sym_ops_arr)
+        min_angles = _misorientation_batch(g_refs_all[mask], g_target, sym_ops_arr,
+                                           use_symmetry=use_symmetry)
 
         # 閾値以内の候補のみ抽出
         within = min_angles <= angle_threshold
