@@ -1550,14 +1550,28 @@ def patrep_get_info(parent_folder: str):
         return {"error": str(e)}
 
 
+_patrep_preview_csvs: dict = {}   # {stage_name: csv_path}
+
+
 @eel.expose
-def patrep_start_batch(params: dict):
-    threading.Thread(target=_run_patrep_batch, args=(params,), daemon=True).start()
+def patrep_start_preview(params: dict):
+    threading.Thread(target=_run_patrep, args=(params, 'preview'), daemon=True).start()
 
 
-def _run_patrep_batch(params: dict):
-    import json, tempfile, re as _re
+@eel.expose
+def patrep_start_execute(params: dict):
+    params["preview_csvs"] = _patrep_preview_csvs
+    threading.Thread(target=_run_patrep, args=(params, 'execute'), daemon=True).start()
+
+
+def _run_patrep(params: dict, mode: str):
+    import json, tempfile, re as _re, base64
+    global _patrep_preview_csvs
     params["patrep_dir"] = PATREP_DIR
+    params["mode"] = mode
+
+    if mode == 'preview':
+        _patrep_preview_csvs = {}
 
     param_file = tempfile.mktemp(suffix=".json")
     with open(param_file, "w", encoding="utf-8") as f:
@@ -1610,14 +1624,34 @@ def _run_patrep_batch(params: dict):
                 try: eel.patrep_on_nth_status(name, "error")()
                 except Exception: pass
 
+        # "PREVIEW_CSV:name:path" → CSVパスを記録
+        m4 = _re.search(r"^PREVIEW_CSV:(.+?):(.+)$", line_s)
+        if m4:
+            name = m4.group(1).strip()
+            _patrep_preview_csvs[name] = m4.group(2).strip()
+
+        # "PREVIEW_PNG:name:path" → 画像をbase64でGUIに送信
+        m5 = _re.search(r"^PREVIEW_PNG:(.+?):(.+)$", line_s)
+        if m5:
+            name = m5.group(1).strip()
+            png_path = m5.group(2).strip()
+            if name in nth_names and os.path.exists(png_path):
+                try:
+                    with open(png_path, 'rb') as img_f:
+                        img_b64 = base64.b64encode(img_f.read()).decode('ascii')
+                    eel.patrep_on_preview_image(name, img_b64)()
+                except Exception:
+                    pass
+
     proc.wait()
     _procs.pop("patrep", None)
 
     if proc.returncode == 0:
-        try: eel.patrep_on_complete(True, "全処理完了")()
+        msg = "プレビュー完了" if mode == 'preview' else "全処理完了"
+        try: eel.patrep_on_complete(True, msg, mode)()
         except Exception: pass
     else:
-        try: eel.patrep_on_complete(False, f"エラー（終了コード {proc.returncode}）")()
+        try: eel.patrep_on_complete(False, f"エラー（終了コード {proc.returncode}）", mode)()
         except Exception: pass
 
 

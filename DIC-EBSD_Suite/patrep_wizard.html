@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3 -->
+<!-- v4 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -109,6 +109,7 @@
     font-size: 11px; color: var(--text); width: 120px;
   }
   .param-input:focus { outline: none; border-color: var(--accent); }
+  .param-input:disabled { opacity: 0.35; }
   .param-unit { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
 
   /* ---- Phase 対称性 ---- */
@@ -138,14 +139,24 @@
     padding: 12px 20px;
     display: flex; align-items: center; gap: 12px; flex-shrink: 0;
   }
-  .btn-run {
+  .btn-preview {
     padding: 9px 28px; border: 1px solid var(--accent);
     background: rgba(0,212,255,0.1); color: var(--accent);
     font-family: var(--mono); font-size: 13px; font-weight: 700;
     cursor: pointer; border-radius: 4px; transition: all 0.15s; letter-spacing: 0.08em;
   }
-  .btn-run:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
-  .btn-run:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-preview:hover:not(:disabled) { background: rgba(0,212,255,0.2); }
+  .btn-preview:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-execute {
+    padding: 9px 28px; border: 1px solid var(--green);
+    background: rgba(0,255,136,0.1); color: var(--green);
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    cursor: pointer; border-radius: 4px; transition: all 0.15s; letter-spacing: 0.08em;
+  }
+  .btn-execute:hover:not(:disabled) { background: rgba(0,255,136,0.2); }
+  .btn-execute:disabled { opacity: 0.35; cursor: not-allowed; }
+
   .btn-cancel {
     padding: 9px 18px; border: 1px solid var(--border); background: transparent;
     color: var(--text-dim); font-family: var(--mono); font-size: 12px;
@@ -193,6 +204,22 @@
   .file-select:focus { outline: none; border-color: var(--accent); }
   .file-select.ng { color: var(--text-dim); opacity: 0.6; }
   .file-col-dash { font-family: var(--mono); font-size: 10px; color: var(--text-dim); opacity: 0.5; }
+
+  /* ---- プレビュー結果 ---- */
+  .preview-panels { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .preview-panel { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .preview-panel-title {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    padding: 6px 10px; background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-panel img {
+    width: 100%; display: block;
+  }
+  .preview-panel-placeholder {
+    padding: 20px; text-align: center;
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim); font-style: italic;
+  }
 </style>
 </head>
 <body>
@@ -243,8 +270,20 @@
       </div>
       <div class="param-row">
         <div class="param-label">対称性を考慮する</div>
-        <input type="checkbox" id="use-symmetry" style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;">
+        <input type="checkbox" id="use-symmetry" checked style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;">
         <span class="param-unit">（phi2+90°等の等価インデックスに対応・誤マッチが増える場合はOFF）</span>
+      </div>
+      <div class="param-row">
+        <div class="param-label">X方向 距離上限</div>
+        <input type="checkbox" id="use-xlimit" style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;" onchange="onLimitToggle()">
+        <input class="param-input" type="number" id="x-limit" value="50" min="1" step="1" disabled>
+        <span class="param-unit">ピクセル（無制限にする場合はチェックを外す）</span>
+      </div>
+      <div class="param-row">
+        <div class="param-label">Y方向 距離上限</div>
+        <input type="checkbox" id="use-ylimit" style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;" onchange="onLimitToggle()">
+        <input class="param-input" type="number" id="y-limit" value="20" min="1" step="1" disabled>
+        <span class="param-unit">ピクセル（無制限にする場合はチェックを外す）</span>
       </div>
     </div>
   </div>
@@ -257,10 +296,17 @@
     </div>
   </div>
 
+  <!-- Step 5: プレビュー結果 -->
+  <div class="card" id="preview-card" style="display:none;">
+    <div class="card-title">Step 5 — プレビュー結果（マッチングマップ）</div>
+    <div class="preview-panels" id="preview-panels"></div>
+  </div>
+
 </div>
 
 <footer>
-  <button class="btn-run" id="btn-run" onclick="onRun()" disabled>実行</button>
+  <button class="btn-preview" id="btn-preview" onclick="onPreview()" disabled>プレビュー</button>
+  <button class="btn-execute" id="btn-execute" onclick="onExecute()" disabled>置き換え実行</button>
   <button class="btn-cancel" onclick="window.close()">キャンセル</button>
   <div class="footer-status" id="footer-status"></div>
 </footer>
@@ -277,10 +323,11 @@
   ];
 
   let _parentFolder = null;
-  let _stages       = [];   // [{name, has_mat, has_xlsx, has_tif, tif_name}]
-  let _allTifDirs   = [];   // 親フォルダ内の全サブフォルダ名
-  let _phases       = [];   // [{index, name}]
+  let _stages       = [];
+  let _allTifDirs   = [];
+  let _phases       = [];
   let _running      = false;
+  let _previewDone  = new Set();  // プレビュー完了ステージ名
 
   // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
   async function browseParent() {
@@ -304,15 +351,16 @@
 
       buildStageTable();
       buildPhaseRows();
+      resetPreview();
       const nthCount = document.querySelectorAll('.nth-check:not(:disabled)').length;
       setStatus(`${nthCount} 段階・${_phases.length} Phase を検出しました`, true);
     } catch(e) {
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
-    updateRunButton();
+    updateButtons();
   }
 
-  // ── ステージ名の表示用ラベル（末尾の序数接尾辞を除去）──────────────────────
+  // ── ステージ名の表示用ラベル ──────────────────────────────────────────────
   function stageLabel(name) {
     return name.replace(/(?:th|st|nd|rd)$/i, '');
   }
@@ -396,23 +444,19 @@
       tr.className = 'stage-row' + (isRef ? ' is-ref' : (!canNth ? ' unchecked' : ''));
       tr.id = `nth-row-${sid}`;
 
-      // 変形ステージ名（序数接尾辞を除去して表示）
       const tdName = document.createElement('td');
       tdName.className = 'stage-name';
       tdName.textContent = stageLabel(name);
       tdName.title = name;
 
-      // Mat ドロップダウン
       const tdMat = document.createElement('td');
       tdMat.className = 'file-col';
       tdMat.appendChild(makeFileSelect(allMats, name, n => `pre-processed ${n}.mat`, 'mat-select'));
 
-      // Tif ドロップダウン
       const tdTif = document.createElement('td');
       tdTif.className = 'file-col';
       tdTif.appendChild(makeTifSelect(_allTifDirs, tif_name || '', 'tif-select'));
 
-      // Xlsx ドロップダウン（ref 行は "—" を表示するだけ）
       const tdXlsx = document.createElement('td');
       tdXlsx.className = 'file-col';
       if (isRef) {
@@ -424,7 +468,6 @@
         tdXlsx.appendChild(makeFileSelect(allXlsx, xlsx_name || '', n => `pre-processed ${n}.xlsx`, 'xlsx-select'));
       }
 
-      // 参照ラジオ（mat があれば選べる）
       const tdRadio = document.createElement('td');
       tdRadio.className = 'col-center';
       const radio = document.createElement('input');
@@ -437,7 +480,6 @@
       radio.onchange = onStageChange;
       tdRadio.appendChild(radio);
 
-      // 処理対象チェック（mat + xlsx があれば選べる）
       const tdCheck = document.createElement('td');
       tdCheck.className = 'col-center';
       const cb = document.createElement('input');
@@ -451,7 +493,7 @@
       cb.onchange = () => {
         tr.classList.toggle('unchecked', !cb.checked);
         updateHint();
-        updateRunButton();
+        updateButtons();
       };
       tdCheck.appendChild(cb);
 
@@ -477,7 +519,7 @@
       if (cb) { cb.disabled = isRef; cb.style.visibility = isRef ? 'hidden' : ''; }
     });
     updateHint();
-    updateRunButton();
+    updateButtons();
   }
 
   // ── Phase 対称性行の構築 ─────────────────────────────────────────────────────
@@ -515,6 +557,44 @@
     });
   }
 
+  // ── 距離制約チェックボックス切り替え ────────────────────────────────────────
+  function onLimitToggle() {
+    document.getElementById('x-limit').disabled = !document.getElementById('use-xlimit').checked;
+    document.getElementById('y-limit').disabled = !document.getElementById('use-ylimit').checked;
+  }
+
+  // ── プレビュー結果リセット ───────────────────────────────────────────────────
+  function resetPreview() {
+    _previewDone.clear();
+    document.getElementById('preview-card').style.display = 'none';
+    document.getElementById('preview-panels').innerHTML = '';
+    document.getElementById('btn-execute').disabled = true;
+  }
+
+  // ── プレビュー結果パネル初期化 ───────────────────────────────────────────────
+  function initPreviewPanels(names) {
+    const container = document.getElementById('preview-panels');
+    container.innerHTML = '';
+    names.forEach(name => {
+      const panel = document.createElement('div');
+      panel.className = 'preview-panel';
+      panel.id = `preview-panel-${_sid(name)}`;
+
+      const title = document.createElement('div');
+      title.className = 'preview-panel-title';
+      title.textContent = name;
+      panel.appendChild(title);
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'preview-panel-placeholder';
+      placeholder.textContent = '計算中...';
+      panel.appendChild(placeholder);
+
+      container.appendChild(panel);
+    });
+    document.getElementById('preview-card').style.display = '';
+  }
+
   // ── ヒント更新 ───────────────────────────────────────────────────────────────
   function updateHint() {
     const total   = document.querySelectorAll('.nth-check:not(:disabled)').length;
@@ -523,21 +603,28 @@
       total > 0 ? `${checked} / ${total} 選択中` : '';
   }
 
-  // ── 実行ボタン ───────────────────────────────────────────────────────────────
-  function updateRunButton() {
+  // ── ボタン状態更新 ───────────────────────────────────────────────────────────
+  function updateButtons() {
     const hasRef     = !!document.querySelector('input[name="stage-role"]:checked');
     const hasChecked = !!document.querySelector('.nth-check:not(:disabled):checked');
-    document.getElementById('btn-run').disabled =
-      !(_parentFolder && hasRef && hasChecked && _phases.length > 0 && !_running);
+    const canRun = _parentFolder && hasRef && hasChecked && _phases.length > 0 && !_running;
+
+    document.getElementById('btn-preview').disabled = !canRun;
+
+    // 全チェック済みステージのプレビューが完了している場合のみ実行ボタンを有効化
+    const checkedNames = Array.from(
+      document.querySelectorAll('.nth-check:not(:disabled):checked')
+    ).map(cb => cb.value);
+    const allDone = checkedNames.length > 0 && checkedNames.every(n => _previewDone.has(n));
+    document.getElementById('btn-execute').disabled = !(!_running && allDone);
   }
 
-  // ── 実行 ─────────────────────────────────────────────────────────────────────
-  async function onRun() {
+  // ── パラメータ収集 ───────────────────────────────────────────────────────────
+  function collectParams() {
     const refRadio = document.querySelector('input[name="stage-role"]:checked');
-    if (!refRadio || !_parentFolder) return;
+    if (!refRadio || !_parentFolder) return null;
     const refStageName = refRadio.value;
 
-    // ref 行の tif 選択値を取得
     const refRow    = document.getElementById(`nth-row-${_sid(refStageName)}`);
     const refTifSel = refRow ? refRow.querySelector('.tif-select') : null;
     const refTif    = refTifSel ? refTifSel.value : refStageName;
@@ -545,9 +632,8 @@
     const checkedNames = Array.from(
       document.querySelectorAll('.nth-check:not(:disabled):checked')
     ).map(cb => cb.value);
-    if (checkedNames.length === 0) return;
+    if (checkedNames.length === 0) return null;
 
-    // nth ごとのオーバーライドを収集
     const nthMatOverrides  = {};
     const nthTifOverrides  = {};
     const nthXlsxOverrides = {};
@@ -568,11 +654,10 @@
       phaseSym[String(ph.index)] = sel ? sel.value : 'cubic';
     });
 
-    _running = true;
-    document.getElementById('btn-run').disabled = true;
-    setStatus('解析を開始しています...', true);
+    const useXlimit = document.getElementById('use-xlimit').checked;
+    const useYlimit = document.getElementById('use-ylimit').checked;
 
-    const params = {
+    return {
       parent_folder:      _parentFolder,
       ref_name:           refStageName,
       ref_tif:            refTif,
@@ -584,9 +669,35 @@
       scale_factor:       parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:          phaseSym,
       use_symmetry:       document.getElementById('use-symmetry').checked,
+      x_limit:            useXlimit ? (parseInt(document.getElementById('x-limit').value) || null) : null,
+      y_limit:            useYlimit ? (parseInt(document.getElementById('y-limit').value) || null) : null,
     };
+  }
 
-    await eel.patrep_start_batch(params)();
+  // ── プレビュー実行 ────────────────────────────────────────────────────────────
+  async function onPreview() {
+    const params = collectParams();
+    if (!params) return;
+
+    _running = true;
+    resetPreview();
+    initPreviewPanels(params.nth_names);
+    updateButtons();
+    setStatus('プレビュー計算中...', true);
+
+    await eel.patrep_start_preview(params)();
+  }
+
+  // ── 置き換え実行 ──────────────────────────────────────────────────────────────
+  async function onExecute() {
+    const params = collectParams();
+    if (!params) return;
+
+    _running = true;
+    updateButtons();
+    setStatus('置き換え実行中...', true);
+
+    await eel.patrep_start_execute(params)();
   }
 
   // ── Python コールバック ───────────────────────────────────────────────────────
@@ -599,11 +710,32 @@
     }
   }
 
+  eel.expose(patrep_on_preview_image);
+  function patrep_on_preview_image(name, img_b64) {
+    const sid   = _sid(name);
+    const panel = document.getElementById(`preview-panel-${sid}`);
+    if (!panel) return;
+
+    // プレースホルダーを削除して画像を挿入
+    const placeholder = panel.querySelector('.preview-panel-placeholder');
+    if (placeholder) placeholder.remove();
+
+    let img = panel.querySelector('img');
+    if (!img) {
+      img = document.createElement('img');
+      panel.appendChild(img);
+    }
+    img.src = 'data:image/png;base64,' + img_b64;
+
+    _previewDone.add(name);
+    updateButtons();
+  }
+
   eel.expose(patrep_on_complete);
-  function patrep_on_complete(success, msg) {
+  function patrep_on_complete(success, msg, mode) {
     _running = false;
     setStatus(msg, success);
-    updateRunButton();
+    updateButtons();
   }
 
   // ── ユーティリティ ────────────────────────────────────────────────────────────

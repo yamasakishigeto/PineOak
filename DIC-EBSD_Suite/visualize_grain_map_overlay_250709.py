@@ -12,7 +12,7 @@ def generate_green_blue_color():
     b = np.random.uniform(0.4, 1.0)
     return np.array([r, g, b])
 
-def visualize_grain_map(mat_path, xlsx_path, csv_path, save_path=None):
+def visualize_grain_map(mat_path, xlsx_path, csv_path, save_path=None, show=False):
     if save_path is None:
         mat_dir = os.path.dirname(mat_path)
         nth_name = os.path.basename(mat_path).replace('pre-processed ', '').replace('.mat', '')
@@ -74,4 +74,7 @@ def visualize_grain_map(mat_path, xlsx_path, csv_path, save_path=None):
     ax.set_ylabel("Y (row)")
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    if show:
+        plt.show()
+    plt.close()
+    return save_path

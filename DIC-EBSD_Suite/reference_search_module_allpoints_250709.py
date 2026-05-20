@@ -119,7 +119,9 @@ def extract_target_points(excel_path, mat_path):
             "Deformed_Index": row["Deformed_Index"],
             "phi1": phi1[r, c],
             "phi":  Phi[r, c],
-            "phi2": phi2[r, c]
+            "phi2": phi2[r, c],
+            "row":  r,
+            "col":  c,
         }
         if phase is not None:
             entry["phase"] = int(phase[r, c])
@@ -138,7 +140,9 @@ def run_misorientation_matching_all_vs_targets(
     sym_ops=None,
     target_phase=None,
     ref_name='ref',
-    use_symmetry=False):
+    use_symmetry=False,
+    x_limit=None,
+    y_limit=None):
     global cached_scale_factor
     print(f"Selected symmetry operations count: {len(sym_ops)}")
     mat_ref = loadmat(mat_ref_path, variable_names=['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality', 'phase_index'])
@@ -180,10 +184,14 @@ def run_misorientation_matching_all_vs_targets(
         g_target  = euler_to_matrix(*np.radians([t_row["phi1"], t_row["phi"], t_row["phi2"]]))
         tgt_phase = t_row.get("phase", None)
 
-        # 有効点 + 同一フェーズ のマスク
+        # 有効点 + 同一フェーズ + 距離制約 のマスク
         mask = ref_valid.copy()
         if tgt_phase is not None and "phase" in all_points_df.columns:
             mask &= (all_points_df["phase"].values == tgt_phase)
+        if x_limit is not None:
+            mask &= (np.abs(all_points_df["col"].values - t_row["col"]) <= x_limit)
+        if y_limit is not None:
+            mask &= (np.abs(all_points_df["row"].values - t_row["row"]) <= y_limit)
 
         if not mask.any():
             continue
