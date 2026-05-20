@@ -220,6 +220,14 @@
     padding: 20px; text-align: center;
     font-family: var(--mono); font-size: 10px; color: var(--text-dim); font-style: italic;
   }
+
+  /* ---- ステージ別閾値入力 ---- */
+  .per-stage-input {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 4px 8px; font-family: var(--mono);
+    font-size: 11px; color: var(--text); width: 90px;
+  }
+  .per-stage-input:focus { outline: none; border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -285,6 +293,19 @@
         <input class="param-input" type="number" id="y-limit" value="20" min="1" step="1" disabled>
         <span class="param-unit">ピクセル（無制限にする場合はチェックを外す）</span>
       </div>
+      <div class="param-row">
+        <div class="param-label">ステージごとに個別指定</div>
+        <input type="checkbox" id="use-per-stage" onchange="onPerStageToggle()" style="accent-color: var(--accent); width:16px; height:16px; cursor:pointer;">
+        <span class="param-unit">（各ステージの閾値・距離制約を個別に設定する）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3b: ステージ別閾値 -->
+  <div class="card" id="per-stage-card" style="display:none;">
+    <div class="card-title">Step 3b — ステージ別 閾値・距離制約（空白 = 無制限）</div>
+    <div class="stage-wrap" id="per-stage-wrap">
+      <div class="nth-hint">処理対象ステージを選択すると表示されます</div>
     </div>
   </div>
 
@@ -494,6 +515,7 @@
         tr.classList.toggle('unchecked', !cb.checked);
         updateHint();
         updateButtons();
+        if (document.getElementById('use-per-stage').checked) buildPerStageTable();
       };
       tdCheck.appendChild(cb);
 
@@ -520,6 +542,7 @@
     });
     updateHint();
     updateButtons();
+    if (document.getElementById('use-per-stage').checked) buildPerStageTable();
   }
 
   // ── Phase 対称性行の構築 ─────────────────────────────────────────────────────
@@ -561,6 +584,99 @@
   function onLimitToggle() {
     document.getElementById('x-limit').disabled = !document.getElementById('use-xlimit').checked;
     document.getElementById('y-limit').disabled = !document.getElementById('use-ylimit').checked;
+  }
+
+  // ── ステージ別個別指定モード切り替え ─────────────────────────────────────────
+  function onPerStageToggle() {
+    const on = document.getElementById('use-per-stage').checked;
+    document.getElementById('per-stage-card').style.display = on ? '' : 'none';
+    if (on) buildPerStageTable();
+  }
+
+  // ── ステージ別閾値テーブル構築 ───────────────────────────────────────────────
+  function buildPerStageTable() {
+    const wrap = document.getElementById('per-stage-wrap');
+
+    // 既存の入力値を保存（再構築後も保持するため）
+    const savedVals = {};
+    wrap.querySelectorAll('[id^="ps-angle-"]').forEach(el => {
+      savedVals[el.id.replace('ps-angle-', '')] = { angle: el.value };
+    });
+    wrap.querySelectorAll('[id^="ps-xlimit-"]').forEach(el => {
+      const sid = el.id.replace('ps-xlimit-', '');
+      if (savedVals[sid]) savedVals[sid].xlimit = el.value;
+    });
+    wrap.querySelectorAll('[id^="ps-ylimit-"]').forEach(el => {
+      const sid = el.id.replace('ps-ylimit-', '');
+      if (savedVals[sid]) savedVals[sid].ylimit = el.value;
+    });
+
+    const checkedNames = Array.from(
+      document.querySelectorAll('.nth-check:not(:disabled):checked')
+    ).map(cb => cb.value);
+
+    if (checkedNames.length === 0) {
+      wrap.innerHTML = '<div class="nth-hint">処理対象ステージを選択してください</div>';
+      return;
+    }
+
+    // グローバル値をデフォルトとして使用
+    const globalAngle = document.getElementById('angle-thr').value || '5.0';
+    const useXlimit   = document.getElementById('use-xlimit').checked;
+    const useYlimit   = document.getElementById('use-ylimit').checked;
+    const globalX     = useXlimit ? (document.getElementById('x-limit').value || '') : '';
+    const globalY     = useYlimit ? (document.getElementById('y-limit').value || '') : '';
+
+    const table = document.createElement('table');
+    table.className = 'stage-table';
+    table.innerHTML = `<thead><tr>
+      <th>ステージ</th>
+      <th>Misorientation 閾値 (°)</th>
+      <th>X上限 (px)</th>
+      <th>Y上限 (px)</th>
+    </tr></thead>`;
+
+    const tbody = document.createElement('tbody');
+    checkedNames.forEach(name => {
+      const sid   = _sid(name);
+      const saved = savedVals[sid] || {};
+
+      const tr = document.createElement('tr');
+      tr.className = 'stage-row';
+
+      const tdName = document.createElement('td');
+      tdName.className = 'stage-name';
+      tdName.textContent = stageLabel(name);
+      tdName.title = name;
+
+      const mkTd = (id, defaultVal, placeholder, step) => {
+        const td  = document.createElement('td');
+        const inp = document.createElement('input');
+        inp.type        = 'number';
+        inp.className   = 'per-stage-input';
+        inp.id          = id;
+        inp.value       = defaultVal;
+        inp.placeholder = placeholder;
+        inp.min         = '0';
+        inp.step        = step;
+        td.appendChild(inp);
+        return td;
+      };
+
+      const angleVal  = saved.angle  !== undefined ? saved.angle  : globalAngle;
+      const xlimitVal = saved.xlimit !== undefined ? saved.xlimit : globalX;
+      const ylimitVal = saved.ylimit !== undefined ? saved.ylimit : globalY;
+
+      tr.appendChild(tdName);
+      tr.appendChild(mkTd(`ps-angle-${sid}`,  angleVal,  globalAngle,  '0.5'));
+      tr.appendChild(mkTd(`ps-xlimit-${sid}`, xlimitVal, '空白=無制限', '1'));
+      tr.appendChild(mkTd(`ps-ylimit-${sid}`, ylimitVal, '空白=無制限', '1'));
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.innerHTML = '';
+    wrap.appendChild(table);
   }
 
   // ── プレビュー結果リセット ───────────────────────────────────────────────────
@@ -654,8 +770,28 @@
       phaseSym[String(ph.index)] = sel ? sel.value : 'cubic';
     });
 
-    const useXlimit = document.getElementById('use-xlimit').checked;
-    const useYlimit = document.getElementById('use-ylimit').checked;
+    const useXlimit    = document.getElementById('use-xlimit').checked;
+    const useYlimit    = document.getElementById('use-ylimit').checked;
+    const usePerStage  = document.getElementById('use-per-stage').checked;
+
+    // ステージ別閾値収集
+    const nth_thresholds = {};
+    if (usePerStage) {
+      checkedNames.forEach(name => {
+        const sid      = _sid(name);
+        const angleEl  = document.getElementById(`ps-angle-${sid}`);
+        const xEl      = document.getElementById(`ps-xlimit-${sid}`);
+        const yEl      = document.getElementById(`ps-ylimit-${sid}`);
+        const angleVal = parseFloat(angleEl ? angleEl.value : '');
+        const xVal     = parseInt(xEl ? xEl.value : '');
+        const yVal     = parseInt(yEl ? yEl.value : '');
+        nth_thresholds[name] = {
+          angle_threshold: isNaN(angleVal) ? (parseFloat(document.getElementById('angle-thr').value) || 5.0) : angleVal,
+          x_limit: (xEl && xEl.value !== '' && !isNaN(xVal) && xVal > 0) ? xVal : null,
+          y_limit: (yEl && yEl.value !== '' && !isNaN(yVal) && yVal > 0) ? yVal : null,
+        };
+      });
+    }
 
     return {
       parent_folder:      _parentFolder,
@@ -671,6 +807,7 @@
       use_symmetry:       document.getElementById('use-symmetry').checked,
       x_limit:            useXlimit ? (parseInt(document.getElementById('x-limit').value) || null) : null,
       y_limit:            useYlimit ? (parseInt(document.getElementById('y-limit').value) || null) : null,
+      nth_thresholds:     nth_thresholds,
     };
   }
 

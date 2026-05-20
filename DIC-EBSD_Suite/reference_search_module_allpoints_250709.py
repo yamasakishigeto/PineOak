@@ -220,12 +220,14 @@ def run_misorientation_matching_all_vs_targets(
         row = int(round(best_row["row"] * y_step * scale_factor))
         matched_filename = f"{ref_name}_x{col}y{row}.tif"
         results.append({
-            "Deformed_Filename":   t_row["Deformed_Filename"],
+            "Deformed_Filename":    t_row["Deformed_Filename"],
             "Matched_Ref_Filename": matched_filename,
-            "Deformed_Index":      t_row["Deformed_Index"],
-            "Matched_Ref_Index":   best_row["Index"],
-            "Matched_Ref_IQ":      best_row["IQ"],
-            "Misorientation (deg)": round(best_angle, 1)
+            "Deformed_Index":       t_row["Deformed_Index"],
+            "Matched_Ref_Index":    best_row["Index"],
+            "Matched_Ref_IQ":       best_row["IQ"],
+            "Misorientation (deg)": round(best_angle, 1),
+            "dx_px":                int(best_row["col"]) - int(t_row["col"]),
+            "dy_px":                int(best_row["row"]) - int(t_row["row"]),
         })
     df = pd.DataFrame(results)
     def natural_sort_key(s):

@@ -57,6 +57,7 @@ ref_tif           = params.get('ref_tif', ref_name)
 nth_folder_names  = params.get('nth_folder_names', {})
 nth_mat_overrides = params.get('nth_mat_overrides', {})
 nth_xlsx_overrides = params.get('nth_xlsx_overrides', {})
+nth_thresholds    = params.get('nth_thresholds', {})   # {stage: {angle_threshold, x_limit, y_limit}}
 x_limit           = params.get('x_limit', None)
 y_limit           = params.get('y_limit', None)
 preview_csvs      = params.get('preview_csvs', {})
@@ -127,6 +128,16 @@ def find_closest_tif(x, y, coord_map):
 
 def _do_matching(nth_name):
     """マッチング計算 → (df, csv_path, mat_nth, excel_nth) を返す。失敗時は None を返す。"""
+    # ステージ別閾値（指定あれば優先、なければグローバル値を使用）
+    ovr        = nth_thresholds.get(nth_name, {})
+    _angle_thr = float(ovr['angle_threshold']) if 'angle_threshold' in ovr else angle_thr
+    _x_limit   = (int(ovr['x_limit'])   if ovr.get('x_limit')   is not None else None) \
+                 if 'x_limit'  in ovr else x_limit
+    _y_limit   = (int(ovr['y_limit'])   if ovr.get('y_limit')   is not None else None) \
+                 if 'y_limit'  in ovr else y_limit
+    if ovr:
+        print(f"  [{nth_name}] 個別閾値: angle={_angle_thr}°, x_limit={_x_limit}, y_limit={_y_limit}")
+
     mat_stage_name  = nth_mat_overrides.get(nth_name, nth_name)
     xlsx_stage_name = nth_xlsx_overrides.get(nth_name, nth_name)
     mat_nth   = parent_folder / f"pre-processed {mat_stage_name}.mat"
@@ -158,12 +169,12 @@ def _do_matching(nth_name):
             mat_nth_path=str(mat_nth),
             output_csv=None,
             tif_dir=str(folder_ref),
-            angle_threshold=angle_thr,
+            angle_threshold=_angle_thr,
             target_phase=idx,
             ref_name=ref_name,
             use_symmetry=use_symmetry,
-            x_limit=x_limit,
-            y_limit=y_limit,
+            x_limit=_x_limit,
+            y_limit=_y_limit,
         )
         df_phase['phase'] = phase_name
         dfs.append(df_phase)
@@ -187,11 +198,11 @@ def _do_matching(nth_name):
     unmatched = sorted(all_targets - matched_names)
 
     with open(str(csv_path), "w", encoding="utf-8") as f:
-        f.write(f"# angle_threshold: {angle_thr}\n")
-        if x_limit is not None:
-            f.write(f"# x_limit: {x_limit}\n")
-        if y_limit is not None:
-            f.write(f"# y_limit: {y_limit}\n")
+        f.write(f"# angle_threshold: {_angle_thr}\n")
+        if _x_limit is not None:
+            f.write(f"# x_limit: {_x_limit}\n")
+        if _y_limit is not None:
+            f.write(f"# y_limit: {_y_limit}\n")
         f.write(f"# number_of_references: {n_ref}\n")
         f.write(f"# number_of_matched_patterns: {len(df)}\n")
         f.write('# no_matched_patterns: "' + " ".join(unmatched) + '"\n')
