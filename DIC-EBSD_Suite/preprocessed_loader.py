@@ -80,8 +80,10 @@ def get_value_by_label(df: pd.DataFrame, label: str):
     # normalize the target label
     label_norm = re.sub(r"[\s_]+", "", label).lower()
     # iterate through first column
-    for idx, cell in df.iloc[:, 0].astype(str).items():
-        cell_norm = re.sub(r"[\s_]+", "", cell).lower()
+    for idx, cell in df.iloc[:, 0].items():
+        if pd.isna(cell):
+            continue
+        cell_norm = re.sub(r"[\s_]+", "", str(cell)).lower()
         if label_norm in cell_norm:
             return df.iloc[idx, 1]
     raise KeyError(f"Label not found in first column: {label}")
