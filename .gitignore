@@ -16,6 +16,11 @@ Demo_output_data/
 # Other folders to exclude
 Narazaki H-DIC ver0.0.6/
 メモ/
+メモ・参考プログラム/
+
+# Auto-generated runner files
+DIC-EBSD_Suite/_prescan_runner.py
+DIC-EBSD_Suite/check_peak_locking.py
 
 # Windows
 Thumbs.db
