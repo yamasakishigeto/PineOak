@@ -56,6 +56,16 @@ class _StopEarly(Exception):
     pass
 
 
+def _destroy_stray_tk_windows():
+    import tkinter as _tk
+    root = _tk._default_root
+    if root is not None:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def load_ref_deformed():
     xlsx_path = os.path.join(DATA_DIR, "dic_results_georef.xlsx")
     ref_path = os.path.join(DATA_DIR, "SEM_images", "0MPa.bmp")
@@ -85,6 +95,7 @@ def load_ref_deformed():
     except _StopEarly:
         pass
     finally:
+        _destroy_stray_tk_windows()
         hdic.process_one_subset = orig
 
     return captured["ref"], captured["deformed"]

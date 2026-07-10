@@ -49,6 +49,19 @@ class _StopEarly(Exception):
     pass
 
 
+def _destroy_stray_tk_windows():
+    """run_heaviside_dic のシリアル分岐が作るTkinter進捗ウィンドウは、
+    ループを最後まで回した場合のみ自動で閉じる。_StopEarly で早期中断すると
+    ウィンドウが残ってしまうため、明示的に破棄する。"""
+    import tkinter as _tk
+    root = _tk._default_root
+    if root is not None:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def load_ref_deformed():
     """golden_1100MPa.npz と同一の前処理(トリミング+アライメント補正済み)の
     ref/deformed 配列を、run_heaviside_dic の最初の1呼び出し時点で捕獲する。
@@ -81,6 +94,7 @@ def load_ref_deformed():
     except _StopEarly:
         pass
     finally:
+        _destroy_stray_tk_windows()
         hdic.process_one_subset = orig
 
     return captured["ref"], captured["deformed"]
