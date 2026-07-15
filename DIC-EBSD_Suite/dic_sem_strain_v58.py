@@ -1379,21 +1379,9 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
 # DIC実行（初期値対応版）
 # =============================================================================
 
-def _zncc_at_subpixel(ref_patch, deformed_f32, cx, cy, sub_u, sub_v, subset_size):
-    """サブピクセル位置でバイリニア補間したパッチを使ってZNCCを計算する。"""
-    patch = cv2.getRectSubPix(deformed_f32, (subset_size, subset_size),
-                              (float(cx + sub_u), float(cy + sub_v)))
-    f = ref_patch - ref_patch.mean()
-    g = patch - patch.mean()
-    denom = np.sqrt((f**2).sum()) * np.sqrt((g**2).sum())
-    return float((f * g).sum() / denom) if denom > 1e-7 else 0.0
-
-
 def _process_row(ref, deformed, cx_row, cy, subset_size, search_range,
                  init_us, init_vs):
     """1行分のサブセットをまとめて処理するワーカー（joblib用）。"""
-    deformed_f32 = deformed.astype(np.float32)
-    half = subset_size // 2
     row_results = []
     for cx, init_u, init_v in zip(cx_row, init_us, init_vs):
         best_u, best_v, zncc_map = search_integer_displacement(
@@ -1402,10 +1390,10 @@ def _process_row(ref, deformed, cx_row, cy, subset_size, search_range,
         sub_u, sub_v = subpixel_refinement(
             zncc_map, best_u, best_v, search_range,
             init_u=init_u, init_v=init_v)
-        ref_patch = ref[cy-half:cy+half+1, cx-half:cx+half+1].astype(np.float32)
-        zncc_sub = _zncc_at_subpixel(ref_patch, deformed_f32, int(cx), int(cy),
-                                   sub_u, sub_v, subset_size)
-        row_results.append((int(cx), int(cy), sub_u, sub_v, zncc_sub))
+        # 整数格子上の生のZNCCピーク値をそのまま報告する(サブピクセル補間位置での
+        # 再計算はしない)。補間による平滑化で真のばらつきを覆い隠さないため。
+        zncc_raw = float(zncc_map.max())
+        row_results.append((int(cx), int(cy), sub_u, sub_v, zncc_raw))
     return row_results
 
 
