@@ -22,6 +22,10 @@ Narazaki H-DIC ver0.0.6/
 DIC-EBSD_Suite/_prescan_runner.py
 DIC-EBSD_Suite/check_peak_locking.py
 
+# マニュアルの生成物（ツールとサンプルだけを管理する）
+manual_tools/**/*.docx
+manual_tools/**/*.pdf
+
 # Windows
 Thumbs.db
 desktop.ini
