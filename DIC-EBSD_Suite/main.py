@@ -1478,71 +1478,79 @@ def patrep_browse_dir(title: str, initialdir: str):
 
 @eel.expose
 def patrep_get_info(parent_folder: str):
-    """親フォルダを検査してステージ情報・Phase 情報を返す"""
+    """親フォルダを検査してステージ情報・Phase 情報を返す。
+
+    v2: ステージ名は .mat 内の projectname から判定する（"pre-processed" という
+    ファイル名の命名規則には依存しない）。xlsx も TIFF フォルダも不要になったが、
+    ウィザードの互換のため戻り値のキーはそのまま残している。
+    """
     try:
         import numpy as _np
         from pathlib import Path as _Path
         sys.path.insert(0, TOOLS_DIR)
+        from patrep2_engine import discover_stages
         from preprocessed_loader import smart_loadmat
 
         parent = _Path(parent_folder)
 
-        # 自然順ソートキー
         import re as _re
         def _nat_key(s):
-            return [int(t) if t.isdigit() else t.lower() for t in _re.split(r'(\d+)', s)]
+            return [int(t) if t.isdigit() else t.lower() for t in _re.split(r'(\d+)', str(s))]
 
-        # pre-processed *.mat を自然順で列挙
-        mats = sorted(parent.glob("pre-processed *.mat"), key=lambda p: _nat_key(p.stem))
-        if not mats:
-            return {"error": "pre-processed *.mat が見つかりません"}
+        # .mat を projectname で識別（ファイル名の命名規則に依存しない）
+        found = discover_stages(str(parent))
+        if not found:
+            return {"error": ".mat が見つからない、または projectname を読めません"}
 
-        # pre-processed *.xlsx を自然順で列挙（名前部分だけ取り出す）
-        all_xlsx_names = sorted(
-            [p.stem.replace("pre-processed ", "") for p in parent.glob("pre-processed *.xlsx")],
-            key=_nat_key
-        )
-
-        # 親フォルダ内の全サブフォルダを自然順で列挙（隠しフォルダ除く）
-        all_tif_dirs = sorted(
-            [d.name for d in parent.iterdir() if d.is_dir() and not d.name.startswith('.')],
-            key=_nat_key
-        )
-
-        # i番目のmatにi番目のxlsx・tifをデフォルト割り当て（名前の関連なし）
+        names = sorted(found.keys(), key=_nat_key)
         stages = []
-        for i, m in enumerate(mats):
-            name      = m.stem.replace("pre-processed ", "")
-            xlsx_name = all_xlsx_names[i] if i < len(all_xlsx_names) else ""
-            tif_name  = all_tif_dirs[i]   if i < len(all_tif_dirs)   else ""
+        for name in names:
+            up2 = parent / f"{name}.up2"
+            osc = parent / f"{name}.osc"
+            if not up2.exists():
+                up2 = next((p for p in parent.glob("*.up2")
+                            if p.stem.lower() == name.lower()), None)
+            if not osc.exists():
+                osc = next((p for p in parent.glob("*.osc")
+                            if p.stem.lower() == name.lower()), None)
             stages.append({
                 "name":      name,
                 "has_mat":   True,
-                "has_xlsx":  bool(xlsx_name),
-                "xlsx_name": xlsx_name,
-                "has_tif":   bool(tif_name),
-                "tif_name":  tif_name,
+                "mat_file":  _Path(found[name][0]).name,
+                # v2 では未使用。ウィザードの既存UIを壊さないため値は入れておく
+                "has_xlsx":  True,
+                "xlsx_name": name,
+                "has_tif":   bool(up2),
+                "tif_name":  (up2.name if up2 else ""),
+                # v2 で実際に使うもの
+                "has_up2":   bool(up2),
+                "up2_name":  (up2.name if up2 else ""),
+                "has_osc":   bool(osc),
+                "osc_name":  (osc.name if osc else ""),
             })
 
         # phase 情報は最初の mat から読む
-        mat0 = smart_loadmat(str(mats[0]), variable_names=["phase_index", "phasetxt"])
-        phase_idx_map   = mat0["phase_index"]
-        phase_names_raw = [str(n) for n in mat0["phasetxt"][0]]
-        idxs = sorted(set(
-            int(v) for v in phase_idx_map.flatten()
-            if not (isinstance(v, float) and _np.isnan(v))
-        ))
-        phases = [
-            {"index": i, "name": phase_names_raw[i] if i < len(phase_names_raw) else f"Phase{i}"}
-            for i in idxs
-        ]
-
-        all_mat_names = [s["name"] for s in stages if s["has_xlsx"]]
+        mat0 = smart_loadmat(found[names[0]][0], variable_names=["phase_index", "phasetxt"])
+        phases = []
+        try:
+            phase_idx_map   = mat0["phase_index"]
+            _raw            = mat0["phasetxt"]
+            phase_names_raw = [str(n) for n in (_raw[0] if _np.ndim(_raw) else [_raw])]
+            idxs = sorted(set(
+                int(v) for v in _np.asarray(phase_idx_map).flatten()
+                if not (isinstance(v, float) and _np.isnan(v))
+            ))
+            phases = [
+                {"index": i, "name": phase_names_raw[i] if i < len(phase_names_raw) else f"Phase{i}"}
+                for i in idxs
+            ]
+        except Exception:
+            phases = [{"index": 0, "name": "Phase0"}]
 
         return {
             "stages": stages,
-            "all_mat_names": all_mat_names,
-            "all_tif_dirs": all_tif_dirs,
+            "all_mat_names": names,
+            "all_tif_dirs": [s["up2_name"] for s in stages if s["has_up2"]],
             "phases": phases,
         }
 

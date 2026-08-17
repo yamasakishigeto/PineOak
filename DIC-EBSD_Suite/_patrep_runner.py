@@ -1,37 +1,43 @@
 """
-_patrep_runner.py
-=================
+_patrep_runner.py  (v2)
+=======================
 EBSD PatRep バッチ処理の param-driven ランナー。
+
+v1 からの変更:
+  * 参照点リストを .mat の refloc から読む（xlsx 不要・日本語パス対応）
+  * ステージ名は .mat の projectname から判定（"pre-processed" 命名規則が不要）
+  * index（0基準）のみで完結（命名倍率・find_closest_tif・off-by-one が消滅）
+  * .up2 を直接パッチ。原本は触らず replaced_<stage>/ に .osc とペアで出力
+  * 粒単位のマッチ集計。1点でも未マッチの粒は「解析対象外」として出力
+
+v1 の JSON 契約と標準出力の書式は維持しているので、main.py / wizard から
+そのまま呼び出せる。使わなくなったパラメータ（scale_factor, nth_xlsx_overrides,
+ref_tif, nth_folder_names）は受け取っても無視する。
 
 JSON 形式:
 {
     "mode":             "preview" | "execute",
-    "patrep_dir":       "E:/.../EBSD PatRep",
-    "parent_folder":    "E:/.../experiment_folder",
-    "ref_name":         "ref",
-    "nth_names":        ["1st", "2nd", "900MPa"],
+    "patrep_dir":       "...",
+    "parent_folder":    "...",
+    "ref_name":         "0th",
+    "nth_names":        ["1th", "2th"],
     "angle_threshold":  5.0,
-    "scale_factor":     100.0,
-    "phase_sym":        {"0": "cubic", "1": "hexagonal"},
+    "phase_sym":        {"0": "cubic"},
+    "use_symmetry":     false,
     "x_limit":          null,
     "y_limit":          null,
-    // execute モード追加パラメータ
-    "preview_csvs":     {"1st": "/path/to/csv", ...}
+    "nth_thresholds":   {"1th": {"angle_threshold": 3.0, "x_limit": 5, "y_limit": 5}},
+    "nth_mat_overrides": {"1th": "..."}
 }
 """
-
 import sys
 import os
 import json
-import re
-import shutil
 import traceback
-from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
 
-# UTF-8 出力設定
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 if hasattr(sys.stderr, 'reconfigure'):
@@ -44,290 +50,96 @@ if len(sys.argv) < 2:
 with open(sys.argv[1], encoding='utf-8') as _f:
     params = json.load(_f)
 
-mode              = params.get('mode', 'preview')
-patrep_dir        = params['patrep_dir']
-parent_folder     = Path(params['parent_folder'])
-nth_names         = params['nth_names']
-angle_thr         = float(params['angle_threshold'])
-scale_factor      = float(params['scale_factor'])
-phase_sym         = params['phase_sym']
-ref_name          = params.get('ref_name', 'ref')
-use_symmetry      = bool(params.get('use_symmetry', False))
-ref_tif           = params.get('ref_tif', ref_name)
-nth_folder_names  = params.get('nth_folder_names', {})
-nth_mat_overrides = params.get('nth_mat_overrides', {})
-nth_xlsx_overrides = params.get('nth_xlsx_overrides', {})
-nth_thresholds    = params.get('nth_thresholds', {})   # {stage: {angle_threshold, x_limit, y_limit}}
-x_limit           = params.get('x_limit', None)
-y_limit           = params.get('y_limit', None)
-preview_csvs      = params.get('preview_csvs', {})
+mode          = params.get('mode', 'preview')
+patrep_dir    = params.get('patrep_dir') or os.path.dirname(os.path.abspath(__file__))
+parent_folder = params['parent_folder']
+ref_name      = params.get('ref_name', 'ref')
+nth_names     = params.get('nth_names', [])
+angle_thr     = float(params.get('angle_threshold', 5.0))
+phase_sym     = params.get('phase_sym', {})
+use_symmetry  = bool(params.get('use_symmetry', False))
+x_limit       = params.get('x_limit', None)
+y_limit       = params.get('y_limit', None)
+nth_thresholds = params.get('nth_thresholds', {})
+nth_mat_over  = params.get('nth_mat_overrides', {})
 
-# EBSD PatRep モジュールをパスに追加
 sys.path.insert(0, patrep_dir)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import numpy as np
-import pandas as pd
-from scipy.spatial.transform import Rotation as R
-from preprocessed_loader import smart_loadmat as loadmat
+from patrep2_engine import (discover_stages, load_scan, run_stage, build_phase_sym)   # noqa: E402
 
-import reference_search_module_allpoints_250709 as ref_mod
-from reference_search_module_allpoints_250709 import extract_target_points
-from visualize_grain_map_overlay_250709 import visualize_grain_map
-from preprocessed_loader import get_value_by_label
 
-# scale_factor をモジュールキャッシュに注入
-ref_mod.cached_scale_factor = scale_factor
+def log(*a):
+    print(*a, flush=True)
 
-# 対称操作グループのマッピング
-SYM_GROUPS = {
-    'cubic':        'O',
-    'hexagonal':    'D6',
-    'tetragonal':   'D4',
-    'orthorhombic': 'D2',
-    'trigonal':     'D3',
-    'monoclinic':   'C2',
-    'triclinic':    'C1',
-}
 
-# phase_sym → {int: ndarray of rotation matrices}
-phase_sym_map = {}
-for idx_str, sym_name in phase_sym.items():
-    group = SYM_GROUPS.get(sym_name, 'O')
-    ops = R.create_group(group).as_matrix()
-    phase_sym_map[int(idx_str)] = ops
-    print(f"  Phase {idx_str}: {sym_name} → group '{group}'  ({len(ops)} ops)")
+log("=" * 55)
+log(f"  EBSD PatRep v2   モード: {'置き換え実行' if mode == 'execute' else 'プレビュー'}")
+log("=" * 55)
 
-# ref のパスを確定
-mat_ref_candidates = sorted(parent_folder.glob(f"pre-processed {ref_name}*.mat"))
-if not mat_ref_candidates:
-    print(f"ERROR: pre-processed {ref_name}*.mat が見つかりません")
+# ---- ステージの識別（projectname 由来。ファイル名の命名規則に依存しない） ----
+found = discover_stages(parent_folder)
+log(f"\n  .mat の識別: {len(found)} ステージ")
+for s, ps in sorted(found.items()):
+    log(f"    {s:14s} <- {', '.join(os.path.basename(p) for p in ps)}")
+
+if ref_name not in found:
+    log(f"ERROR: 参照ステージ '{ref_name}' の .mat が見つかりません")
     sys.exit(1)
-mat_ref    = mat_ref_candidates[0]
-folder_ref = parent_folder / ref_tif
-print(f"  ref mat: {mat_ref.name}")
-print(f"  ref パターンフォルダ: {ref_tif}")
 
-# phase 情報を読む
-_mat0 = loadmat(str(mat_ref), variable_names=['phasetxt', 'phase_index'])
-phase_idx_map   = _mat0['phase_index']
-phase_names_raw = [str(n) for n in _mat0['phasetxt'][0]]
-phases = sorted(set(int(v) for v in phase_idx_map.flatten()
-                    if not (isinstance(v, float) and np.isnan(v))))
+log(f"\n  参照スキャン {ref_name} を読み込み中 ...")
+try:
+    ref_scan = load_scan(found[ref_name][0])
+except Exception as e:
+    log(f"ERROR: 参照スキャンの読み込みに失敗: {e}")
+    traceback.print_exc()
+    sys.exit(1)
+log(f"    {ref_scan.nc}x{ref_scan.nr} = {ref_scan.n} 点, "
+    f"step {ref_scan.xstep:g}x{ref_scan.ystep:g} um, 有効 {int(ref_scan.valid.sum())} 点")
 
+# phase → 対称群
+if not phase_sym:
+    import numpy as _np
+    ph = ref_scan.phase
+    phase_sym = {str(int(v)): 'cubic' for v in _np.unique(ph[_np.isfinite(ph)])}
+sym_ops_map = build_phase_sym(phase_sym)
+for k, v in sorted(phase_sym.items()):
+    log(f"    Phase {k}: {v}")
 
-def find_closest_tif(x, y, coord_map):
-    min_dist = float('inf')
-    closest_file = None
-    for (cx, cy), f in coord_map.items():
-        dist = (cx - x) ** 2 + (cy - y) ** 2
-        if dist < min_dist:
-            min_dist = dist
-            closest_file = f
-    return closest_file
-
-
-def _do_matching(nth_name):
-    """マッチング計算 → (df, csv_path, mat_nth, excel_nth) を返す。失敗時は None を返す。"""
-    # ステージ別閾値（指定あれば優先、なければグローバル値を使用）
-    ovr        = nth_thresholds.get(nth_name, {})
-    _angle_thr = float(ovr['angle_threshold']) if 'angle_threshold' in ovr else angle_thr
-    _x_limit   = (int(ovr['x_limit'])   if ovr.get('x_limit')   is not None else None) \
-                 if 'x_limit'  in ovr else x_limit
-    _y_limit   = (int(ovr['y_limit'])   if ovr.get('y_limit')   is not None else None) \
-                 if 'y_limit'  in ovr else y_limit
-    if ovr:
-        print(f"  [{nth_name}] 個別閾値: angle={_angle_thr}°, x_limit={_x_limit}, y_limit={_y_limit}")
-
-    mat_stage_name  = nth_mat_overrides.get(nth_name, nth_name)
-    xlsx_stage_name = nth_xlsx_overrides.get(nth_name, nth_name)
-    mat_nth   = parent_folder / f"pre-processed {mat_stage_name}.mat"
-    excel_nth = parent_folder / f"pre-processed {xlsx_stage_name}.xlsx"
-    print(f"  {nth_name} mat: pre-processed {mat_stage_name}.mat")
-    print(f"  {nth_name} xlsx: pre-processed {xlsx_stage_name}.xlsx")
-
-    missing = [p for p in [mat_ref, mat_nth, excel_nth] if not p.exists()]
-    if missing:
-        print(f"  ERROR: 次のファイルが見つかりません: {[p.name for p in missing]}")
-        return None, None, None, None
-
-    dfs = []
-    for idx in phases:
-        phase_name = phase_names_raw[idx] if idx < len(phase_names_raw) else f"Phase{idx}"
-        sym_ops = phase_sym_map.get(idx)
-        if sym_ops is None:
-            print(f"  WARNING: Phase {idx} ({phase_name}) の対称操作が未設定。スキップ。")
-            continue
-
-        target_list = extract_target_points(str(excel_nth), str(mat_nth))
-        count_ref = len(target_list[target_list['phase'] == idx])
-        print(f"  Phase {idx} ({phase_name}): {count_ref} 参照点 — misorientation 計算中...")
-
-        df_phase = ref_mod.run_misorientation_matching_all_vs_targets(
-            mat_ref_path=str(mat_ref),
-            sym_ops=sym_ops,
-            excel_nth_path=str(excel_nth),
-            mat_nth_path=str(mat_nth),
-            output_csv=None,
-            tif_dir=str(folder_ref),
-            angle_threshold=_angle_thr,
-            target_phase=idx,
-            ref_name=ref_name,
-            use_symmetry=use_symmetry,
-            x_limit=_x_limit,
-            y_limit=_y_limit,
-        )
-        df_phase['phase'] = phase_name
-        dfs.append(df_phase)
-
-    if not dfs:
-        print(f"  WARNING: 処理結果が空です。スキップします。")
-        return None, None, None, None
-
-    df = pd.concat(dfs, ignore_index=True)
-    print(f"  マッチング完了: {len(df)} 点")
-
-    # CSV 保存
-    csv_path = parent_folder / f"replaced pattern list ref_{nth_name}.csv"
-    df_excel = pd.read_excel(str(excel_nth), sheet_name="Project Details", header=None)
-    n_ref = int(get_value_by_label(df_excel, "Number of References"))
-    matched_names = set(df["Deformed_Filename"])
-    all_targets = set(
-        df_excel.iloc[31:31+n_ref, 1].dropna()
-                .str.extract(r'(^.+\.tif)')[0]
-    )
-    unmatched = sorted(all_targets - matched_names)
-
-    with open(str(csv_path), "w", encoding="utf-8") as f:
-        f.write(f"# angle_threshold: {_angle_thr}\n")
-        if _x_limit is not None:
-            f.write(f"# x_limit: {_x_limit}\n")
-        if _y_limit is not None:
-            f.write(f"# y_limit: {_y_limit}\n")
-        f.write(f"# number_of_references: {n_ref}\n")
-        f.write(f"# number_of_matched_patterns: {len(df)}\n")
-        f.write('# no_matched_patterns: "' + " ".join(unmatched) + '"\n')
-        df.to_csv(f, index=False, lineterminator="\n")
-
-    print(f"PREVIEW_CSV:{nth_name}:{csv_path}")
-    return df, csv_path, mat_nth, excel_nth
-
-
-def _do_visualize(mat_nth, excel_nth, csv_path, nth_name):
-    """マップPNGを生成してパスを標準出力に出力する"""
-    png_path = str(parent_folder / f"matching map {nth_name}.png")
+n_success = 0
+for nth_name in nth_names:
+    log("\n" + "=" * 55)
+    log(f"  Processing: {nth_name}")
+    log("=" * 55)
     try:
-        visualize_grain_map(str(mat_nth), str(excel_nth), str(csv_path), save_path=png_path)
-        print(f"PREVIEW_PNG:{nth_name}:{png_path}")
+        mat_stage = nth_mat_over.get(nth_name, nth_name)
+        if mat_stage not in found:
+            log(f"  ERROR [{nth_name}]: ステージ '{mat_stage}' の .mat が見つかりません")
+            continue
+
+        ovr = nth_thresholds.get(nth_name, {})
+        p = dict(
+            angle_threshold=float(ovr.get('angle_threshold', angle_thr)),
+            x_limit=ovr.get('x_limit', x_limit),
+            y_limit=ovr.get('y_limit', y_limit),
+            use_symmetry=use_symmetry,
+            phase_sym_ops=sym_ops_map,
+        )
+        rows, csv_path, png_path = run_stage(
+            parent_folder, ref_scan, ref_name, nth_name, found[mat_stage][0],
+            p, log=log, apply=(mode == 'execute'))
+
+        if csv_path:
+            log(f"PREVIEW_CSV:{nth_name}:{csv_path}")
+        if png_path:
+            log(f"PREVIEW_PNG:{nth_name}:{png_path}")
+        n_success += 1
+        log(f"  {nth_name}: 完了")
+
     except Exception as e:
-        print(f"  WARNING: {nth_name} の可視化でエラー: {e}")
+        log(f"  ERROR [{nth_name}]: {e}")
+        traceback.print_exc()
 
-
-def _do_copy(df, nth_name, folder_nth):
-    """tifコピー・置き換えを実行する"""
-    replacing_dir = parent_folder / f"replacing_ref_{nth_name}"
-    renamed_dir   = parent_folder / f"renamed_ref_{nth_name}"
-    replaced_dir  = parent_folder / f"replaced_{nth_name}"
-    for d in [replacing_dir, renamed_dir, replaced_dir]:
-        d.mkdir(exist_ok=True)
-
-    print(f"  パターンファイルをコピー・置き換え中...")
-    tif_files = list(folder_ref.glob("*.tif"))
-    coord_map = {}
-    _pat = re.compile(r"x(\d+)y(\d+)")
-    for tif in tif_files:
-        m = _pat.search(tif.name)
-        if m:
-            coord_map[(int(m.group(1)), int(m.group(2)))] = tif
-
-    n_copied = 0
-    for _, row in df.iterrows():
-        matched_name  = row["Matched_Ref_Filename"]
-        deformed_name = row["Deformed_Filename"]
-        m = _pat.search(matched_name)
-        if not m:
-            continue
-        x, y = int(m.group(1)), int(m.group(2))
-        matched_file = find_closest_tif(x, y, coord_map)
-        if matched_file is None:
-            print(f"    WARNING: {matched_name} に対応するファイルが見つかりません。")
-            continue
-        shutil.copy2(matched_file, replacing_dir / matched_file.name)
-        shutil.copy2(matched_file, renamed_dir / deformed_name)
-        nth_path = folder_nth / deformed_name
-        if nth_path.exists():
-            shutil.copy2(nth_path, replaced_dir / deformed_name)
-        shutil.copy2(renamed_dir / deformed_name, nth_path)
-        n_copied += 1
-
-    print(f"  コピー完了: {n_copied} ファイル")
-
-
-# ================================================================
-# プレビューモード
-# ================================================================
-if mode == 'preview':
-    print(f"\n{'='*55}")
-    print(f"  プレビューモード")
-    print('='*55)
-    n_success = 0
-
-    for nth_name in nth_names:
-        print(f"\n{'='*55}")
-        print(f"  Processing: {nth_name}")
-        print('='*55)
-        try:
-            df, csv_path, mat_nth, excel_nth = _do_matching(nth_name)
-            if df is None:
-                continue
-            _do_visualize(mat_nth, excel_nth, csv_path, nth_name)
-            n_success += 1
-            print(f"  {nth_name}: 完了")
-        except Exception as e:
-            print(f"  ERROR [{nth_name}]: {e}")
-            traceback.print_exc()
-
-    print(f"\n{'='*55}")
-    print(f"  プレビュー完了  ({n_success}/{len(nth_names)} 成功)")
-    print('='*55)
-
-# ================================================================
-# 置き換え実行モード
-# ================================================================
-elif mode == 'execute':
-    print(f"\n{'='*55}")
-    print(f"  置き換え実行モード")
-    print('='*55)
-    n_success = 0
-
-    for nth_name in nth_names:
-        print(f"\n{'='*55}")
-        print(f"  Processing: {nth_name}")
-        print('='*55)
-        try:
-            csv_path_str = preview_csvs.get(nth_name)
-            if not csv_path_str or not Path(csv_path_str).exists():
-                print(f"  ERROR: プレビュー結果CSVが見つかりません。先にプレビューを実行してください。")
-                continue
-
-            csv_path = Path(csv_path_str)
-            df = pd.read_csv(str(csv_path), comment='#')
-
-            mat_stage_name  = nth_mat_overrides.get(nth_name, nth_name)
-            xlsx_stage_name = nth_xlsx_overrides.get(nth_name, nth_name)
-            nth_dir_name    = nth_folder_names.get(nth_name, nth_name)
-            mat_nth   = parent_folder / f"pre-processed {mat_stage_name}.mat"
-            excel_nth = parent_folder / f"pre-processed {xlsx_stage_name}.xlsx"
-            folder_nth = parent_folder / nth_dir_name
-
-            _do_copy(df, nth_name, folder_nth)
-            _do_visualize(mat_nth, excel_nth, csv_path, nth_name)
-            n_success += 1
-            print(f"  {nth_name}: 完了")
-
-        except Exception as e:
-            print(f"  ERROR [{nth_name}]: {e}")
-            traceback.print_exc()
-
-    print(f"\n{'='*55}")
-    print(f"  全処理完了  ({n_success}/{len(nth_names)} 成功)")
-    print('='*55)
+log("\n" + "=" * 55)
+log(f"  {'全処理完了' if mode == 'execute' else 'プレビュー完了'}  ({n_success}/{len(nth_names)} 成功)")
+log("=" * 55)
