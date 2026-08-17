@@ -199,11 +199,12 @@
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: 3px; padding: 2px 4px; font-family: var(--mono);
     font-size: 10px; color: var(--text); cursor: pointer;
-    max-width: 200px; width: 100%;
+    width: auto; min-width: 150px; max-width: 220px;
   }
   .file-select:focus { outline: none; border-color: var(--accent); }
   .file-select.ng { color: var(--text-dim); opacity: 0.6; }
-  .file-col-dash { font-family: var(--mono); font-size: 10px; color: var(--text-dim); opacity: 0.5; }
+  .file-col-name    { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  .file-col-missing { font-family: var(--mono); font-size: 10px; color: var(--accent2); opacity: 0.85; }
 
   /* ---- プレビュー結果 ---- */
   .preview-panels { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 12px; }
@@ -241,7 +242,7 @@
 
   <!-- Step 1: 親フォルダ -->
   <div class="card">
-    <div class="card-title">Step 1 — 親フォルダ（pre-processed *.mat を含むフォルダ）</div>
+    <div class="card-title">Step 1 — 親フォルダ（CrossCourt の .mat を含むフォルダ）</div>
     <div class="file-rows">
       <div class="file-row">
         <div class="file-label">親フォルダ<span class="required">*</span></div>
@@ -270,11 +271,6 @@
         <div class="param-label">Misorientation 閾値</div>
         <input class="param-input" type="number" id="angle-thr" value="5.0" min="0" step="0.5">
         <span class="param-unit">deg</span>
-      </div>
-      <div class="param-row">
-        <div class="param-label">Scale factor（tif ファイル名）</div>
-        <input class="param-input" type="number" id="scale-factor" value="100" min="1" step="1">
-        <span class="param-unit">（例: step=0.1μm, factor=100 → x10y20.tif）</span>
       </div>
       <div class="param-row">
         <div class="param-label">対称性を考慮する</div>
@@ -345,7 +341,6 @@
 
   let _parentFolder = null;
   let _stages       = [];
-  let _allTifDirs   = [];
   let _phases       = [];
   let _running      = false;
   let _previewDone  = new Set();  // プレビュー完了ステージ名
@@ -353,7 +348,7 @@
   // ── 親フォルダ選択 ──────────────────────────────────────────────────────────
   async function browseParent() {
     const wd = window._workDir || '';
-    const path = await eel.patrep_browse_dir('親フォルダを選択（pre-processed *.mat を含むフォルダ）', wd)();
+    const path = await eel.patrep_browse_dir('親フォルダを選択（CrossCourt の .mat を含むフォルダ）', wd)();
     if (!path) return;
 
     _parentFolder = path;
@@ -366,8 +361,7 @@
       const info = await eel.patrep_get_info(path)();
       if (info.error) { setStatus(info.error, false); return; }
 
-      _stages     = info.stages      || [];
-      _allTifDirs = info.all_tif_dirs || [];
+      _stages     = info.stages || [];
       _phases     = info.phases;
 
       buildStageTable();
@@ -379,11 +373,6 @@
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
     updateButtons();
-  }
-
-  // ── ステージ名の表示用ラベル ──────────────────────────────────────────────
-  function stageLabel(name) {
-    return name.replace(/(?:th|st|nd|rd)$/i, '');
   }
 
   // ── ファイル選択ドロップダウン生成 ─────────────────────────────────────────
@@ -408,23 +397,18 @@
     return sel;
   }
 
-  function makeTifSelect(dirs, defaultDir, cls) {
-    const sel = document.createElement('select');
-    sel.className = `file-select ${cls}`;
-    const blankOpt = document.createElement('option');
-    blankOpt.value = '';
-    blankOpt.textContent = '—';
-    blankOpt.selected = !defaultDir;
-    sel.appendChild(blankOpt);
-    dirs.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d;
-      opt.textContent = d;
-      opt.selected = d === defaultDir;
-      sel.appendChild(opt);
-    });
-    if (!defaultDir) sel.classList.add('ng');
-    return sel;
+  // ファイルの有無を表示するセル（選択はしない。実ファイル名をそのまま出す）
+  function makeFileStatus(fileName) {
+    const span = document.createElement('span');
+    if (fileName) {
+      span.className = 'file-col-name';
+      span.textContent = fileName;
+      span.title = fileName;
+    } else {
+      span.className = 'file-col-missing';
+      span.textContent = 'なし';
+    }
+    return span;
   }
 
   // ── ステージテーブル構築 ─────────────────────────────────────────────────────
@@ -436,30 +420,32 @@
       a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
     if (sorted.length === 0) {
-      wrap.innerHTML = '<div class="nth-hint">対応する pre-processed .mat が見つかりませんでした</div>';
+      wrap.innerHTML = '<div class="nth-hint">.mat が見つかりませんでした</div>';
       return;
     }
 
-    const allMats  = sorted.filter(s => s.has_mat).map(s => s.name);
-    const allXlsx  = sorted.filter(s => s.has_xlsx).map(s => s.name);
+    const allMats = sorted.filter(s => s.has_mat).map(s => s.name);
+    // ステージ名 → 実際の .mat ファイル名（表示用。組み立てた名前だと実体とずれる）
+    const matFileOf = {};
+    sorted.forEach(s => { matFileOf[s.name] = s.mat_file || ''; });
 
     const table = document.createElement('table');
     table.className = 'stage-table';
     table.innerHTML = `<thead><tr>
       <th>変形ステージ</th>
       <th>matファイル</th>
-      <th>tifフォルダ</th>
-      <th>xlsxファイル</th>
+      <th>パターン (.up2)</th>
+      <th>スキャン (.osc)</th>
       <th class="col-center">参照</th>
       <th class="col-center">処理対象</th>
     </tr></thead>`;
 
     const tbody = document.createElement('tbody');
     sorted.forEach((stage, i) => {
-      const { name, has_mat, has_tif, has_xlsx, tif_name, xlsx_name } = stage;
+      const { name, has_mat, up2_name, osc_name } = stage;
       const sid    = _sid(name);
       const isRef  = i === 0;
-      const canNth = has_mat && has_xlsx;
+      const canNth = has_mat;   // v2 は .mat だけで照合できる（xlsx 不要）
 
       const tr = document.createElement('tr');
       tr.className = 'stage-row' + (isRef ? ' is-ref' : (!canNth ? ' unchecked' : ''));
@@ -467,27 +453,20 @@
 
       const tdName = document.createElement('td');
       tdName.className = 'stage-name';
-      tdName.textContent = stageLabel(name);
+      tdName.textContent = name;
       tdName.title = name;
 
       const tdMat = document.createElement('td');
       tdMat.className = 'file-col';
-      tdMat.appendChild(makeFileSelect(allMats, name, n => `pre-processed ${n}.mat`, 'mat-select'));
+      tdMat.appendChild(makeFileSelect(allMats, name, n => matFileOf[n] || n, 'mat-select'));
 
-      const tdTif = document.createElement('td');
-      tdTif.className = 'file-col';
-      tdTif.appendChild(makeTifSelect(_allTifDirs, tif_name || '', 'tif-select'));
+      const tdUp2 = document.createElement('td');
+      tdUp2.className = 'file-col';
+      tdUp2.appendChild(makeFileStatus(up2_name));
 
-      const tdXlsx = document.createElement('td');
-      tdXlsx.className = 'file-col';
-      if (isRef) {
-        const dash = document.createElement('span');
-        dash.className = 'file-col-dash';
-        dash.textContent = '—';
-        tdXlsx.appendChild(dash);
-      } else {
-        tdXlsx.appendChild(makeFileSelect(allXlsx, xlsx_name || '', n => `pre-processed ${n}.xlsx`, 'xlsx-select'));
-      }
+      const tdOsc = document.createElement('td');
+      tdOsc.className = 'file-col';
+      tdOsc.appendChild(makeFileStatus(osc_name));
 
       const tdRadio = document.createElement('td');
       tdRadio.className = 'col-center';
@@ -519,12 +498,20 @@
       };
       tdCheck.appendChild(cb);
 
-      tr.append(tdName, tdMat, tdTif, tdXlsx, tdRadio, tdCheck);
+      tr.append(tdName, tdMat, tdUp2, tdOsc, tdRadio, tdCheck);
       tbody.appendChild(tr);
     });
 
     table.appendChild(tbody);
     wrap.appendChild(table);
+
+    const note = document.createElement('div');
+    note.className = 'nth-hint';
+    note.style.marginTop = '6px';
+    note.textContent = 'プレビューは .mat だけで実行できます。置き換え実行には、参照ステージの .up2 と、'
+                     + '処理対象ステージの .up2 / .osc が必要です。';
+    wrap.appendChild(note);
+
     updateHint();
   }
 
@@ -646,7 +633,7 @@
 
       const tdName = document.createElement('td');
       tdName.className = 'stage-name';
-      tdName.textContent = stageLabel(name);
+      tdName.textContent = name;
       tdName.title = name;
 
       const mkTd = (id, defaultVal, placeholder, step) => {
@@ -741,27 +728,17 @@
     if (!refRadio || !_parentFolder) return null;
     const refStageName = refRadio.value;
 
-    const refRow    = document.getElementById(`nth-row-${_sid(refStageName)}`);
-    const refTifSel = refRow ? refRow.querySelector('.tif-select') : null;
-    const refTif    = refTifSel ? refTifSel.value : refStageName;
-
     const checkedNames = Array.from(
       document.querySelectorAll('.nth-check:not(:disabled):checked')
     ).map(cb => cb.value);
     if (checkedNames.length === 0) return null;
 
-    const nthMatOverrides  = {};
-    const nthTifOverrides  = {};
-    const nthXlsxOverrides = {};
+    const nthMatOverrides = {};
     checkedNames.forEach(name => {
-      const row     = document.getElementById(`nth-row-${_sid(name)}`);
+      const row    = document.getElementById(`nth-row-${_sid(name)}`);
       if (!row) return;
-      const matSel  = row.querySelector('.mat-select');
-      const tifSel  = row.querySelector('.tif-select');
-      const xlsxSel = row.querySelector('.xlsx-select');
-      if (matSel  && matSel.value  && matSel.value  !== name) nthMatOverrides[name]  = matSel.value;
-      if (tifSel  && tifSel.value  && tifSel.value  !== name) nthTifOverrides[name]  = tifSel.value;
-      if (xlsxSel && xlsxSel.value && xlsxSel.value !== name) nthXlsxOverrides[name] = xlsxSel.value;
+      const matSel = row.querySelector('.mat-select');
+      if (matSel && matSel.value && matSel.value !== name) nthMatOverrides[name] = matSel.value;
     });
 
     const phaseSym = {};
@@ -796,13 +773,9 @@
     return {
       parent_folder:      _parentFolder,
       ref_name:           refStageName,
-      ref_tif:            refTif,
       nth_names:          checkedNames,
       nth_mat_overrides:  nthMatOverrides,
-      nth_folder_names:   nthTifOverrides,
-      nth_xlsx_overrides: nthXlsxOverrides,
       angle_threshold:    parseFloat(document.getElementById('angle-thr').value) || 5.0,
-      scale_factor:       parseFloat(document.getElementById('scale-factor').value) || 100.0,
       phase_sym:          phaseSym,
       use_symmetry:       document.getElementById('use-symmetry').checked,
       x_limit:            useXlimit ? (parseInt(document.getElementById('x-limit').value) || null) : null,

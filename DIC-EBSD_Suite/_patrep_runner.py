@@ -10,9 +10,9 @@ v1 からの変更:
   * .up2 を直接パッチ。原本は触らず replaced_<stage>/ に .osc とペアで出力
   * 粒単位のマッチ集計。1点でも未マッチの粒は「解析対象外」として出力
 
-v1 の JSON 契約と標準出力の書式は維持しているので、main.py / wizard から
-そのまま呼び出せる。使わなくなったパラメータ（scale_factor, nth_xlsx_overrides,
-ref_tif, nth_folder_names）は受け取っても無視する。
+標準出力の書式は v1 と同じ。使わなくなったパラメータ（scale_factor,
+nth_xlsx_overrides, ref_tif, nth_folder_names）はウィザードから送られなく
+なったが、古い JSON をそのまま流せるよう受け取っても無視する。
 
 JSON 形式:
 {

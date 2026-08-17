@@ -1481,8 +1481,8 @@ def patrep_get_info(parent_folder: str):
     """親フォルダを検査してステージ情報・Phase 情報を返す。
 
     v2: ステージ名は .mat 内の projectname から判定する（"pre-processed" という
-    ファイル名の命名規則には依存しない）。xlsx も TIFF フォルダも不要になったが、
-    ウィザードの互換のため戻り値のキーはそのまま残している。
+    ファイル名の命名規則には依存しない）。xlsx と TIFF フォルダは使わない。
+    書き込みに必要な .up2 / .osc の有無も返す。
     """
     try:
         import numpy as _np
@@ -1502,40 +1502,42 @@ def patrep_get_info(parent_folder: str):
         if not found:
             return {"error": ".mat が見つからない、または projectname を読めません"}
 
+        def _find_file(stem, ext):
+            """<stem><ext> を大文字小文字を無視して探す。実ファイル名のまま返す。"""
+            return next((p for p in parent.glob("*" + ext)
+                         if p.stem.lower() == stem.lower()), None)
+
         names = sorted(found.keys(), key=_nat_key)
         stages = []
         for name in names:
-            up2 = parent / f"{name}.up2"
-            osc = parent / f"{name}.osc"
-            if not up2.exists():
-                up2 = next((p for p in parent.glob("*.up2")
-                            if p.stem.lower() == name.lower()), None)
-            if not osc.exists():
-                osc = next((p for p in parent.glob("*.osc")
-                            if p.stem.lower() == name.lower()), None)
+            up2 = _find_file(name, ".up2")
+            osc = _find_file(name, ".osc")
             stages.append({
                 "name":      name,
                 "has_mat":   True,
                 "mat_file":  _Path(found[name][0]).name,
-                # v2 では未使用。ウィザードの既存UIを壊さないため値は入れておく
-                "has_xlsx":  True,
-                "xlsx_name": name,
-                "has_tif":   bool(up2),
-                "tif_name":  (up2.name if up2 else ""),
-                # v2 で実際に使うもの
                 "has_up2":   bool(up2),
                 "up2_name":  (up2.name if up2 else ""),
                 "has_osc":   bool(osc),
                 "osc_name":  (osc.name if osc else ""),
             })
 
+        def _flatten_names(v):
+            """phasetxt は入れ子の object 配列なので、中の文字列だけ取り出す。"""
+            out = []
+            for x in _np.asarray(v, dtype=object).ravel():
+                if isinstance(x, (_np.ndarray, list, tuple)):
+                    out.extend(_flatten_names(x))
+                elif str(x).strip():
+                    out.append(str(x).strip())
+            return out
+
         # phase 情報は最初の mat から読む
         mat0 = smart_loadmat(found[names[0]][0], variable_names=["phase_index", "phasetxt"])
         phases = []
         try:
             phase_idx_map   = mat0["phase_index"]
-            _raw            = mat0["phasetxt"]
-            phase_names_raw = [str(n) for n in (_raw[0] if _np.ndim(_raw) else [_raw])]
+            phase_names_raw = _flatten_names(mat0["phasetxt"])
             idxs = sorted(set(
                 int(v) for v in _np.asarray(phase_idx_map).flatten()
                 if not (isinstance(v, float) and _np.isnan(v))
@@ -1550,7 +1552,6 @@ def patrep_get_info(parent_folder: str):
         return {
             "stages": stages,
             "all_mat_names": names,
-            "all_tif_dirs": [s["up2_name"] for s in stages if s["has_up2"]],
             "phases": phases,
         }
 
