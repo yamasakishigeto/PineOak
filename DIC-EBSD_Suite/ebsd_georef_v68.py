@@ -1324,7 +1324,7 @@ def show_map_viewer(georef_xlsx_path, sem_img, grain_id_img, pts_sem, pts_ebsd):
     # PyQt6 Map Viewer ウィンドウ
     # ================================================================
     win = QWidget()
-    win.setWindowTitle('PineOak v1.1  —  EBSD Georef')
+    win.setWindowTitle('PineOak v1.2  —  EBSD Georef')
     win.setStyleSheet(_DARK_QSS)
     win.setWindowFlags(win.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 

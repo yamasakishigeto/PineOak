@@ -1670,7 +1670,7 @@ def _run_patrep(params: dict, mode: str):
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  PineOak v1.1  —  DIC/EBSD Suite")
+    print("  PineOak v1.2  —  DIC/EBSD Suite")
     print(f"  Tools dir: {TOOLS_DIR}")
     print("=" * 50)
     eel.start(

@@ -44,7 +44,7 @@ from stress_strain_calc import (
     parse_mat, build_ss,
     _parse_slip_system, _euler_to_matrices_rad, compute_schmid_factor, compute_rss,
     compute_hardening_rate, compute_strain_energy, compute_yield_stress,
-    read_stiffness_from_patrep_excel,
+    read_stiffness_from_mat, read_stiffness_from_patrep_excel,
     _euler_to_matrix_rad, compute_E_per_subset,
     compute_boundary_segments,
     _svd_mean_SO3, _misori_angles_batch, _align_orientations, compute_grod,
@@ -191,7 +191,7 @@ class StressStrainMapperApp(QMainWindow):
     def __init__(self, mat_path: Path):
         super().__init__()
         self.mat_path = mat_path
-        self.setWindowTitle(f"PineOak v1.1  —  Stress–Strain Mapper  —  {mat_path.name}")
+        self.setWindowTitle(f"PineOak v1.2  —  Stress–Strain Mapper  —  {mat_path.name}")
         self.resize(1280, 960)
 
         # データ読み込み
@@ -2072,14 +2072,14 @@ class StressStrainMapperApp(QMainWindow):
         self._ys_cmap_cb = QComboBox(); self._ys_cmap_cb.addItems(CMAPS)
         r3.addWidget(self._ys_cmap_cb)
         g2.addLayout(r3)
-        # 方位依存ヤング率（PatRep Excel + 荷重方向）
+        # 方位依存ヤング率（弾性スティフネス + 荷重方向）
         re2 = QHBoxLayout()
-        self._ys_excel_lbl = QLabel("PatRep Excel: (未選択)")
-        self._ys_excel_lbl.setStyleSheet("color: gray; font-size: 10px;")
-        re2.addWidget(self._ys_excel_lbl, stretch=1)
-        btn_excel = QPushButton("弾性スティフネス参照…"); btn_excel.setFixedWidth(160)
-        btn_excel.clicked.connect(self._select_ys_excel)
-        re2.addWidget(btn_excel)
+        self._ys_stiff_lbl = QLabel("弾性スティフネス: (未選択)")
+        self._ys_stiff_lbl.setStyleSheet("color: gray; font-size: 10px;")
+        re2.addWidget(self._ys_stiff_lbl, stretch=1)
+        btn_stiff = QPushButton("弾性スティフネス参照…"); btn_stiff.setFixedWidth(160)
+        btn_stiff.clicked.connect(self._select_ys_stiffness)
+        re2.addWidget(btn_stiff)
         g2.addLayout(re2)
         rd2 = QHBoxLayout()
         rd2.addWidget(QLabel("荷重方向 (試料系) nx ny nz:"))
@@ -2089,7 +2089,7 @@ class StressStrainMapperApp(QMainWindow):
         rd2.addWidget(self._ys_nx_edit); rd2.addWidget(self._ys_ny_edit); rd2.addWidget(self._ys_nz_edit)
         rd2.addStretch()
         g2.addLayout(rd2)
-        self._ys_excel_path = None   # 選択済みパスを保持
+        self._ys_stiff_path = None   # 選択済みパス（.mat または旧形式の .xlsx）
         rmm2 = QHBoxLayout()
         rmm2.addWidget(QLabel("Min:"))
         self._ys_vmin_edit = QLineEdit(); self._ys_vmin_edit.setPlaceholderText("auto")
@@ -2388,12 +2388,29 @@ class StressStrainMapperApp(QMainWindow):
         self._derived_status_lbl.setText(f"加工硬化率を計算しました (n={n}, m={m})")
         self._derived_status_lbl.setStyleSheet("color: goldenrod;")
 
-    def _select_ys_excel(self):
-        path, _ = QFileDialog.getOpenFileName(self, "PatRep Excel を選択", "", "Excel Files (*.xlsx *.xls)")
-        if path:
-            self._ys_excel_path = path
-            self._ys_excel_lbl.setText(f"PatRep Excel: {Path(path).name}")
-            self._ys_excel_lbl.setStyleSheet("color: #90ee90; font-size: 10px;")
+    def _select_ys_stiffness(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "弾性スティフネスを含むファイルを選択", "",
+            "CrossCourt MAT (*.mat);;旧形式 Excel (*.xlsx *.xls)")
+        if not path:
+            return
+        try:
+            C = self._load_stiffness(path)
+        except Exception as ex:
+            self._ys_stiff_path = None
+            self._ys_stiff_lbl.setText(f"弾性スティフネス: 読めません ({ex})")
+            self._ys_stiff_lbl.setStyleSheet("color: red; font-size: 10px;")
+            return
+        self._ys_stiff_path = path
+        self._ys_stiff_lbl.setText(
+            f"弾性スティフネス: {Path(path).name}  (C11={C[0,0]:.1f} C12={C[0,1]:.1f} C44={C[3,3]:.1f} GPa)")
+        self._ys_stiff_lbl.setStyleSheet("color: #90ee90; font-size: 10px;")
+
+    def _load_stiffness(self, path):
+        """拡張子で読み方を振り分ける。.mat が本則、.xlsx は過去データ用。"""
+        if str(path).lower().endswith(('.xlsx', '.xls')):
+            return read_stiffness_from_patrep_excel(path)
+        return read_stiffness_from_mat(path)
 
     def _compute_yield_stress(self):
         sv, ss, stages = self._build_derived_ss(self._ys_x_cb, self._ys_y_cb)
@@ -2406,10 +2423,10 @@ class StressStrainMapperApp(QMainWindow):
             self._derived_status_lbl.setStyleSheet("color: red;")
             return
 
-        # 方位依存ヤング率の計算（PatRep Excel が選択されている場合）
+        # 方位依存ヤング率の計算（弾性スティフネスが選択されている場合）
         E_per_subset = None
         e_mode_label = "E: 2-point est."
-        if self._ys_excel_path and np.any(np.isfinite(self.phi1_deg)):
+        if self._ys_stiff_path and np.any(np.isfinite(self.phi1_deg)):
             try:
                 nx = float(self._ys_nx_edit.text())
                 ny = float(self._ys_ny_edit.text())
@@ -2417,7 +2434,7 @@ class StressStrainMapperApp(QMainWindow):
                 stress_dir = np.array([nx, ny, nz], dtype=float)
                 if np.linalg.norm(stress_dir) == 0:
                     raise ValueError("荷重方向ベクトルがゼロです")
-                C_voigt = read_stiffness_from_patrep_excel(self._ys_excel_path)
+                C_voigt = self._load_stiffness(self._ys_stiff_path)
                 E_per_subset = compute_E_per_subset(
                     self.phi1_deg, self.PHI_deg, self.phi2_deg, C_voigt, stress_dir
                 )

@@ -180,10 +180,11 @@ DIC-EBSD_Suite/
 ├── ebsd_georef_v68.py                         # EBSDジオリファレンスエンジン
 ├── heaviside_dic_v81.py                       # Heaviside DIC解析エンジン
 ├── defebsd_georef_v1.py                       # 変形後EBSDジオリファレンスエンジン
-├── pattern_replacer_allpoints_batch_250709.py # EBSD PatRep解析エンジン
-├── reference_search_module_allpoints_250709.py# PatRep参照探索モジュール
-├── preprocessed_loader.py                     # 前処理済みデータローダー
-├── visualize_grain_map_overlay_250709.py      # 粒マップ重ね合わせ可視化
+├── patrep2_engine.py                          # EBSD PatRep エンジン（v2）
+├── patrep2_matching.py                        # PatRep 方位差マッチング
+├── patrep2_matio.py                           # PatRep .mat 読み取り
+├── patrep2_up2io.py                           # PatRep .up2 読み書き
+├── preprocessed_loader.py                     # .mat ローダー（v5/v7.3 両対応）
 ├── stress_strain_mapper_v2.py                 # Stress-Strain Mapper（PyQt6 GUI）
 ├── stress_strain_calc.py                      # 応力–ひずみ計算関数
 ├── gb_definitions.py                          # 粒界定義（SpecialBoundary / m'）

@@ -1,5 +1,3 @@
-import os
-import glob
 import pandas as pd
 import scipy.io as sio
 import numpy as np
@@ -55,22 +53,6 @@ def smart_loadmat(path, variable_names=None):
         # v5/v7.2 形式 → scipy で読む
         # variable_names を指定すると、不要な変数（char 型など）を読み飛ばせる
         return sio.loadmat(path, variable_names=variable_names)
-
-def load_preprocessed_xlsx(folder: str, nth: str, **read_excel_kwargs) -> pd.DataFrame:
-    pattern = os.path.join(folder, f"pre-processed {nth}*.xlsx")
-    candidates = glob.glob(pattern)
-    if not candidates:
-        raise FileNotFoundError(f"No matching Excel file for pattern: {pattern}")
-    path = sorted(candidates)[0]
-    return pd.read_excel(path, **read_excel_kwargs)
-
-def load_preprocessed_mat(folder: str, nth: str) -> dict:
-    pattern = os.path.join(folder, f"pre-processed {nth}*.mat")
-    candidates = glob.glob(pattern)
-    if not candidates:
-        raise FileNotFoundError(f"No matching MAT file for pattern: {pattern}")
-    path = sorted(candidates)[0]
-    return smart_loadmat(path)
 
 def get_value_by_label(df: pd.DataFrame, label: str):
     """

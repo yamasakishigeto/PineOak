@@ -9,6 +9,7 @@ import re
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from scipy.io import loadmat
 from scipy.spatial.transform import Rotation as _Rotation
 
@@ -357,8 +358,61 @@ def compute_yield_stress(sv, ss, offset=0.002, E_per_subset=None):
     return result
 
 
+def read_stiffness_from_mat(mat_path, phase=0):
+    """CrossCourt の .mat から弾性剛性テンソル（Voigt 6×6）を読む。
+
+    .mat の `stiffnessvalues` は 6×6（単相）または 6×6×相数 で、単位は GPa。
+
+    Parameters
+    ----------
+    mat_path : str
+        CrossCourt が出力した .mat のパス
+    phase : int
+        相のインデックス（0 基準）。単相のデータでは無視される。
+
+    Returns
+    -------
+    C_voigt : ndarray, shape (6, 6), 単位 GPa
+    """
+    from preprocessed_loader import smart_loadmat
+
+    md = smart_loadmat(str(mat_path), variable_names=["stiffnessvalues"])
+    if "stiffnessvalues" not in md:
+        raise KeyError(f"{Path(mat_path).name} に stiffnessvalues がありません")
+
+    v = np.asarray(md["stiffnessvalues"], dtype=float)
+    if v.ndim == 3:                       # 6×6×相数
+        if not (0 <= phase < v.shape[2]):
+            raise IndexError(f"phase={phase} は範囲外です（相数 {v.shape[2]}）")
+        C = v[:, :, phase]
+    elif v.ndim == 2:                     # 6×6
+        C = v
+    else:
+        raise ValueError(f"stiffnessvalues の形が想定外です: {v.shape}")
+
+    if C.shape != (6, 6):
+        raise ValueError(f"剛性テンソルが 6x6 ではありません: {C.shape}")
+    if not np.all(np.isfinite(C)) or np.allclose(C, 0.0):
+        raise ValueError("剛性テンソルの値が空です")
+    return C
+
+
+def count_phases_in_mat(mat_path):
+    """.mat に入っている相の数を返す（stiffnessvalues の 3 次元目）。"""
+    from preprocessed_loader import smart_loadmat
+
+    md = smart_loadmat(str(mat_path), variable_names=["stiffnessvalues"])
+    if "stiffnessvalues" not in md:
+        return 0
+    v = np.asarray(md["stiffnessvalues"])
+    return v.shape[2] if v.ndim == 3 else 1
+
+
 def read_stiffness_from_patrep_excel(excel_path):
-    """PatRep の pre-processed Excel から弾性剛性テンソル（Voigt 6×6）を読む。
+    """【旧形式】PatRep の Excel から弾性剛性テンソル（Voigt 6×6）を読む。
+
+    過去データとの互換のために残している。新しいデータでは
+    read_stiffness_from_mat() を使うこと。
 
     "Project Details" シートの A 列に "Elastic Constants [GPa]" を含む行を探し、
     同行の B 列: 相名, C 列: 結晶系, D 列以降: 6×6 行列 (36 値・行優先) を返す。
