@@ -141,7 +141,7 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
     """
     nth = load_scan(mat_path)
     ridx = load_reference_indices(mat_path)
-    tgt_criterion, tgt_scores = infer_reference_criterion(nth, ridx)
+    tgt_criterion, _ = infer_reference_criterion(nth, ridx)
     log(f"    参照点 {len(ridx)} 個 (refloc 由来, 0基準)  選定基準の推定: {tgt_criterion}")
 
     angle = float(params.get('angle_threshold', 5.0))
@@ -203,9 +203,13 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
     meta = {
         'ref_stage': ref_stage, 'target_stage': stage,
         'source_mode': f"{mode} ({SOURCE_MODES[mode]})",
-        'ref_stage_reference_criterion': f"{ref_criterion}  ※.mat には記録されないためデータからの推定",
-        'target_stage_reference_criterion': f"{tgt_criterion}  "
-            + '  '.join(f"{k}={v*100:.1f}%" for k, v in sorted(tgt_scores.items())),
+        'ref_stage_reference_criterion': ref_criterion,
+        'target_stage_reference_criterion': tgt_criterion,
+        'reference_criterion_note':
+            'CrossCourt は参照点の選定基準を .mat に記録しないため、結果から推定した。'
+            '各参照点について、同じ粒の中に自分より良い点がどれだけあるかを IQ と KAM で数え、'
+            '一貫して粒内の上位に来るほうを採用している。'
+            'どちらも上位に来ない場合や、両者に差がつかない場合は「不明」とする。',
         'angle_threshold': angle, 'x_limit': xlim, 'y_limit': ylim,
         'use_symmetry': use_sym,
         'n_references': len(rows), 'n_matched': len(ok),

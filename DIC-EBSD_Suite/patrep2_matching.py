@@ -64,11 +64,13 @@ class Scan:
 def infer_reference_criterion(scan, ref_idx):
     """参照点が何を基準に選ばれたかをデータから推定する。
 
-    粒の中で参照点が「上位何割」に入るかを指標ごとに平均する。
+    粒の中で参照点が「上位何割」に入るかを指標ごとに求め、その中央値をとる。
     0 に近いほどその指標で選ばれた可能性が高く、0.5 はランダム相当。
+    平均ではなく中央値を使うのは、粒の切り方の違い等で一部の参照点が
+    大きく外れることがあり、平均だとそれに引きずられるため。
     CrossCourt は選定基準を .mat に書かないので、結果からの推定になる。
 
-    戻り値: (判定, {指標名: 平均順位比})
+    戻り値: (判定, {指標名: 粒内順位比の中央値})
     """
     scores = {}
     for name, (v, high_is_better) in (('IQ最大', (scan.iq, True)),
@@ -87,7 +89,7 @@ def infer_reference_criterion(scan, ref_idx):
             better = (v[m] > v[i]) if high_is_better else (v[m] < v[i])
             pct.append(better.sum() / m.sum())
         if pct:
-            scores[name] = float(np.mean(pct))
+            scores[name] = float(np.median(pct))
     if not scores:
         return '不明', {}
     best = min(scores, key=scores.get)

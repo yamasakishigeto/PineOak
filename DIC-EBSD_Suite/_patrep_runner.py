@@ -104,9 +104,8 @@ log(f"    {ref_scan.nc}x{ref_scan.nr} = {ref_scan.n} 点, "
 # 参照ステージの参照点（refloc）と、その選定基準の推定
 try:
     ref_ref_idx = load_reference_indices(found[ref_name][0])
-    ref_crit, ref_scores = infer_reference_criterion(ref_scan, ref_ref_idx)
-    log(f"    参照点 {len(ref_ref_idx)} 個  選定基準の推定: {ref_crit}  "
-        + '  '.join(f"{k}={v*100:.1f}%" for k, v in sorted(ref_scores.items())))
+    ref_crit, _ = infer_reference_criterion(ref_scan, ref_ref_idx)
+    log(f"    参照点 {len(ref_ref_idx)} 個  選定基準の推定: {ref_crit}")
 except Exception as e:
     ref_ref_idx, ref_crit = None, '不明'
     log(f"    WARNING: 参照ステージの参照点を読めません: {e}")
