@@ -148,7 +148,7 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
             log(f"          index {di}: {st}")
 
     out_dir = os.path.join(folder, f"replaced_{stage}") if apply else folder
-    csv_path = os.path.join(out_dir, f"replaced pattern list {ref_stage}_{stage}.csv")
+    csv_path = os.path.join(out_dir, f"replaced pattern list {ref_stage} to {stage}.csv")
     write_csv(csv_path, rows, {
         'ref_stage': ref_stage, 'target_stage': stage,
         'angle_threshold': angle, 'x_limit': xlim, 'y_limit': ylim,
@@ -158,7 +158,7 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         'excluded_grains': ','.join(str(g) for g in sorted(excluded)),
     })
 
-    png_path = os.path.join(out_dir, f"matching map {stage}.png")
+    png_path = os.path.join(out_dir, f"matching map {ref_stage} to {stage}.png")
     try:
         write_map_png(png_path, nth, rows, title=f"{ref_stage} -> {stage}")
     except Exception as e:
