@@ -81,7 +81,7 @@ def patch(src_up2, dst_path, pairs, backup_dir=None, verify=True, log=print):
 
 
 def restore(dst_path, backup_dir, log=print):
-    """orig_patterns/ の退避パターンを書き戻し、コピーを未差し替えの状態に戻す。
+    """退避フォルダのパターンを書き戻し、コピーを未差し替えの状態に戻す。
 
     しきい値を変えて再実行したとき、前回だけで差し替えた点が残らないようにする。
     書き戻したファイルは削除する（次の patch が改めて退避を作る）。

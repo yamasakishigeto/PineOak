@@ -64,6 +64,7 @@ y_limit       = params.get('y_limit', None)
 nth_thresholds = params.get('nth_thresholds', {})
 nth_mat_over  = params.get('nth_mat_overrides', {})
 source_mode   = params.get('source_mode', 'window')
+output_folder = params.get('output_folder') or None
 
 sys.path.insert(0, patrep_dir)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -112,6 +113,21 @@ except Exception as e:
 
 log(f"\n  差し替え元の選び方: {SOURCE_MODES.get(source_mode, source_mode)}")
 
+# 出力先。指定が無ければ親フォルダの下に replaced_<stage>/ を作る（従来どおり）
+if mode == 'execute':
+    if output_folder:
+        if not os.path.isdir(output_folder):
+            try:
+                os.makedirs(output_folder, exist_ok=True)
+            except Exception as e:
+                log(f"ERROR: 出力先フォルダを作れません: {output_folder}  ({e})")
+                sys.exit(1)
+        log(f"  出力先: {output_folder}")
+        log("         このフォルダに直接出力します。参照ステージを変えて出すときは")
+        log("         .up2 が上書きされるので、出力先フォルダを分けてください")
+    else:
+        log(f"  出力先: {parent_folder}\\replaced_<ステージ名>\\  （親フォルダの下）")
+
 # phase → 対称群
 if not phase_sym:
     import numpy as _np
@@ -144,7 +160,8 @@ for nth_name in nth_names:
         rows, csv_path, png_path, csv_body = run_stage(
             parent_folder, ref_scan, ref_name, nth_name, found[mat_stage][0],
             p, log=log, apply=(mode == 'execute'),
-            ref_ref_idx=ref_ref_idx, ref_criterion=ref_crit)
+            ref_ref_idx=ref_ref_idx, ref_criterion=ref_crit,
+            out_root=output_folder)
 
         # プレビューでは保存しないので、一覧の中身そのものを GUI へ渡す
         if csv_body:

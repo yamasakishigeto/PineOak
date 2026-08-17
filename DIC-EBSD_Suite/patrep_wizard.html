@@ -283,6 +283,12 @@
         <div class="file-path" id="parent-path">（未選択）</div>
         <button class="btn-sm" onclick="browseParent()">選択…</button>
       </div>
+      <div class="file-row">
+        <div class="file-label">出力先</div>
+        <div class="file-path" id="output-path">（親フォルダと同じ）</div>
+        <button class="btn-sm" onclick="browseOutput()">選択…</button>
+        <button class="btn-sm" id="btn-output-clear" onclick="clearOutput()" disabled>解除</button>
+      </div>
     </div>
   </div>
 
@@ -388,6 +394,7 @@
   ];
 
   let _parentFolder = null;
+  let _outputFolder = null;   // null なら親フォルダの下に出す（従来どおり）
   let _stages       = [];
   let _phases       = [];
   let _running      = false;
@@ -421,6 +428,37 @@
       setStatus('フォルダ情報の読み込みに失敗しました', false);
     }
     updateButtons();
+  }
+
+  // ── 出力先フォルダ ────────────────────────────────────────────────────────────
+  // 未指定なら親フォルダの下に replaced_<ステージ名>/ を作る（従来どおり）。
+  // 元データのフォルダを汚したくないときや、別ドライブに出したいときに使う。
+  function refreshOutputLabel() {
+    const el  = document.getElementById('output-path');
+    const btn = document.getElementById('btn-output-clear');
+    if (_outputFolder) {
+      el.textContent = _outputFolder;
+      el.classList.add('set');
+      btn.disabled = false;
+    } else {
+      el.textContent = '（親フォルダと同じ）';
+      el.classList.remove('set');
+      btn.disabled = true;
+    }
+  }
+
+  async function browseOutput() {
+    const wd = _outputFolder || _parentFolder || window._workDir || '';
+    const path = await eel.patrep_browse_dir(
+      '出力先フォルダを選択（このフォルダに直接出力します）', wd)();
+    if (!path) return;
+    _outputFolder = path;
+    refreshOutputLabel();
+  }
+
+  function clearOutput() {
+    _outputFolder = null;
+    refreshOutputLabel();
   }
 
   // ── ファイル選択ドロップダウン生成 ─────────────────────────────────────────
@@ -820,6 +858,7 @@
 
     return {
       parent_folder:      _parentFolder,
+      output_folder:      _outputFolder,
       ref_name:           refStageName,
       nth_names:          checkedNames,
       nth_mat_overrides:  nthMatOverrides,

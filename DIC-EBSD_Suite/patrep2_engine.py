@@ -158,10 +158,13 @@ def write_map_png(path, nth, rows, title=''):
 
 
 def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, apply=False,
-              ref_ref_idx=None, ref_criterion='不明'):
+              ref_ref_idx=None, ref_criterion='不明', out_root=None):
     """1ステージ分の処理。戻り値 (rows, csv_path, png_path)
 
     ref_ref_idx : 参照ステージの参照点 index。refloc_only / staged で使う。
+    out_root    : 出力先フォルダ。指定するとこの直下に出力する（ステージごとの
+                  サブフォルダは作らない）。None なら folder/replaced_<stage>/ に出す。
+                  .up2 / .osc の読み込みは常に folder 側から行う。
     """
     nth = load_scan(mat_path)
     ridx = load_reference_indices(mat_path)
@@ -222,8 +225,15 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
             log(f"          index {di}: {st}")
 
     # プレビューはデータフォルダに何も残さない。記録は GUI で見る
-    out_dir = (os.path.join(folder, f"replaced_{stage}") if apply
-               else os.path.join(tempfile.gettempdir(), 'patrep_preview'))
+    if not apply:
+        out_dir = os.path.join(tempfile.gettempdir(), 'patrep_preview')
+    elif out_root:
+        # 出力先を指定したときはその直下にまとめる。.up2 の名前がステージごとに違うので
+        # 衝突しない。参照ステージを変えて出すときは出力先フォルダ自体を分けること
+        out_dir = out_root
+    else:
+        # 未指定なら元データと混ざらないようステージごとのフォルダに入れる（従来どおり）
+        out_dir = os.path.join(folder, f"replaced_{stage}")
     meta = {
         'ref_stage': ref_stage, 'target_stage': stage,
         'source_mode': f"{mode} ({SOURCE_MODES[mode]})",
@@ -267,7 +277,8 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
             log(f"    [スキップ] {stage}.osc がありません。CrossCourt が読めないので書き込みません")
         else:
             log(f"    出力先 {out_dir}")
-            backup_dir = os.path.join(out_dir, 'orig_patterns')
+            backup_dir = backup_dir_for(out_dir, ref_stage, stage)
+            log(f"    元パターンの退避先 {os.path.basename(backup_dir)}")
             # 退避が残っていない既存コピーは未差し替えか確認できないのでコピーし直す
             osc_out, up2_out, reused = up2io.prepare_output(
                 dst_osc, dst_up2, out_dir, allow_reuse=os.path.isdir(backup_dir), log=log)
@@ -279,6 +290,20 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
             log(f"    CrossCourt には {osc_out} を読ませてください")
 
     return rows, csv_path, png_path, text
+
+
+def backup_dir_for(out_dir, ref_stage, stage):
+    """元パターンの退避先。CSV や PNG と同じ「参照 to 対象」の名前にする。
+
+    出力先を1か所にまとめたときに、どの組み合わせの退避か名前で分かるようにした。
+    旧版が作った 'orig_patterns' が残っている場合はそちらを使い続ける。名前が変わって
+    書き戻せなくなると、前回の差し替えが残ったまま上書きされてしまうため。
+    """
+    new = os.path.join(out_dir, f"orig_patterns {ref_stage} to {stage}")
+    old = os.path.join(out_dir, 'orig_patterns')
+    if not os.path.isdir(new) and os.path.isdir(old):
+        return old
+    return new
 
 
 def _find(folder, stage, ext):
