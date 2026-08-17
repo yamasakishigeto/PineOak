@@ -215,6 +215,13 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         png_path = None
 
     if apply:
+        # プレビュー時に親フォルダへ出した同名の記録は、いまの出力で置き換わるので消す
+        for p in (csv_path, png_path):
+            stale = os.path.join(folder, os.path.basename(p)) if p else None
+            if stale and os.path.exists(stale) and os.path.abspath(stale) != os.path.abspath(p):
+                os.remove(stale)
+                log(f"    プレビュー時の {os.path.basename(stale)} を削除（{os.path.basename(out_dir)} 側に出力）")
+
         src_up2 = _find(folder, ref_stage, '.up2')
         dst_up2 = _find(folder, stage, '.up2')
         dst_osc = _find(folder, stage, '.osc')
