@@ -7,7 +7,7 @@
   byte 12-15 最初のパターンへのオフセット   ← ここを読むので決め打ちしない
 各パターンは width*height*2 バイト（16bit）、無圧縮・固定長。
 """
-import struct, os, shutil
+import struct, os, shutil, glob
 
 _HDR = struct.Struct('<4I')
 
@@ -80,19 +80,49 @@ def patch(src_up2, dst_path, pairs, backup_dir=None, verify=True, log=print):
         raise IOError("ファイルサイズが変化しました")
 
 
-def prepare_output(src_osc, src_up2_path, out_dir, log=print):
-    """out_dir に .osc と .up2 を元の名前のままコピーする。"""
+def restore(dst_path, backup_dir, log=print):
+    """orig_patterns/ の退避パターンを書き戻し、コピーを未差し替えの状態に戻す。
+
+    しきい値を変えて再実行したとき、前回だけで差し替えた点が残らないようにする。
+    書き戻したファイルは削除する（次の patch が改めて退避を作る）。
+    """
+    files = sorted(glob.glob(os.path.join(backup_dir, 'orig_*.bin')))
+    if not files:
+        return 0
+    dst = Up2(dst_path)
+    with open(dst_path, 'r+b') as ft:
+        for f in files:
+            buf = open(f, 'rb').read()
+            if len(buf) != dst.bpp:
+                raise IOError(f"退避ファイルのサイズが合いません: {os.path.basename(f)}")
+            ft.seek(dst.offset(int(os.path.basename(f)[5:-4])))
+            ft.write(buf)
+    for f in files:
+        os.remove(f)
+    log(f"    前回の差し替え {len(files)} 件を元に戻しました")
+    return len(files)
+
+
+def _copy_if_needed(src, out_dir, allow_reuse, log):
+    if not (src and os.path.exists(src)):
+        return None, False
+    dst = os.path.join(out_dir, os.path.basename(src))
+    if allow_reuse and os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(src):
+        log(f"    既存を再利用 {os.path.basename(src)}")
+        return dst, True
+    log(f"    コピー {os.path.basename(src)} ({os.path.getsize(src)/1024**3:.2f} GB)")
+    shutil.copy2(src, dst)
+    return dst, False
+
+
+def prepare_output(src_osc, src_up2_path, out_dir, allow_reuse=True, log=print):
+    """out_dir に .osc と .up2 を元の名前のままコピーする。
+
+    戻り値 (osc_path, up2_path, up2を再利用したか)
+    allow_reuse=False なら既存の .up2 コピーがあっても作り直す。
+    .osc は書き換えないので常に再利用してよい。
+    """
     os.makedirs(out_dir, exist_ok=True)
-    outs = []
-    for p in (src_osc, src_up2_path):
-        if p and os.path.exists(p):
-            q = os.path.join(out_dir, os.path.basename(p))
-            if not (os.path.exists(q) and os.path.getsize(q) == os.path.getsize(p)):
-                log(f"    コピー {os.path.basename(p)} ({os.path.getsize(p)/1024**3:.2f} GB)")
-                shutil.copy2(p, q)
-            else:
-                log(f"    既存を再利用 {os.path.basename(p)}")
-            outs.append(q)
-        else:
-            outs.append(None)
-    return outs
+    osc, _ = _copy_if_needed(src_osc, out_dir, True, log)
+    up2, reused = _copy_if_needed(src_up2_path, out_dir, allow_reuse, log)
+    return osc, up2, reused

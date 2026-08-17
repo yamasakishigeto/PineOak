@@ -139,6 +139,8 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         log(f"    方位差[deg] 中央 {np.median(m):6.3f}  p90 {np.percentile(m,90):6.3f}  max {m.max():6.3f}")
 
     usable, excluded = grain_summary(rows)
+    if rows and all(r.get('grain_id', -1) < 0 for r in rows):
+        log("    WARNING: grain_number が読めないため粒単位の判定ができません")
     log(f"    粒: 使用可 {len(usable)} / 除外 {len(excluded)}")
     for gid, v in sorted(excluded.items()):
         log(f"      [除外] 粒 {gid}: 参照 {v['n']} 個中 {v['ok']} 個のみマッチ")
@@ -169,12 +171,19 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         dst_osc = _find(folder, stage, '.osc')
         if not (src_up2 and dst_up2):
             log("    [スキップ] .up2 が見つからないため書き込みを行いません")
+        elif not dst_osc:
+            log(f"    [スキップ] {stage}.osc がありません。CrossCourt が読めないので書き込みません")
         else:
             log(f"    出力先 {out_dir}")
-            osc_out, up2_out = up2io.prepare_output(dst_osc, dst_up2, out_dir, log=log)
+            backup_dir = os.path.join(out_dir, 'orig_patterns')
+            # 退避が残っていない既存コピーは未差し替えか確認できないのでコピーし直す
+            osc_out, up2_out, reused = up2io.prepare_output(
+                dst_osc, dst_up2, out_dir, allow_reuse=os.path.isdir(backup_dir), log=log)
+            if reused:
+                up2io.restore(up2_out, backup_dir, log=log)
             src = up2io.Up2(src_up2)
             up2io.patch(src, up2_out, [(r['dst_index'], r['src_index']) for r in ok],
-                        backup_dir=os.path.join(out_dir, 'orig_patterns'), log=log)
+                        backup_dir=backup_dir, log=log)
             log(f"    CrossCourt には {osc_out} を読ませてください")
 
     return rows, csv_path, png_path

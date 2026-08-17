@@ -70,10 +70,19 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         if progress and k % 10 == 0:
             progress(k, len(ref_idx))
         ti = int(ti)
-        if ti < 0 or ti >= nth.n or not nth.valid[ti]:
-            out.append(dict(dst_index=ti, status='target_invalid')); continue
+        if ti < 0 or ti >= nth.n:
+            out.append(dict(dst_index=ti, grain_id=-1, status='index_out_of_range')); continue
+
+        # 未マッチのときも粒ID・位置は必ず入れる（粒単位の集計に必要）
+        base = dict(dst_index=ti,
+                    grain_id=int(nth.grain[ti]) if np.isfinite(nth.grain[ti]) else -1,
+                    dst_col=int(nth.col[ti]), dst_row=int(nth.row[ti]))
+        if not nth.valid[ti]:
+            out.append(dict(base, status='target_invalid')); continue
+
         tph = int(nth.phase[ti]) if np.isfinite(nth.phase[ti]) else None
         trow, tcol = nth.row[ti], nth.col[ti]
+        base['phase'] = tph
 
         mask = ref.valid.copy()
         if tph is not None:
@@ -83,8 +92,7 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         if y_limit is not None:
             mask &= (np.abs(ref.row - trow) <= y_limit)
         if not mask.any():
-            out.append(dict(dst_index=ti, status='no_candidate_in_window',
-                            n_candidates=0, phase=tph)); continue
+            out.append(dict(base, status='no_candidate_in_window', n_candidates=0)); continue
 
         idx = np.where(mask)[0]
         ops = None
@@ -93,8 +101,8 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         ang = misorientation(ref.g[idx], nth.g[ti], ops)
         within = ang <= angle_thr
         if not within.any():
-            out.append(dict(dst_index=ti, status='no_match', n_candidates=0, phase=tph,
-                            min_misorientation=float(ang.min()))) ; continue
+            out.append(dict(base, status='no_match', n_candidates=0,
+                            min_misorientation=round(float(ang.min()), 3))); continue
 
         cand = idx[within]
         cang = ang[within]
@@ -106,8 +114,7 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         order = np.argsort(-ciq)
         ru = int(cand[order[1]]) if len(order) > 1 else -1
         out.append(dict(
-            dst_index=ti, src_index=si, status='ok', phase=tph,
-            dst_col=int(tcol), dst_row=int(trow),
+            base, src_index=si, status='ok',
             src_col=int(ref.col[si]), src_row=int(ref.row[si]),
             dx_px=dx, dy_px=dy,
             dist_um=float(np.hypot(dx * ref.xstep, dy * ref.ystep)),
@@ -117,7 +124,6 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
             min_misorientation=round(float(cang.min()), 3),
             runner_up_IQ=float(ref.iq[ru]) if ru >= 0 else np.nan,
             runner_up_misorientation=round(float(ang[np.where(idx == ru)[0][0]]), 3) if ru >= 0 else np.nan,
-            grain_id=int(nth.grain[ti]) if np.isfinite(nth.grain[ti]) else -1,
         ))
     if progress:
         progress(len(ref_idx), len(ref_idx))
