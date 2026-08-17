@@ -1559,7 +1559,7 @@ def patrep_get_info(parent_folder: str):
         return {"error": str(e)}
 
 
-_patrep_preview_csvs: dict = {}   # {stage_name: csv_path}
+_patrep_preview_csvs: dict = {}   # {stage_name: 一覧の中身}  プレビューは保存しないので本文を持つ
 
 
 @eel.expose
@@ -1569,7 +1569,6 @@ def patrep_start_preview(params: dict):
 
 @eel.expose
 def patrep_start_execute(params: dict):
-    params["preview_csvs"] = _patrep_preview_csvs
     threading.Thread(target=_run_patrep, args=(params, 'execute'), daemon=True).start()
 
 
@@ -1633,11 +1632,17 @@ def _run_patrep(params: dict, mode: str):
                 try: eel.patrep_on_nth_status(name, "error")()
                 except Exception: pass
 
-        # "PREVIEW_CSV:name:path" → CSVパスを記録
-        m4 = _re.search(r"^PREVIEW_CSV:(.+?):(.+)$", line_s)
+        # "PREVIEW_TABLE:name:base64" → 一覧の中身をGUIに送信（プレビューは保存しない）
+        m4 = _re.search(r"^PREVIEW_TABLE:(.+?):(.+)$", line_s)
         if m4:
             name = m4.group(1).strip()
-            _patrep_preview_csvs[name] = m4.group(2).strip()
+            if name in nth_names:
+                try:
+                    body = base64.b64decode(m4.group(2).strip()).decode('utf-8')
+                    _patrep_preview_csvs[name] = body
+                    eel.patrep_on_preview_table(name, body)()
+                except Exception:
+                    pass
 
         # "PREVIEW_PNG:name:path" → 画像をbase64でGUIに送信
         m5 = _re.search(r"^PREVIEW_PNG:(.+?):(.+)$", line_s)
@@ -1651,6 +1656,10 @@ def _run_patrep(params: dict, mode: str):
                     eel.patrep_on_preview_image(name, img_b64)()
                 except Exception:
                     pass
+                # プレビューの画像は一時ファイルなので送信後に消す
+                if mode == 'preview':
+                    try: os.remove(png_path)
+                    except OSError: pass
 
     proc.wait()
     _procs.pop("patrep", None)

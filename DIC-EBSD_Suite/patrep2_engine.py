@@ -7,7 +7,7 @@
   * .up2 を直接パッチ（TIFF 展開が不要）。原本は触らず replaced_<stage>/ に出力
   * 粒単位でマッチ状況を集計し、1点でも未マッチの粒は「解析対象外」として出力
 """
-import os, re, csv, glob
+import os, re, csv, glob, io, tempfile
 import numpy as np
 
 from patrep2_matio import read_string_vars, read_numeric, stage_name
@@ -84,15 +84,22 @@ def grain_summary(rows):
     return usable, excluded
 
 
+def csv_text(rows, meta):
+    """CSV の中身を文字列で組み立てる（プレビューは保存せず GUI に渡すため）。"""
+    buf = io.StringIO()
+    for k, v in meta.items():
+        buf.write(f"# {k}: {v}\n")
+    w = csv.DictWriter(buf, fieldnames=CSV_COLS, extrasaction='ignore', lineterminator='\n')
+    w.writeheader()
+    for r in sorted(rows, key=lambda x: x['dst_index']):
+        w.writerow(r)
+    return buf.getvalue()
+
+
 def write_csv(path, rows, meta):
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     with open(path, 'w', newline='', encoding='utf-8') as f:
-        for k, v in meta.items():
-            f.write(f"# {k}: {v}\n")
-        w = csv.DictWriter(f, fieldnames=CSV_COLS, extrasaction='ignore')
-        w.writeheader()
-        for r in sorted(rows, key=lambda x: x['dst_index']):
-            w.writerow(r)
+        f.write(csv_text(rows, meta))
 
 
 def write_map_png(path, nth, rows, title=''):
@@ -190,9 +197,10 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         for di, st in v['bad']:
             log(f"          index {di}: {st}")
 
-    out_dir = os.path.join(folder, f"replaced_{stage}") if apply else folder
-    csv_path = os.path.join(out_dir, f"replaced pattern list {ref_stage} to {stage}.csv")
-    write_csv(csv_path, rows, {
+    # プレビューはデータフォルダに何も残さない。記録は GUI で見る
+    out_dir = (os.path.join(folder, f"replaced_{stage}") if apply
+               else os.path.join(tempfile.gettempdir(), 'patrep_preview'))
+    meta = {
         'ref_stage': ref_stage, 'target_stage': stage,
         'source_mode': f"{mode} ({SOURCE_MODES[mode]})",
         'ref_stage_reference_criterion': f"{ref_criterion}  ※.mat には記録されないためデータからの推定",
@@ -205,23 +213,23 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
         'n_from_window': len(ok) - n_refloc,
         'usable_grains': ','.join(str(g) for g in sorted(usable)),
         'excluded_grains': ','.join(str(g) for g in sorted(excluded)),
-    })
+    }
+    text = csv_text(rows, meta)
+
+    csv_path = None
+    if apply:
+        csv_path = os.path.join(out_dir, f"replaced pattern list {ref_stage} to {stage}.csv")
+        write_csv(csv_path, rows, meta)
 
     png_path = os.path.join(out_dir, f"matching map {ref_stage} to {stage}.png")
     try:
+        os.makedirs(out_dir, exist_ok=True)
         write_map_png(png_path, nth, rows, title=f"{ref_stage} -> {stage}")
     except Exception as e:
         log(f"    WARNING: マップ生成に失敗: {e}")
         png_path = None
 
     if apply:
-        # プレビュー時に親フォルダへ出した同名の記録は、いまの出力で置き換わるので消す
-        for p in (csv_path, png_path):
-            stale = os.path.join(folder, os.path.basename(p)) if p else None
-            if stale and os.path.exists(stale) and os.path.abspath(stale) != os.path.abspath(p):
-                os.remove(stale)
-                log(f"    プレビュー時の {os.path.basename(stale)} を削除（{os.path.basename(out_dir)} 側に出力）")
-
         src_up2 = _find(folder, ref_stage, '.up2')
         dst_up2 = _find(folder, stage, '.up2')
         dst_osc = _find(folder, stage, '.osc')
@@ -242,7 +250,7 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
                         backup_dir=backup_dir, log=log)
             log(f"    CrossCourt には {osc_out} を読ませてください")
 
-    return rows, csv_path, png_path
+    return rows, csv_path, png_path, text
 
 
 def _find(folder, stage, ext):

@@ -33,6 +33,7 @@ JSON 形式:
 import sys
 import os
 import json
+import base64
 import traceback
 
 import matplotlib
@@ -141,13 +142,17 @@ for nth_name in nth_names:
             phase_sym_ops=sym_ops_map,
             source_mode=source_mode,
         )
-        rows, csv_path, png_path = run_stage(
+        rows, csv_path, png_path, csv_body = run_stage(
             parent_folder, ref_scan, ref_name, nth_name, found[mat_stage][0],
             p, log=log, apply=(mode == 'execute'),
             ref_ref_idx=ref_ref_idx, ref_criterion=ref_crit)
 
+        # プレビューでは保存しないので、一覧の中身そのものを GUI へ渡す
+        if csv_body:
+            b64 = base64.b64encode(csv_body.encode('utf-8')).decode('ascii')
+            log(f"PREVIEW_TABLE:{nth_name}:{b64}")
         if csv_path:
-            log(f"PREVIEW_CSV:{nth_name}:{csv_path}")
+            log(f"    一覧を保存: {csv_path}")
         if png_path:
             log(f"PREVIEW_PNG:{nth_name}:{png_path}")
         n_success += 1

@@ -229,6 +229,33 @@
     font-family: var(--mono); font-size: 10px; color: var(--text-dim); font-style: italic;
   }
 
+  /* ---- プレビューの一覧（保存せず画面で見る） ---- */
+  .preview-meta {
+    padding: 8px 10px; font-family: var(--mono); font-size: 10px;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: auto 1fr; gap: 2px 10px;
+  }
+  .preview-meta b { color: var(--text); font-weight: 400; white-space: nowrap; }
+  .preview-table-wrap { max-height: 260px; overflow: auto; }
+  .preview-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10px; }
+  .preview-table th {
+    position: sticky; top: 0; background: var(--surface2); color: var(--text-dim);
+    font-weight: 400; text-align: right; padding: 3px 6px; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-table td {
+    text-align: right; padding: 2px 6px; white-space: nowrap; color: var(--text);
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .preview-table tr.ng td { color: var(--accent2); }
+  .preview-table tr.win td { color: var(--text-dim); }
+  .preview-toggle {
+    padding: 6px 10px; font-family: var(--mono); font-size: 10px;
+    color: var(--accent); cursor: pointer; user-select: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-toggle:hover { background: rgba(0,212,255,0.06); }
+
   /* ---- ステージ別閾値入力 ---- */
   .per-stage-input {
     background: var(--surface2); border: 1px solid var(--border);
@@ -858,6 +885,74 @@
       panel.appendChild(img);
     }
     img.src = 'data:image/png;base64,' + img_b64;
+
+    _previewDone.add(name);
+    updateButtons();
+  }
+
+  // ── プレビューの一覧を画面に描く（ファイルには保存しない） ──────────────────
+  eel.expose(patrep_on_preview_table);
+  function patrep_on_preview_table(name, body) {
+    const panel = document.getElementById(`preview-panel-${_sid(name)}`);
+    if (!panel) return;
+
+    const ph = panel.querySelector('.preview-panel-placeholder');
+    if (ph) ph.remove();
+    panel.querySelectorAll('.preview-meta, .preview-toggle, .preview-table-wrap').forEach(e => e.remove());
+
+    const lines = body.split(/\r?\n/).filter(l => l !== '');
+    const metaLines = lines.filter(l => l.startsWith('#'));
+    const dataLines = lines.filter(l => !l.startsWith('#'));
+
+    // 見出し部分（# 行）
+    const meta = document.createElement('div');
+    meta.className = 'preview-meta';
+    metaLines.forEach(l => {
+      const i = l.indexOf(':');
+      const b = document.createElement('b');
+      b.textContent = l.slice(1, i).trim();
+      const v = document.createElement('div');
+      v.textContent = l.slice(i + 1).trim() || '—';
+      meta.append(b, v);
+    });
+
+    // 一覧本体
+    const head = (dataLines[0] || '').split(',');
+    const rows = dataLines.slice(1).map(l => l.split(','));
+    const iStatus = head.indexOf('status');
+    const iFrom   = head.indexOf('src_from');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-table-wrap';
+    wrap.style.display = 'none';
+    const table = document.createElement('table');
+    table.className = 'preview-table';
+    const thead = document.createElement('tr');
+    head.forEach(h => { const th = document.createElement('th'); th.textContent = h; thead.appendChild(th); });
+    table.appendChild(thead);
+    rows.forEach(cells => {
+      const tr = document.createElement('tr');
+      if (cells[iStatus] !== 'ok') tr.className = 'ng';
+      else if (cells[iFrom] === 'window') tr.className = 'win';
+      cells.forEach(c => { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); });
+      table.appendChild(tr);
+    });
+    wrap.appendChild(table);
+
+    const toggle = document.createElement('div');
+    toggle.className = 'preview-toggle';
+    const label = () => (wrap.style.display === 'none'
+      ? `▸ 一覧を開く（${rows.length} 点）` : `▾ 一覧を閉じる（${rows.length} 点）`);
+    toggle.textContent = label();
+    toggle.onclick = () => {
+      wrap.style.display = (wrap.style.display === 'none') ? '' : 'none';
+      toggle.textContent = label();
+    };
+
+    const img = panel.querySelector('img');
+    panel.insertBefore(meta, img || null);
+    panel.insertBefore(toggle, img || null);
+    panel.insertBefore(wrap, img || null);
 
     _previewDone.add(name);
     updateButtons();
