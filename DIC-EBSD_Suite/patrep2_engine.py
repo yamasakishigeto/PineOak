@@ -97,8 +97,9 @@ def csv_text(rows, meta):
 
 
 def write_csv(path, rows, meta):
+    # Excel が日本語を文字化けさせないよう BOM 付き UTF-8 で書く
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    with open(path, 'w', newline='', encoding='utf-8') as f:
+    with open(path, 'w', newline='', encoding='utf-8-sig') as f:
         f.write(csv_text(rows, meta))
 
 
