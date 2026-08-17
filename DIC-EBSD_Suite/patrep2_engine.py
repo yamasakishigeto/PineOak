@@ -103,30 +103,53 @@ def write_csv(path, rows, meta):
 
 
 def write_map_png(path, nth, rows, title=''):
-    """参照点の位置を IQ マップに重ねる。緑=マッチ, 赤=未マッチ。"""
+    """参照点の位置を結晶粒マップに重ねる。
+
+    背景を粒番号にしているのは、参照点が粒のどこにあるか、矢印が粒を
+    またいでいないかを見るため。IQ を背景にすると粒界が見えない。
+    粒番号が無いデータでは IQ にフォールバックする。
+    矢印は差し替え元への向きと距離。参照スキャン側の座標を重ねて描いて
+    いるので、スキャン間のズレぶん粒からはみ出して見えることがある。
+    """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    try:
-        import japanize_matplotlib  # noqa: F401
-    except Exception:
-        pass
+    from matplotlib.colors import ListedColormap
 
-    iq = nth.iq.reshape(nth.nr, nth.nc).astype(float)
-    fig, ax = plt.subplots(figsize=(max(6, nth.nc / 12), max(5, nth.nr / 12)))
-    ax.imshow(iq, cmap='gray', origin='upper', interpolation='nearest')
+    g = nth.grain.reshape(nth.nr, nth.nc).astype(float)
+    if np.any(np.isfinite(g)):
+        ng = max(int(np.nanmax(g)) + 1, 1)
+        rng = np.random.default_rng(3)                    # 毎回同じ配色にする
+        cols = plt.get_cmap('tab20')(np.linspace(0, 1, 20))[rng.integers(0, 20, ng)]
+        cols[:, :3] = cols[:, :3] * 0.5 + 0.5             # 記号が見えるよう淡くする
+        cmap = ListedColormap(cols)
+        cmap.set_bad('white')                             # 粒番号なし（粒界付近）
+        bg, bg_name, lim = np.ma.masked_invalid(g), 'grain number', (0, ng - 1)
+    else:
+        bg, bg_name, lim = nth.iq.reshape(nth.nr, nth.nc).astype(float), 'image quality', (None, None)
+        cmap = 'gray'
+
+    # 参照点由来と窓内由来が混在する（段階的モード）ときだけ色を分ける
+    mixed = (any(r.get('src_from') == 'refloc' for r in rows)
+             and any(r.get('src_from') == 'window' for r in rows))
+
+    fig, ax = plt.subplots(figsize=(max(6, nth.nc / 8), max(5, nth.nr / 8)))
+    ax.imshow(bg, cmap=cmap, origin='upper', interpolation='nearest', vmin=lim[0], vmax=lim[1])
+    n_win = 0
     for r in rows:
         c, rw = r['dst_index'] % nth.nc, r['dst_index'] // nth.nc
         ok = (r['status'] == 'ok')
-        ax.plot(c, rw, 'o', ms=5, mfc='none',
-                mec='#00d000' if ok else '#ff0000', mew=1.4)
+        win = ok and mixed and r.get('src_from') == 'window'
+        n_win += win
+        col = '#d0021b' if not ok else ('#ff8c00' if win else '#0b6e00')
+        ax.plot(c, rw, 'o', ms=6, mfc='none', mec=col, mew=1.6)
         if ok and (r.get('dx_px') or r.get('dy_px')):
-            ax.arrow(c, rw, r['dx_px'], r['dy_px'], color='#00d000',
-                     width=0.05, head_width=0.8, length_includes_head=True, alpha=.7)
+            ax.arrow(c, rw, r['dx_px'], r['dy_px'], color=col,
+                     width=0.06, head_width=0.9, length_includes_head=True, alpha=.9)
     n_ok = sum(1 for r in rows if r['status'] == 'ok')
-    ax.set_title(f"{title}   matched {n_ok}/{len(rows)}\n"
-                 f"green = matched (arrow -> source in ref scan),  red = unmatched",
-                 fontsize=9)
+    legend = (f"green = from ref reflocs ({n_ok - n_win}),  orange = from window ({n_win}),  red = unmatched"
+              if mixed else "green = matched (arrow -> source in ref scan),  red = unmatched")
+    ax.set_title(f"{title}   background = {bg_name}   matched {n_ok}/{len(rows)}\n{legend}", fontsize=9)
     ax.set_xlabel('col'); ax.set_ylabel('row')
     fig.tight_layout()
     fig.savefig(path, dpi=110)
