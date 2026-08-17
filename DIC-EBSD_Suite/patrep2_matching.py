@@ -53,15 +53,59 @@ class Scan:
         self.phase = np.asarray(ph).reshape(-1) if ph is not None else np.zeros(self.n)
         gn = num.get('grain_number')
         self.grain = np.asarray(gn).reshape(-1) if gn is not None else np.full(self.n, np.nan)
+        km = num.get('kernel_average_misorientation')
+        self.kam = np.asarray(km).reshape(-1) if km is not None else np.full(self.n, np.nan)
         self.valid = ~np.isnan(self.euler).any(1)
         self.row, self.col = np.divmod(np.arange(self.n), self.nc)
         self.g = np.zeros((self.n, 3, 3))
         self.g[self.valid] = euler_to_matrix(self.euler[self.valid])
 
 
+def infer_reference_criterion(scan, ref_idx):
+    """参照点が何を基準に選ばれたかをデータから推定する。
+
+    粒の中で参照点が「上位何割」に入るかを指標ごとに平均する。
+    0 に近いほどその指標で選ばれた可能性が高く、0.5 はランダム相当。
+    CrossCourt は選定基準を .mat に書かないので、結果からの推定になる。
+
+    戻り値: (判定, {指標名: 平均順位比})
+    """
+    scores = {}
+    for name, (v, high_is_better) in (('IQ最大', (scan.iq, True)),
+                                      ('KAM最小', (scan.kam, False))):
+        v = np.asarray(v, float)
+        if not np.any(np.isfinite(v)):
+            continue
+        pct = []
+        for i in ref_idx:
+            i = int(i)
+            if not (0 <= i < scan.n) or not np.isfinite(scan.grain[i]) or not np.isfinite(v[i]):
+                continue
+            m = (scan.grain == scan.grain[i]) & np.isfinite(v)
+            if m.sum() < 2:
+                continue
+            better = (v[m] > v[i]) if high_is_better else (v[m] < v[i])
+            pct.append(better.sum() / m.sum())
+        if pct:
+            scores[name] = float(np.mean(pct))
+    if not scores:
+        return '不明', {}
+    best = min(scores, key=scores.get)
+    rest = [s for k, s in scores.items() if k != best]
+    # ランダム寄り、または他の指標と差がつかないときは断定しない
+    if scores[best] > 0.25 or (rest and min(rest) - scores[best] < 0.10):
+        return '不明', scores
+    return best, scores
+
+
 def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
-                phase_sym=None, use_symmetry=False, progress=None):
+                phase_sym=None, use_symmetry=False, progress=None,
+                allowed_src=None, src_label='window'):
     """nth の参照点 ref_idx それぞれに対し、ref から最良の点を選ぶ。
+
+    allowed_src : bool 配列 (ref.n,) または None
+        差し替え元にできる点を限定する。None なら ref の全点が候補。
+    src_label : 採用した点がどの候補群から来たかを表す印（CSV の src_from）
 
     戻り値: list of dict
     """
@@ -85,6 +129,8 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         base['phase'] = tph
 
         mask = ref.valid.copy()
+        if allowed_src is not None:
+            mask &= allowed_src
         if tph is not None:
             mask &= (ref.phase == tph)
         if x_limit is not None:
@@ -114,7 +160,7 @@ def match_stage(ref, nth, ref_idx, angle_thr, x_limit=None, y_limit=None,
         order = np.argsort(-ciq)
         ru = int(cand[order[1]]) if len(order) > 1 else -1
         out.append(dict(
-            base, src_index=si, status='ok',
+            base, src_index=si, status='ok', src_from=src_label,
             src_col=int(ref.col[si]), src_row=int(ref.row[si]),
             dx_px=dx, dy_px=dy,
             dist_um=float(np.hypot(dx * ref.xstep, dy * ref.ystep)),

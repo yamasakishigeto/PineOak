@@ -112,6 +112,13 @@
   .param-input:disabled { opacity: 0.35; }
   .param-unit { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
 
+  /* 差し替え元の選び方（ラジオ） */
+  .mode-choices { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .mode-choices label { display: grid; grid-template-columns: 16px 1fr; gap: 2px 8px; cursor: pointer; }
+  .mode-choices input { accent-color: var(--accent); width: 14px; height: 14px; margin-top: 2px; cursor: pointer; }
+  .mode-choices span { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .mode-choices em { grid-column: 2; font-size: 10px; color: var(--text-dim); font-style: normal; line-height: 1.4; }
+
   /* ---- Phase 対称性 ---- */
   .phase-rows { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; }
   .phase-row  { display: flex; align-items: center; gap: 10px; }
@@ -267,6 +274,20 @@
   <div class="card">
     <div class="card-title">Step 3 — パラメータ</div>
     <div class="param-rows">
+      <div class="param-row" style="align-items: flex-start;">
+        <div class="param-label">差し替え元の選び方</div>
+        <div class="mode-choices">
+          <label><input type="radio" name="source-mode" value="window" checked>
+            <span>窓内から選ぶ（従来）</span>
+            <em>距離・方位差の条件を満たす点のうち IQ 最大のもの</em></label>
+          <label><input type="radio" name="source-mode" value="refloc_only">
+            <span>参照ステージの参照点のみ</span>
+            <em>参照ステージの refloc に限定。全条件で同じパターンを参照できるが、条件を満たさない粒は未マッチになる</em></label>
+          <label><input type="radio" name="source-mode" value="staged">
+            <span>段階的（参照点を優先し、無ければ窓内）</span>
+            <em>まず参照ステージの refloc から探し、見つからない点だけ窓内から選ぶ</em></label>
+        </div>
+      </div>
       <div class="param-row">
         <div class="param-label">Misorientation 閾値</div>
         <input class="param-input" type="number" id="angle-thr" value="5.0" min="0" step="0.5">
@@ -776,6 +797,7 @@
       nth_names:          checkedNames,
       nth_mat_overrides:  nthMatOverrides,
       angle_threshold:    parseFloat(document.getElementById('angle-thr').value) || 5.0,
+      source_mode:        (document.querySelector('input[name="source-mode"]:checked') || {}).value || 'window',
       phase_sym:          phaseSym,
       use_symmetry:       document.getElementById('use-symmetry').checked,
       x_limit:            useXlimit ? (parseInt(document.getElementById('x-limit').value) || null) : null,

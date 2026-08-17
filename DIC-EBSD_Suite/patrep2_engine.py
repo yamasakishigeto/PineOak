@@ -11,16 +11,24 @@ import os, re, csv, glob
 import numpy as np
 
 from patrep2_matio import read_string_vars, read_numeric, stage_name
-from patrep2_matching import Scan, match_stage, sym_ops
+from patrep2_matching import Scan, match_stage, sym_ops, infer_reference_criterion
 import patrep2_up2io as up2io
 
 NUMVARS = ['euler_phi1', 'euler_phi', 'euler_phi2', 'image_quality',
-           'phase_index', 'grain_number', 'numcols', 'numrows', 'xstep', 'ystep']
+           'phase_index', 'grain_number', 'kernel_average_misorientation',
+           'numcols', 'numrows', 'xstep', 'ystep']
 
-CSV_COLS = ['dst_index', 'src_index', 'status', 'grain_id', 'phase',
+CSV_COLS = ['dst_index', 'src_index', 'status', 'src_from', 'grain_id', 'phase',
             'dst_col', 'dst_row', 'src_col', 'src_row', 'dx_px', 'dy_px', 'dist_um',
             'misorientation_deg', 'min_misorientation', 'src_IQ',
             'n_candidates', 'runner_up_IQ', 'runner_up_misorientation']
+
+# 差し替え元の選び方
+SOURCE_MODES = {
+    'window':      '窓内から選ぶ（従来）',
+    'refloc_only': '参照ステージの参照点のみ',
+    'staged':      '参照ステージの参照点を優先し、無ければ窓内から選ぶ',
+}
 
 
 def discover_stages(folder):
@@ -118,21 +126,56 @@ def write_map_png(path, nth, rows, title=''):
     plt.close(fig)
 
 
-def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, apply=False):
-    """1ステージ分の処理。戻り値 (rows, csv_path, png_path)"""
+def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, apply=False,
+              ref_ref_idx=None, ref_criterion='不明'):
+    """1ステージ分の処理。戻り値 (rows, csv_path, png_path)
+
+    ref_ref_idx : 参照ステージの参照点 index。refloc_only / staged で使う。
+    """
     nth = load_scan(mat_path)
     ridx = load_reference_indices(mat_path)
-    log(f"    参照点 {len(ridx)} 個 (refloc 由来, 0基準)")
+    tgt_criterion, tgt_scores = infer_reference_criterion(nth, ridx)
+    log(f"    参照点 {len(ridx)} 個 (refloc 由来, 0基準)  選定基準の推定: {tgt_criterion}")
 
     angle = float(params.get('angle_threshold', 5.0))
     xlim = params.get('x_limit'); ylim = params.get('y_limit')
     use_sym = bool(params.get('use_symmetry', False))
     psym = params.get('phase_sym_ops')
+    mode = params.get('source_mode', 'window')
+    if mode not in SOURCE_MODES:
+        mode = 'window'
     log(f"    しきい値: 方位差 {angle}°  X {xlim}  Y {ylim} [px]  対称操作 {'あり' if use_sym else 'なし'}")
+    log(f"    差し替え元: {SOURCE_MODES[mode]}")
 
-    rows = match_stage(ref_scan, nth, ridx, angle, xlim, ylim, psym, use_sym)
+    # 参照ステージの参照点だけを候補にするマスク
+    pool = None
+    if mode in ('refloc_only', 'staged'):
+        if not ref_ref_idx:
+            log("    WARNING: 参照ステージの参照点が読めないため、窓内から選ぶ方式に切り替えます")
+            mode = 'window'
+        else:
+            pool = np.zeros(ref_scan.n, bool)
+            valid = [i for i in ref_ref_idx if 0 <= i < ref_scan.n]
+            pool[valid] = True
+            log(f"    参照ステージ {ref_stage} の参照点 {int(pool.sum())} 個を候補にします")
+
+    if mode == 'window':
+        rows = match_stage(ref_scan, nth, ridx, angle, xlim, ylim, psym, use_sym)
+    else:
+        rows = match_stage(ref_scan, nth, ridx, angle, xlim, ylim, psym, use_sym,
+                           allowed_src=pool, src_label='refloc')
+        if mode == 'staged':
+            miss = [r['dst_index'] for r in rows if r['status'] != 'ok']
+            if miss:
+                log(f"    参照点だけでは {len(miss)} 点が未マッチ → 窓内から探し直します")
+                extra = {r['dst_index']: r for r in
+                         match_stage(ref_scan, nth, miss, angle, xlim, ylim, psym, use_sym)}
+                rows = [extra.get(r['dst_index'], r) if r['status'] != 'ok' else r for r in rows]
+
     ok = [r for r in rows if r['status'] == 'ok']
-    log(f"    マッチ {len(ok)} / {len(rows)}")
+    n_refloc = sum(1 for r in ok if r.get('src_from') == 'refloc')
+    log(f"    マッチ {len(ok)} / {len(rows)}"
+        + (f"   （参照点由来 {n_refloc} / 窓内由来 {len(ok) - n_refloc}）" if mode == 'staged' else ""))
     if ok:
         d = np.array([r['dist_um'] for r in ok]); m = np.array([r['misorientation_deg'] for r in ok])
         log(f"    距離 [um]   中央 {np.median(d):6.2f}  p90 {np.percentile(d,90):6.2f}  max {d.max():6.2f}")
@@ -151,9 +194,15 @@ def run_stage(folder, ref_scan, ref_stage, stage, mat_path, params, log=print, a
     csv_path = os.path.join(out_dir, f"replaced pattern list {ref_stage} to {stage}.csv")
     write_csv(csv_path, rows, {
         'ref_stage': ref_stage, 'target_stage': stage,
+        'source_mode': f"{mode} ({SOURCE_MODES[mode]})",
+        'ref_stage_reference_criterion': f"{ref_criterion}  ※.mat には記録されないためデータからの推定",
+        'target_stage_reference_criterion': f"{tgt_criterion}  "
+            + '  '.join(f"{k}={v*100:.1f}%" for k, v in sorted(tgt_scores.items())),
         'angle_threshold': angle, 'x_limit': xlim, 'y_limit': ylim,
         'use_symmetry': use_sym,
         'n_references': len(rows), 'n_matched': len(ok),
+        'n_from_ref_reflocs': n_refloc,
+        'n_from_window': len(ok) - n_refloc,
         'usable_grains': ','.join(str(g) for g in sorted(usable)),
         'excluded_grains': ','.join(str(g) for g in sorted(excluded)),
     })

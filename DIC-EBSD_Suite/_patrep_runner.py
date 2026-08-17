@@ -62,11 +62,14 @@ x_limit       = params.get('x_limit', None)
 y_limit       = params.get('y_limit', None)
 nth_thresholds = params.get('nth_thresholds', {})
 nth_mat_over  = params.get('nth_mat_overrides', {})
+source_mode   = params.get('source_mode', 'window')
 
 sys.path.insert(0, patrep_dir)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from patrep2_engine import (discover_stages, load_scan, run_stage, build_phase_sym)   # noqa: E402
+from patrep2_engine import (discover_stages, load_scan, run_stage, build_phase_sym,   # noqa: E402
+                            load_reference_indices, SOURCE_MODES)
+from patrep2_matching import infer_reference_criterion                                # noqa: E402
 
 
 def log(*a):
@@ -97,6 +100,18 @@ except Exception as e:
 log(f"    {ref_scan.nc}x{ref_scan.nr} = {ref_scan.n} 点, "
     f"step {ref_scan.xstep:g}x{ref_scan.ystep:g} um, 有効 {int(ref_scan.valid.sum())} 点")
 
+# 参照ステージの参照点（refloc）と、その選定基準の推定
+try:
+    ref_ref_idx = load_reference_indices(found[ref_name][0])
+    ref_crit, ref_scores = infer_reference_criterion(ref_scan, ref_ref_idx)
+    log(f"    参照点 {len(ref_ref_idx)} 個  選定基準の推定: {ref_crit}  "
+        + '  '.join(f"{k}={v*100:.1f}%" for k, v in sorted(ref_scores.items())))
+except Exception as e:
+    ref_ref_idx, ref_crit = None, '不明'
+    log(f"    WARNING: 参照ステージの参照点を読めません: {e}")
+
+log(f"\n  差し替え元の選び方: {SOURCE_MODES.get(source_mode, source_mode)}")
+
 # phase → 対称群
 if not phase_sym:
     import numpy as _np
@@ -124,10 +139,12 @@ for nth_name in nth_names:
             y_limit=ovr.get('y_limit', y_limit),
             use_symmetry=use_symmetry,
             phase_sym_ops=sym_ops_map,
+            source_mode=source_mode,
         )
         rows, csv_path, png_path = run_stage(
             parent_folder, ref_scan, ref_name, nth_name, found[mat_stage][0],
-            p, log=log, apply=(mode == 'execute'))
+            p, log=log, apply=(mode == 'execute'),
+            ref_ref_idx=ref_ref_idx, ref_criterion=ref_crit)
 
         if csv_path:
             log(f"PREVIEW_CSV:{nth_name}:{csv_path}")
