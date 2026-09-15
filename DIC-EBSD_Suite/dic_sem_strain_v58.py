@@ -19,6 +19,7 @@ import os
 import sys
 import json
 import math
+import time
 from pathlib import Path
 
 # ── 必須ライブラリの一括チェック ──────────────────────────────────────────
@@ -74,6 +75,14 @@ if _found:
 matplotlib.rcParams['axes.unicode_minus'] = False
 import cv2
 try:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    import dic_icgn
+    ICGN_AVAILABLE = True
+except Exception:
+    ICGN_AVAILABLE = False
+try:
     from joblib import Parallel, delayed
     JOBLIB_AVAILABLE = True
 except ImportError:
@@ -114,7 +123,8 @@ SEARCH_FINE    = 5    # Stage 2：探索範囲 [px]
 
 GAUGE_LENGTH   = 1    # ひずみゲージ長さ（サブセット間隔の整数倍）
 STRAIN_TYPE    = 'infinitesimal'  # ひずみ種類: 'infinitesimal'=微小ひずみ, 'green_lagrange'=グリーン-ラグランジェ
-SUBPIXEL_METHOD = 'parabolic'     # サブピクセル補間手法: 'parabolic', 'gaussian', 'spline'
+SUBPIXEL_METHOD = 'parabolic'     # サブピクセル補間手法: 'parabolic', 'gaussian', 'spline', 'icgn'
+                                  # 'icgn' = 放物線で初期値を求めた後 IC-GN（1次形状関数＋B-spline補間）で精密化
 USE_PREV_STAGE1 = True  # True=2枚目以降のStage1初期値に前段Stage1結果を使用（高速化）
                          # False=毎回グローバルシフトを初期値（独立処理）
                       # 1=隣接サブセット間差分（最高分解能）、2以上=nステップ離れた点の中心差分
@@ -1308,6 +1318,8 @@ def subpixel_refinement(zncc_map, best_u, best_v, search_range, init_u=0, init_v
     patch = zncc_map[peak_v_idx-1:peak_v_idx+2, peak_u_idx-1:peak_u_idx+2]
 
     method = SUBPIXEL_METHOD
+    if method == 'icgn':
+        method = 'parabolic'   # IC-GN の初期値。精密化は run_dic_pair の Stage 2 後に行う
 
     # ---- ガウスフィット（独立1D）----
     if method == 'gaussian':
@@ -2174,6 +2186,23 @@ def run_dic_pair(ref_path, def_path, shifts, roi,
         label="[Stage 2]",
         zncc_threshold=zncc_threshold, n_workers=n_workers
     )
+
+    # IC-GN 精密化（1次形状関数＋3次B-spline補間）。放物線フィットのピクセルロッキングを1桁以上低減
+    if SUBPIXEL_METHOD == 'icgn':
+        if ICGN_AVAILABLE:
+            print("\n--- IC-GN サブピクセル精密化 ---")
+            _t0 = time.time()
+            u_i, v_i, z_i, conv_i = dic_icgn.refine_uv(
+                ref, deformed, cx2, cy2, u2, v2, SUBSET_SIZE, max_iter=12)
+            # 収束した点、または未収束でも相関が悪化していない点を採用
+            acc = np.isfinite(z_i) & (conv_i | (z_i >= zncc2))
+            u2 = np.where(acc, u_i, u2)
+            v2 = np.where(acc, v_i, v2)
+            zncc2 = np.where(acc, z_i, zncc2)
+            n_fin = int(np.isfinite(u2).sum())
+            print(f"  採用 {int(acc.sum())}/{n_fin} 点（収束 {int(conv_i.sum())}）  {time.time() - _t0:.1f} 秒")
+        else:
+            print("  [警告] dic_icgn.py が読み込めないため IC-GN をスキップしました")
 
     # u_corr補正を削除（Phase Correlationによる全体補正は不均一変形に不適切）
     u_corr = u2
