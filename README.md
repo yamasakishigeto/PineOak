@@ -80,25 +80,21 @@ OneDrive と同期しているフォルダも避けてください。
 3. 展開すると **`PineOak-main`** というフォルダができるので、**`PineOak`** にリネーム（右クリック → 「名前の変更」）
 4. リネームしたフォルダを `C:\tools\` の中に移動（`C:\tools\` フォルダが無ければ先に作成）
 
-### ステップ3: 必要なライブラリのインストール（初回のみ）
+### ステップ3: プログラムの起動（毎回）
 
-1. スタートメニューで「**コマンドプロンプト**」を検索して開く
-2. 以下をそのままコピーして貼り付け、Enter：
-
-```
-pip install -r C:\tools\PineOak\DIC-EBSD_Suite\requirements.txt
-```
-
-### ステップ4: プログラムの起動（毎回）
-
-コマンドプロンプトで以下を入力して Enter：
-
-```
-cd C:\tools\PineOak\DIC-EBSD_Suite
-python main.py
-```
+`C:\tools\PineOak\` の中の **`起動.bat`** をダブルクリックします。
 
 → ブラウザが自動で開き、GUI から各モジュールを選んで実行できます。
+
+- **初回だけ**、PineOak 専用の Python 環境（`.venv` フォルダ）が自動で作られ、必要なライブラリがインストールされます。数分かかり、インターネット接続が必要です。
+- 2回目以降はすぐに起動します。アップデートで必要なライブラリが変わったときは、次の起動時に自動で入れ直されます。
+- ライブラリは `.venv` の中だけに入るため、PC 上の他の Python ツールには影響しません。逆に、他のツールのために Python 本体へ何かをインストールしても PineOak は影響を受けません。
+
+> **以前の起動方法（`pip install -r ...` → `python main.py`）について**
+> その方法でも引き続き起動できますが、Python 本体の環境で動くため、他のツールのインストールで動作が変わることがあります。`起動.bat` の利用をおすすめします。
+> ライブラリを手動で追加する場合は、`pip install` ではなく `C:\tools\PineOak\.venv\Scripts\python.exe -m pip install ...` を使ってください（`pip install` だと Python 本体に入り、PineOak からは使えません）。
+>
+> **うまく動かないとき**：`.venv` フォルダを削除してから `起動.bat` を実行すると、環境が作り直されます。
 
 ---
 
@@ -155,6 +151,7 @@ git pull
 
 - Python 3.13 以上
 - 主なライブラリ：`numpy`, `pandas`, `scipy`, `matplotlib`, `openpyxl`, `eel`, `PyQt6`
+  （動作確認済みのバージョンを `DIC-EBSD_Suite/requirements.txt` で固定。`起動.bat` が自動で入れる）
 
 ---
 

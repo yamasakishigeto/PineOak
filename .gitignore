@@ -31,3 +31,6 @@ Thumbs.db
 desktop.ini
 *.lnk
 *.url
+
+# PineOak 専用の Python 環境（起動.bat が各PCで作成する）
+.venv/

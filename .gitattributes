@@ -1,0 +1,2 @@
+# 起動.bat は cmd で読むため Shift-JIS + CRLF のまま保つ
+*.bat -text
