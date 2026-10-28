@@ -899,12 +899,16 @@ def save_xlsx(assigned, dic_xlsx_path, out_path):
         wb_xml = zin.read('xl/workbook.xml').decode('utf-8')
         # 既存 ebsd_georef エントリを除去
         wb_xml = re.sub(
-            r'<sheet [^/]*name="ebsd_georef"[^/]*/>', '', wb_xml)
+            r'<sheet\b[^>]*name="ebsd_georef"[^>]*/>', '', wb_xml)
         # 最後の </sheets> の前に追加
         # sheetId は既存の最大+1
         ids = list(map(int, re.findall(r'sheetId="(\d+)"', wb_xml)))
         new_id = max(ids) + 1 if ids else 1
-        new_sheet_tag = (f'<sheet name="{SHEET_NAME}" sheetId="{new_id}" '
+        # openpyxl 出力は xmlns:r をルートでなく各 <sheet> に付けるため、
+        # 新タグにも自前で宣言する（ルートに宣言済みでも重複宣言は合法）
+        new_sheet_tag = (f'<sheet xmlns:r="http://schemas.openxmlformats.org/'
+                         f'officeDocument/2006/relationships" '
+                         f'name="{SHEET_NAME}" sheetId="{new_id}" '
                          f'r:id="{REL_ID}"/>')
         wb_xml = wb_xml.replace('</sheets>', new_sheet_tag + '</sheets>')
         zout.writestr('xl/workbook.xml', wb_xml.encode('utf-8'))
@@ -912,7 +916,7 @@ def save_xlsx(assigned, dic_xlsx_path, out_path):
         # xl/_rels/workbook.xml.rels にリレーション追加
         rels_xml = zin.read('xl/_rels/workbook.xml.rels').decode('utf-8')
         rels_xml = re.sub(
-            r'<Relationship [^/]*Id="' + REL_ID + r'"[^/]*/>', '', rels_xml)
+            r'<Relationship\b[^>]*Id="' + REL_ID + r'"[^>]*/>', '', rels_xml)
         new_rel = (f'<Relationship Id="{REL_ID}" '
                    f'Type="http://schemas.openxmlformats.org/officeDocument/'
                    f'2006/relationships/worksheet" '
@@ -924,7 +928,7 @@ def save_xlsx(assigned, dic_xlsx_path, out_path):
         # [Content_Types].xml に Override 追加
         ct_xml = zin.read('[Content_Types].xml').decode('utf-8')
         ct_xml = re.sub(
-            r'<Override PartName="/xl/worksheets/sheet_ebsd_georef\.xml"[^/]*/>', '', ct_xml)
+            r'<Override PartName="/xl/worksheets/sheet_ebsd_georef\.xml"[^>]*/>', '', ct_xml)
         new_ct = ('<Override PartName="/xl/worksheets/sheet_ebsd_georef.xml" '
                   'ContentType="application/vnd.openxmlformats-officedocument'
                   '.spreadsheetml.worksheet+xml"/>')

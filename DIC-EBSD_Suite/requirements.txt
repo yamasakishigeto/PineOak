@@ -1,32 +1,75 @@
 # PineOak DIC/EBSD Suite requirements
 # Python 3.13+
-# pip install -r requirements.txt
+#
+# 通常は PineOak 直下の 起動.bat が .venv を作ってこのファイルを自動で入れる。
+# 手動で入れる場合も、Python 本体ではなく .venv に入れること:
+#   .venv\Scripts\python.exe -m pip install -r DIC-EBSD_Suite\requirements.txt
+#
+# バージョンは動作確認済みの組み合わせで固定している（2026-10-28 時点）。
+# 更新するときは .venv で動作確認してから書き換える。
 
 # コア数値計算
-numpy
-scipy
-opencv-python
+numpy==2.4.4
+scipy==1.17.1
+opencv-python==4.13.0.92
 
 # 画像処理
-scikit-image
+scikit-image==0.26.0
+pillow==12.2.0
 
 # グラフ描画
-matplotlib
-japanize-matplotlib   # 任意: 日本語フォント自動設定
+matplotlib==3.10.8
+japanize-matplotlib==1.1.3   # 任意: 日本語フォント自動設定
+setuptools==70.2.0           # japanize-matplotlib が使う distutils の代替（Python 3.12+ で distutils が削除されたため）
 
 # Excel入出力
-openpyxl
-pandas
+openpyxl==3.1.5
+lxml==6.1.3                  # openpyxl の XML 処理。有無で xlsx の書き出し形式が変わるので固定
+pandas==3.0.2
 
 # MATLAB v7.3 (.mat HDF5形式) の読み込み
-h5py
+h5py==3.16.0
 
 # GUIフレームワーク
-PyQt6                 # ebsd_georef_v68.py で使用
+PyQt6==6.11.0                # ebsd_georef_v68.py ほかで使用
 
 # 並列処理・進捗表示（任意、あると高速化）
-joblib
-tqdm
+joblib==1.5.3
+tqdm==4.67.3
 
 # Eelランチャー（main.py）
-eel
+Eel==0.18.2
+
+# 任意: GPU (CUDA) で IC-GN を高速化する場合のみ。GPU の CUDA バージョンに合わせて手動で入れる
+# cupy-cuda12x
+
+# ---- 上記が自動で引き込む依存（バージョンずれ防止のため固定） ----
+bottle==0.13.4
+bottle-websocket==0.2.9
+cffi==2.1.1
+colorama==0.4.6
+contourpy==1.3.3
+cycler==0.12.1
+et_xmlfile==2.0.0
+fonttools==4.62.1
+future==1.0.0
+gevent==26.4.0
+gevent-websocket==0.10.1
+greenlet==3.4.0
+ImageIO==2.37.3
+importlib-resources==7.1.0
+kiwisolver==1.5.0
+lazy-loader==0.5
+networkx==3.6.1
+packaging==26.0
+pycparser==3.12
+pyparsing==3.3.2
+PyQt6-Qt6==6.11.0
+PyQt6_sip==13.11.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+tifffile==2026.3.3
+typing_extensions==4.16.0
+tzdata==2026.1
+zope.event==6.2
+zope.interface==8.7
